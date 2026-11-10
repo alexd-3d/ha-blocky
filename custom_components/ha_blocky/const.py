@@ -38,6 +38,35 @@ DEFAULT_DB_PORT: Final = 3306
 STATS_INTERVAL: Final = timedelta(seconds=60)
 TOPS_INTERVAL: Final = timedelta(minutes=5)
 
+# Manual lists served to Blocky.
+CONF_LISTS: Final = "lists"
+CONF_LIST_NETWORKS: Final = "list_networks"
+# Fields of the options form that defines the lists.
+CONF_ALLOW_LISTS: Final = "allow_lists"
+CONF_DENY_LISTS: Final = "deny_lists"
+CONF_EXACT_ONLY_LISTS: Final = "exact_only_lists"
+LIST_TYPE_ALLOW: Final = "allow"
+LIST_TYPE_DENY: Final = "deny"
+LIST_TYPES: Final = (LIST_TYPE_ALLOW, LIST_TYPE_DENY)
+MAX_LISTS: Final = 20
+MAX_LIST_ENTRIES: Final = 5000
+# Only these clients may fetch lists. The default is the network Home
+# Assistant Supervisor puts apps (add-ons) on; it is the same on every
+# Home Assistant OS installation.
+DEFAULT_LIST_NETWORKS: Final = ("172.30.32.0/23",)
+# Blocky is asked to reload this long after the last change to a list.
+REFRESH_DEBOUNCE_SECONDS: Final = 10
+
+EVENT_LIST_CHANGED: Final = f"{DOMAIN}_list_changed"
+SERVICE_ALLOW_DOMAIN: Final = "allow_domain"
+SERVICE_BLOCK_DOMAIN: Final = "block_domain"
+SERVICE_REMOVE_DOMAIN: Final = "remove_domain"
+SERVICE_GET_LIST: Final = "get_list"
+SERVICE_ROTATE_LIST_TOKEN: Final = "rotate_list_token"  # noqa: S105
+ATTR_LIST: Final = "list"
+ATTR_DOMAIN: Final = "domain"
+ATTR_ACTION: Final = "action"
+
 # Update intervals the user can change in the options, in seconds.
 CONF_STATUS_INTERVAL: Final = "status_interval"
 CONF_STATS_INTERVAL: Final = "stats_interval"

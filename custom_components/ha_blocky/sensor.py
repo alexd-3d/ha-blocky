@@ -15,19 +15,23 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .const import ATTR_ITEMS
 from .coordinator import BlockyConfigEntry
 from .db import TopItem
-from .entity import BlockyEntity, BlockyStatsEntity
+from .entity import BlockyEntity, BlockyStatsEntity, device_info
+from .lists import ListManager
 from .stats import BlockyStatsCoordinator, QueryStats, blocked_ratio
 
 PARALLEL_UPDATES = 0
 
 UNIT_QUERIES = "queries"
 UNIT_CLIENTS = "clients"
+UNIT_ENTRIES = "entries"
+LIST_SENSOR_PREFIX = "list_"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -140,7 +144,59 @@ async def async_setup_entry(
         entities.extend(
             BlockyTopSensor(data.stats, description) for description in TOP_SENSORS
         )
+    entities.extend(
+        BlockyListSensor(entry.entry_id, data.lists, name)
+        for name in data.lists.definitions
+    )
+    _remove_sensors_of_deleted_lists(hass, entry.entry_id, set(data.lists.definitions))
     async_add_entities(entities)
+
+
+def _remove_sensors_of_deleted_lists(
+    hass: HomeAssistant, entry_id: str, current: set[str]
+) -> None:
+    """Drop the registry entries of lists that are no longer defined."""
+    registry = er.async_get(hass)
+    prefix = f"{entry_id}_{LIST_SENSOR_PREFIX}"
+    for registered in er.async_entries_for_config_entry(registry, entry_id):
+        if (
+            registered.unique_id.startswith(prefix)
+            and registered.unique_id.removeprefix(prefix) not in current
+        ):
+            registry.async_remove(registered.entity_id)
+
+
+class BlockyListSensor(SensorEntity):
+    """How many entries a manual list has."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_translation_key = "list_entries"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UNIT_ENTRIES
+
+    def __init__(self, entry_id: str, lists: ListManager, name: str) -> None:
+        """Initialize the sensor for one list."""
+        self._lists = lists
+        self._list_name = name
+        definition = lists.definitions[name]
+        self._attr_unique_id = f"{entry_id}_{LIST_SENSOR_PREFIX}{name}"
+        self._attr_translation_placeholders = {"name": name}
+        self._attr_device_info = device_info(entry_id)
+        self._attr_extra_state_attributes = {
+            "list_type": definition.list_type,
+            "exact_only": definition.exact_only,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Follow changes of the list."""
+        self.async_on_remove(self._lists.async_add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of entries."""
+        return self._lists.count(self._list_name)
 
 
 class BlockingResumesAtSensor(BlockyEntity, SensorEntity):

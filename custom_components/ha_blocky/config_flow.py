@@ -14,6 +14,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_URL, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -33,16 +34,32 @@ from .api import (
     normalize_base_url,
 )
 from .const import (
+    CONF_ALLOW_LISTS,
     CONF_DB_HOST,
     CONF_DB_NAME,
     CONF_DB_PASSWORD,
     CONF_DB_PORT,
     CONF_DB_USERNAME,
+    CONF_DENY_LISTS,
+    CONF_EXACT_ONLY_LISTS,
+    CONF_LIST_NETWORKS,
+    CONF_LISTS,
     DEFAULT_DB_PORT,
+    DEFAULT_LIST_NETWORKS,
     DOMAIN,
     INTERVALS,
+    LIST_TYPE_ALLOW,
+    LIST_TYPE_DENY,
+    MAX_LISTS,
 )
 from .intervals import interval_seconds
+from .lists import read_definitions
+from .validation import (
+    InvalidListNameError,
+    InvalidNetworkError,
+    parse_networks,
+    validate_list_name,
+)
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -81,6 +98,25 @@ STEP_INTERVALS_SCHEMA = vol.Schema(
         for key, spec in INTERVALS.items()
     }
 )
+
+STEP_LISTS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_ALLOW_LISTS, default=list): TextSelector(
+            TextSelectorConfig(multiple=True)
+        ),
+        vol.Optional(CONF_DENY_LISTS, default=list): TextSelector(
+            TextSelectorConfig(multiple=True)
+        ),
+        vol.Optional(CONF_EXACT_ONLY_LISTS, default=list): TextSelector(
+            TextSelectorConfig(multiple=True)
+        ),
+        vol.Optional(CONF_LIST_NETWORKS, default=list): TextSelector(
+            TextSelectorConfig(multiple=True)
+        ),
+    }
+)
+
+LIST_KEYS = (CONF_LISTS, CONF_LIST_NETWORKS)
 
 DB_KEYS = (
     CONF_DB_HOST,
@@ -177,7 +213,7 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Let the user choose what to configure."""
         return self.async_show_menu(
-            step_id="init", menu_options=["database", "intervals"]
+            step_id="init", menu_options=["database", "intervals", "lists", "list_urls"]
         )
 
     async def async_step_database(
@@ -263,4 +299,121 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             data_schema=self.add_suggested_values_to_schema(
                 STEP_INTERVALS_SCHEMA, current
             ),
+        )
+
+    async def async_step_lists(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Define the manual lists and who may fetch them."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            allow = [str(name).strip() for name in user_input.get(CONF_ALLOW_LISTS, [])]
+            deny = [str(name).strip() for name in user_input.get(CONF_DENY_LISTS, [])]
+            exact = [
+                str(name).strip() for name in user_input.get(CONF_EXACT_ONLY_LISTS, [])
+            ]
+            networks = [
+                str(net).strip() for net in user_input.get(CONF_LIST_NETWORKS, [])
+            ]
+
+            for field, names in ((CONF_ALLOW_LISTS, allow), (CONF_DENY_LISTS, deny)):
+                try:
+                    for name in names:
+                        validate_list_name(name)
+                except InvalidListNameError:
+                    errors[field] = "invalid_list_name"
+            if not errors:
+                if (
+                    len(set(allow)) != len(allow)
+                    or len(set(deny)) != len(deny)
+                    or set(allow) & set(deny)
+                ):
+                    errors["base"] = "duplicate_list_name"
+                elif len(allow) + len(deny) > MAX_LISTS:
+                    errors["base"] = "too_many_lists"
+                elif set(exact) - set(allow) - set(deny):
+                    errors[CONF_EXACT_ONLY_LISTS] = "unknown_list_name"
+            try:
+                parse_networks(networks)
+            except InvalidNetworkError:
+                errors[CONF_LIST_NETWORKS] = "invalid_network"
+
+            if not errors:
+                definitions = {
+                    name: {"type": list_type, "exact_only": name in exact}
+                    for list_type, names in (
+                        (LIST_TYPE_ALLOW, allow),
+                        (LIST_TYPE_DENY, deny),
+                    )
+                    for name in names
+                }
+                return self.async_create_entry(
+                    data={
+                        **self._options_without(LIST_KEYS),
+                        CONF_LISTS: definitions,
+                        CONF_LIST_NETWORKS: networks,
+                    }
+                )
+            suggested = user_input
+        else:
+            definitions = read_definitions(self.config_entry.options)
+            stored_networks = self.config_entry.options.get(
+                CONF_LIST_NETWORKS, list(DEFAULT_LIST_NETWORKS)
+            )
+            suggested = {
+                CONF_ALLOW_LISTS: [
+                    name
+                    for name, definition in definitions.items()
+                    if definition.list_type == LIST_TYPE_ALLOW
+                ],
+                CONF_DENY_LISTS: [
+                    name
+                    for name, definition in definitions.items()
+                    if definition.list_type == LIST_TYPE_DENY
+                ],
+                CONF_EXACT_ONLY_LISTS: [
+                    name
+                    for name, definition in definitions.items()
+                    if definition.exact_only
+                ],
+                CONF_LIST_NETWORKS: (
+                    list(stored_networks) if isinstance(stored_networks, list) else []
+                ),
+            }
+
+        return self.async_show_form(
+            step_id="lists",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_LISTS_SCHEMA, suggested
+            ),
+            errors=errors,
+        )
+
+    async def async_step_list_urls(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show the addresses Blocky must fetch the lists from."""
+        if user_input is not None:
+            # Nothing to save; keep the options exactly as they are.
+            return self.async_abort(reason="list_urls_closed")
+
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None:
+            return self.async_abort(reason="not_loaded")
+        try:
+            base = get_url(
+                self.hass, allow_external=False, allow_cloud=False, allow_ip=True
+            )
+        except NoURLAvailableError:
+            base = ""
+
+        lines = [
+            f"- {name} ({definition.list_type}): `{base}{runtime.lists.path(name)}`"
+            for name, definition in runtime.lists.definitions.items()
+        ]
+        return self.async_show_form(
+            step_id="list_urls",
+            data_schema=vol.Schema({}),
+            description_placeholders={"urls": "\n".join(lines) or "-"},
         )

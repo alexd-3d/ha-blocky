@@ -67,9 +67,16 @@ def _candidate_files() -> list[Path]:
     return files
 
 
+# The network Home Assistant Supervisor uses for apps (add-ons). It is the
+# same on every Home Assistant OS installation, so it identifies nobody.
+ALLOWED_ADDRESSES = ("172.30.32.0",)
+
+
 def _is_allowed(kind: str, match: str) -> bool:
     if kind == "email address":
         return match.lower().endswith(ALLOWED_EMAIL_SUFFIXES)
+    if kind.startswith("private IPv4 address"):
+        return match in ALLOWED_ADDRESSES
     return False
 
 

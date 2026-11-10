@@ -23,6 +23,9 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
+from .http import async_register_view
+from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
+from .lists import ListManager, storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
 
@@ -40,8 +43,9 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the integration: register its service actions."""
+    """Set up the integration: its service actions and the list endpoint."""
     async_setup_services(hass)
+    async_register_view(hass)
     return True
 
 
@@ -83,7 +87,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
         # A database outage must not stop the entry from loading.
         await stats.async_refresh()
 
-    entry.runtime_data = BlockyData(coordinator=coordinator, stats=stats)
+    lists = ListManager(hass, entry)
+    await lists.async_load()
+    lists.set_refresh(coordinator.async_refresh_lists)
+
+    entry.runtime_data = BlockyData(coordinator=coordinator, lists=lists, stats=stats)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -91,13 +99,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
 async def async_unload_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unloaded and entry.runtime_data.stats is not None:
-        await entry.runtime_data.stats.async_close()
+    if unloaded:
+        await entry.runtime_data.lists.async_close()
+        if entry.runtime_data.stats is not None:
+            await entry.runtime_data.stats.async_close()
     return unloaded
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> None:
-    """Delete the saved statistics of a removed entry."""
+    """Delete everything a removed entry had saved."""
     await Store(
         hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.stats"
     ).async_remove()
+    await Store(hass, LISTS_STORAGE_VERSION, storage_key(entry.entry_id)).async_remove()

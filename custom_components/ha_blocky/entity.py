@@ -10,7 +10,7 @@ from .coordinator import BlockyCoordinator
 from .stats import BlockyStatsCoordinator
 
 
-def _device_info(entry_id: str) -> DeviceInfo:
+def device_info(entry_id: str) -> DeviceInfo:
     """Return the device all entities of one config entry belong to."""
     return DeviceInfo(
         identifiers={(DOMAIN, entry_id)},
@@ -31,7 +31,7 @@ class BlockyEntity(CoordinatorEntity[BlockyCoordinator]):
         entry_id = coordinator.config_entry.entry_id
         self._attr_translation_key = key
         self._attr_unique_id = f"{entry_id}_{key}"
-        self._attr_device_info = _device_info(entry_id)
+        self._attr_device_info = device_info(entry_id)
 
 
 class BlockyStatsEntity(CoordinatorEntity[BlockyStatsCoordinator]):
@@ -45,4 +45,4 @@ class BlockyStatsEntity(CoordinatorEntity[BlockyStatsCoordinator]):
         entry_id = coordinator.config_entry.entry_id
         self._attr_translation_key = key
         self._attr_unique_id = f"{entry_id}_{key}"
-        self._attr_device_info = _device_info(entry_id)
+        self._attr_device_info = device_info(entry_id)

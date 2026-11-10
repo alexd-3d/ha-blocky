@@ -25,6 +25,7 @@ from .const import (
 from .intervals import interval
 
 if TYPE_CHECKING:
+    from .lists import ListManager
     from .stats import BlockyStatsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class BlockyData:
     """Runtime objects of one config entry."""
 
     coordinator: BlockyCoordinator
+    lists: ListManager
     # None when no query log database is configured.
     stats: BlockyStatsCoordinator | None = None
 

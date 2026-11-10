@@ -38,6 +38,9 @@
       },
       "top_clients": {
         "default": "mdi:format-list-numbered"
+      },
+      "list_entries": {
+        "default": "mdi:format-list-checks"
       }
     },
     "button": {
@@ -60,6 +63,21 @@
   "services": {
     "disable_blocking": {
       "service": "mdi:shield-off"
+    },
+    "allow_domain": {
+      "service": "mdi:shield-plus"
+    },
+    "block_domain": {
+      "service": "mdi:shield-remove"
+    },
+    "remove_domain": {
+      "service": "mdi:playlist-remove"
+    },
+    "get_list": {
+      "service": "mdi:format-list-bulleted"
+    },
+    "rotate_list_token": {
+      "service": "mdi:key-change"
     }
   }
 }

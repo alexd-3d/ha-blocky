@@ -134,7 +134,12 @@ async def open_options_step(
     """Open the options menu and pick one of its steps."""
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU
-    assert result["menu_options"] == ["database", "intervals"]
+    assert result["menu_options"] == [
+        "database",
+        "intervals",
+        "lists",
+        "list_urls",
+    ]
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}
     )
