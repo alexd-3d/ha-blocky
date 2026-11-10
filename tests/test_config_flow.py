@@ -30,6 +30,10 @@ async def _start_flow(hass: HomeAssistant) -> str:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {}
+    assert set(result["description_placeholders"]) == {
+        "example_url",
+        "addon_url",
+    }
     return result["flow_id"]
 
 
