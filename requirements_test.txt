@@ -1,0 +1,5 @@
+# Development and test tooling. Not needed to run the integration.
+# pytest-homeassistant-custom-component pins the matching Home Assistant
+# release (0.13.375 -> homeassistant 2026.10.4).
+pytest-homeassistant-custom-component==0.13.375
+ruff==0.17.4

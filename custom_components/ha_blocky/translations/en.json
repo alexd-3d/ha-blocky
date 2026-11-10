@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Blocky",
+        "description": "Enter the address of the Blocky HTTP API. Blocky's API has no authentication, so keep its HTTP port reachable only from trusted hosts.",
+        "data": {
+          "url": "Blocky API URL"
+        },
+        "data_description": {
+          "url": "Scheme, host and port only, for example http://blocky.example:4000. For the Blocky add-on use its internal hostname, such as http://4d2c38a0-blocky:4000."
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter a URL with only a scheme (http or https), host and optional port. Credentials, paths and query strings are not allowed.",
+      "cannot_connect": "Could not connect to Blocky at this address.",
+      "invalid_response": "The server answered, but not like a Blocky API. Check the address and that Blocky is v0.35.0 or newer."
+    },
+    "abort": {
+      "already_configured": "This Blocky instance is already configured."
+    }
+  }
+}

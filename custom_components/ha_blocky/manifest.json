@@ -2,6 +2,7 @@
   "domain": "ha_blocky",
   "name": "HA-Blocky",
   "codeowners": ["@alexd-3d"],
+  "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/alexd-3d/ha-blocky",
   "integration_type": "service",
