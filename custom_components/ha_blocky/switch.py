@@ -10,7 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import BlockyError
-from .const import ATTR_DISABLED_GROUPS
+from .const import ATTR_DISABLED_GROUPS, DEFAULT_PAUSE_MINUTES
 from .coordinator import BlockyConfigEntry
 from .entity import BlockyEntity
 
@@ -47,10 +47,8 @@ class BlockingSwitch(BlockyEntity, SwitchEntity):
             raise HomeAssistantError("Could not enable Blocky blocking") from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Pause blocking for the selected duration; never indefinitely."""
+        """Pause blocking for the default duration; never indefinitely."""
         try:
-            await self.coordinator.async_disable_blocking(
-                self.coordinator.pause_minutes * 60
-            )
+            await self.coordinator.async_pause_blocking(DEFAULT_PAUSE_MINUTES)
         except BlockyError as err:
             raise HomeAssistantError("Could not pause Blocky blocking") from err

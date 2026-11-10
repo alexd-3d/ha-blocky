@@ -22,8 +22,11 @@
       }
     },
     "select": {
-      "pause_duration": {
-        "default": "mdi:timer-cog-outline"
+      "pause_blocking": {
+        "default": "mdi:timer-pause-outline",
+        "state": {
+          "active": "mdi:shield-check"
+        }
       }
     }
   },

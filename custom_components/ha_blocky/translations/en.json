@@ -51,9 +51,10 @@
       }
     },
     "select": {
-      "pause_duration": {
-        "name": "Pause duration",
+      "pause_blocking": {
+        "name": "Pause blocking",
         "state": {
+          "active": "Not paused",
           "5": "5 minutes",
           "15": "15 minutes",
           "30": "30 minutes",

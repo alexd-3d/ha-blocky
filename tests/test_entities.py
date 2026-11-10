@@ -17,7 +17,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
-from homeassistant.core import Context, HomeAssistant, State
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import (
     HomeAssistantError,
     ServiceValidationError,
@@ -31,7 +31,6 @@ from pytest_homeassistant_custom_component.common import (
     MockUser,
     async_capture_events,
     async_fire_time_changed,
-    mock_restore_cache,
 )
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -57,7 +56,7 @@ RESUMES_AT = "sensor.ha_blocky_blocking_resumes_at"
 CONNECTION = "binary_sensor.ha_blocky_connection"
 REFRESH_BUTTON = "button.ha_blocky_refresh_lists"
 FLUSH_BUTTON = "button.ha_blocky_flush_cache"
-PAUSE_SELECT = "select.ha_blocky_pause_duration"
+PAUSE_SELECT = "select.ha_blocky_pause_blocking"
 
 ENABLED = {"enabled": True, "disabledGroups": [], "autoEnableInSec": 0}
 
@@ -118,7 +117,16 @@ async def test_entities_are_created(
     assert hass.states.get(SWITCH).attributes["disabled_groups"] == []
     assert hass.states.get(RESUMES_AT).state == STATE_UNKNOWN
     assert hass.states.get(CONNECTION).state == STATE_ON
-    assert hass.states.get(PAUSE_SELECT).state == "5"
+    assert hass.states.get(PAUSE_SELECT).state == "active"
+    assert hass.states.get(PAUSE_SELECT).attributes["options"] == [
+        "active",
+        "5",
+        "15",
+        "30",
+        "60",
+        "120",
+        "240",
+    ]
     assert hass.states.get(REFRESH_BUTTON) is not None
     assert hass.states.get(FLUSH_BUTTON) is not None
 
@@ -161,6 +169,7 @@ async def test_switch_off_pauses_for_default_duration(
     assert _calls(aioclient_mock, "/api/blocking/disable") == [{"duration": "300s"}]
     assert hass.states.get(SWITCH).state == STATE_OFF
     assert hass.states.get(SWITCH).attributes["disabled_groups"] == ["default"]
+    assert hass.states.get(PAUSE_SELECT).state == "5"
     resumes_at = dt_util.parse_datetime(hass.states.get(RESUMES_AT).state)
     assert resumes_at is not None
     assert abs(resumes_at - (dt_util.utcnow() + timedelta(seconds=300))) < timedelta(
@@ -169,25 +178,83 @@ async def test_switch_off_pauses_for_default_duration(
     assert events == []
 
 
-async def test_switch_off_uses_selected_duration(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    await _setup(hass, aioclient_mock)
-
+async def _select(hass: HomeAssistant, option: str) -> None:
     await hass.services.async_call(
         "select",
         "select_option",
-        {ATTR_ENTITY_ID: PAUSE_SELECT, "option": "30"},
+        {ATTR_ENTITY_ID: PAUSE_SELECT, "option": option},
         blocking=True,
     )
-    assert hass.states.get(PAUSE_SELECT).state == "30"
 
+
+async def test_select_pauses_immediately(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    await _setup(hass, aioclient_mock)
+    events = async_capture_events(hass, EVENT_BLOCKING_DISABLED_EXTERNALLY)
     _set_status(aioclient_mock, json=_disabled(1800))
-    await hass.services.async_call(
-        "switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-    )
+
+    await _select(hass, "30")
 
     assert _calls(aioclient_mock, "/api/blocking/disable") == [{"duration": "1800s"}]
+    assert hass.states.get(PAUSE_SELECT).state == "30"
+    assert hass.states.get(SWITCH).state == STATE_OFF
+    assert hass.states.get(RESUMES_AT).state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
+
+    # The choice survives polls and unrelated commands while the pause runs.
+    await _poll(hass)
+    await hass.services.async_call(
+        "button", "press", {ATTR_ENTITY_ID: FLUSH_BUTTON}, blocking=True
+    )
+    assert hass.states.get(PAUSE_SELECT).state == "30"
+    assert events == []
+
+
+async def test_select_returns_to_active_when_pause_ends(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    await _setup(hass, aioclient_mock)
+    _set_status(aioclient_mock, json=_disabled(300))
+    await _select(hass, "5")
+    assert hass.states.get(PAUSE_SELECT).state == "5"
+
+    _set_status(aioclient_mock, json=ENABLED)
+    await _poll(hass)
+
+    assert hass.states.get(PAUSE_SELECT).state == "active"
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_select_active_resumes_blocking(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    await _setup(hass, aioclient_mock)
+    _set_status(aioclient_mock, json=_disabled(3600))
+    await _select(hass, "60")
+
+    _set_status(aioclient_mock, json=ENABLED)
+    await _select(hass, "active")
+
+    assert _calls(aioclient_mock, "/api/blocking/enable") == [{}]
+    assert hass.states.get(PAUSE_SELECT).state == "active"
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_select_is_unknown_for_a_pause_started_elsewhere(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    await _setup(hass, aioclient_mock, json=_disabled(777))
+    assert hass.states.get(PAUSE_SELECT).state == STATE_UNKNOWN
+
+    _set_status(aioclient_mock, json=ENABLED)
+    await _poll(hass)
+    assert hass.states.get(PAUSE_SELECT).state == "active"
+
+    _set_status(aioclient_mock, json=_disabled(90, ["iot"]))
+    await hass.services.async_call(
+        DOMAIN, "disable_blocking", {"duration": {"seconds": 90}}, blocking=True
+    )
+    assert hass.states.get(PAUSE_SELECT).state == STATE_UNKNOWN
 
 
 async def test_select_rejects_unknown_option(
@@ -195,40 +262,26 @@ async def test_select_rejects_unknown_option(
 ) -> None:
     await _setup(hass, aioclient_mock)
 
-    with pytest.raises(ServiceValidationError):
-        await hass.services.async_call(
-            "select",
-            "select_option",
-            {ATTR_ENTITY_ID: PAUSE_SELECT, "option": "99999"},
-            blocking=True,
-        )
+    for option in ("99999", "0", "-5", "5; rm -rf /", ""):
+        with pytest.raises(ServiceValidationError):
+            await _select(hass, option)
 
-    assert hass.states.get(PAUSE_SELECT).state == "5"
+    assert hass.states.get(PAUSE_SELECT).state == "active"
+    assert _calls(aioclient_mock, "/api/blocking/disable") == []
 
 
-async def test_select_restores_previous_choice(
+async def test_select_reports_failure(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    mock_restore_cache(hass, [State(PAUSE_SELECT, "60")])
-
     await _setup(hass, aioclient_mock)
-    assert hass.states.get(PAUSE_SELECT).state == "60"
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(STATUS_URL, json=ENABLED)
+    aioclient_mock.get(DISABLE_URL, exc=aiohttp.ClientConnectionError())
 
-    _set_status(aioclient_mock, json=_disabled(3600))
-    await hass.services.async_call(
-        "switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-    )
-    assert _calls(aioclient_mock, "/api/blocking/disable") == [{"duration": "3600s"}]
+    with pytest.raises(HomeAssistantError):
+        await _select(hass, "15")
 
-
-async def test_select_ignores_tampered_restored_state(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    mock_restore_cache(hass, [State(PAUSE_SELECT, "999999")])
-
-    await _setup(hass, aioclient_mock)
-
-    assert hass.states.get(PAUSE_SELECT).state == "5"
+    assert hass.states.get(PAUSE_SELECT).state == "active"
 
 
 async def test_switch_on_enables(
@@ -316,7 +369,7 @@ async def test_outage_is_visible_and_recovers(
     assert hass.states.get(CONNECTION).state == STATE_OFF
     assert hass.states.get(SWITCH).state == STATE_UNAVAILABLE
     assert hass.states.get(REFRESH_BUTTON).state == STATE_UNAVAILABLE
-    assert hass.states.get(PAUSE_SELECT).state == "5"
+    assert hass.states.get(PAUSE_SELECT).state == STATE_UNAVAILABLE
 
     _set_status(aioclient_mock, json=ENABLED)
     await _poll(hass)

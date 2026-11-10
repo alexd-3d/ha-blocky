@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DEFAULT_PAUSE_MINUTES, PAUSE_OPTIONS_MINUTES
+from .api import BlockyError
+from .const import PAUSE_OPTION_ACTIVE, PAUSE_OPTIONS_MINUTES
 from .coordinator import BlockyConfigEntry, BlockyCoordinator
 from .entity import BlockyEntity
 
-PARALLEL_UPDATES = 0
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -21,37 +21,41 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the select entities."""
-    async_add_entities([PauseDurationSelect(entry.runtime_data, "pause_duration")])
+    async_add_entities([PauseBlockingSelect(entry.runtime_data, "pause_blocking")])
 
 
-class PauseDurationSelect(BlockyEntity, SelectEntity, RestoreEntity):
-    """How long the blocking switch pauses filtering."""
+class PauseBlockingSelect(BlockyEntity, SelectEntity):
+    """Choosing a duration pauses blocking for that long, right away.
 
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_current_option = str(DEFAULT_PAUSE_MINUTES)
+    Shows ``active`` while blocking is on and the chosen duration while a
+    pause started here or by the switch is running. A pause started some
+    other way has no matching option, so the state is unknown.
+    """
 
     def __init__(self, coordinator: BlockyCoordinator, key: str) -> None:
         """Initialize the select with its fixed list of durations."""
         super().__init__(coordinator, key)
-        self._attr_options = [str(minutes) for minutes in PAUSE_OPTIONS_MINUTES]
+        self._attr_options = [
+            PAUSE_OPTION_ACTIVE,
+            *(str(minutes) for minutes in PAUSE_OPTIONS_MINUTES),
+        ]
 
     @property
-    def available(self) -> bool:
-        """A local setting; available even when Blocky is not."""
-        return True
-
-    async def async_added_to_hass(self) -> None:
-        """Restore the previous choice."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in self.options:
-            self._apply(last_state.state)
+    def current_option(self) -> str | None:
+        """Return the running pause, or ``active`` when there is none."""
+        if self.coordinator.data.enabled:
+            return PAUSE_OPTION_ACTIVE
+        minutes = self.coordinator.pause_minutes
+        if minutes in PAUSE_OPTIONS_MINUTES:
+            return str(minutes)
+        return None
 
     async def async_select_option(self, option: str) -> None:
-        """Change the pause duration."""
-        self._apply(option)
-        self.async_write_ha_state()
-
-    def _apply(self, option: str) -> None:
-        self._attr_current_option = option
-        self.coordinator.pause_minutes = int(option)
+        """Pause blocking for the chosen duration, or resume it."""
+        try:
+            if option == PAUSE_OPTION_ACTIVE:
+                await self.coordinator.async_enable_blocking()
+            else:
+                await self.coordinator.async_pause_blocking(int(option))
+        except BlockyError as err:
+            raise HomeAssistantError("Could not change Blocky blocking") from err

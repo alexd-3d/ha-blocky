@@ -16,7 +16,6 @@ from .api import BlockingStatus, BlockyClient, BlockyError
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DISABLED_GROUPS,
-    DEFAULT_PAUSE_MINUTES,
     DOMAIN,
     EVENT_BLOCKING_DISABLED_EXTERNALLY,
     UPDATE_INTERVAL,
@@ -48,7 +47,9 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
             update_interval=UPDATE_INTERVAL,
         )
         self.client = client
-        self.pause_minutes: int = DEFAULT_PAUSE_MINUTES
+        # Minutes of the pause started through the switch or the select; None
+        # when blocking is active or was paused some other way.
+        self.pause_minutes: int | None = None
         self.resumes_at: datetime | None = None
         # Serializes polls and commands so a poll never observes a command of
         # ours half-applied and reports it as an external change.
@@ -62,7 +63,7 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
             except BlockyError as err:
                 raise UpdateFailed(str(err)) from err
             self._report_external_disable(self.data, status)
-            self._update_resume_time(status)
+            self._track(status)
             return status
 
     def _report_external_disable(
@@ -83,8 +84,10 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
             },
         )
 
-    def _update_resume_time(self, status: BlockingStatus) -> None:
-        """Track when Blocky will re-enable blocking on its own."""
+    def _track(self, status: BlockingStatus) -> None:
+        """Update the derived state: pause choice and resume time."""
+        if status.enabled:
+            self.pause_minutes = None
         if status.enabled or status.auto_enable_in_sec <= 0:
             self.resumes_at = None
             return
@@ -94,12 +97,20 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
         if self.resumes_at is None or abs(candidate - self.resumes_at) > _RESUME_JITTER:
             self.resumes_at = candidate
 
-    async def _async_run_command(self, command: Awaitable[None]) -> None:
+    async def _async_run_command(
+        self,
+        command: Awaitable[None],
+        *,
+        changes_blocking: bool = False,
+        pause_minutes: int | None = None,
+    ) -> None:
         """Run a command of ours and publish the resulting status."""
         async with self._lock:
             await command
+            if changes_blocking:
+                self.pause_minutes = pause_minutes
             status = await self.client.async_get_status()
-            self._update_resume_time(status)
+            self._track(status)
         self.async_set_updated_data(status)
 
     async def async_enable_blocking(self) -> None:
@@ -111,7 +122,16 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
     ) -> None:
         """Disable blocking for a limited time."""
         await self._async_run_command(
-            self.client.async_disable_blocking(duration_seconds, groups)
+            self.client.async_disable_blocking(duration_seconds, groups),
+            changes_blocking=True,
+        )
+
+    async def async_pause_blocking(self, minutes: int) -> None:
+        """Pause all blocking for one of the offered durations."""
+        await self._async_run_command(
+            self.client.async_disable_blocking(minutes * 60),
+            changes_blocking=True,
+            pause_minutes=minutes,
         )
 
     async def async_refresh_lists(self) -> None:
