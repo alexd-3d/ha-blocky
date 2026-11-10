@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Optional query log database. In the integration's **Configure** dialog,
+  connect to the MySQL or MariaDB database Blocky writes its query log to.
+  The account must be read-only: an account that can change data is refused.
+- Statistics sensors, available once the database is connected:
+  - **Queries** and **Blocked queries**: running totals that work with
+    Home Assistant's long-term statistics.
+  - For the last 24 hours: **Queries**, **Blocked queries**, **Blocked share**,
+    **Clients** and **Average response time**.
+  - **Top domains**, **Top blocked domains** and **Top clients**, with the ten
+    most frequent entries as attributes. The lists are not written to the
+    recorder.
+- **Query log database** binary sensor showing whether the database answers.
+- Diagnostics download, with addresses, credentials, domain names and client
+  addresses left out.
+
+### Notes
+
+- A database outage only affects the statistics sensors. Controlling Blocky
+  keeps working.
+- The running totals start at zero when the database is first connected; the
+  existing log is not added to them.
+
 ## 0.2.0
 
 ### Added
