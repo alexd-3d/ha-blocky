@@ -1,0 +1,16 @@
+disable_blocking:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    duration:
+      required: true
+      selector:
+        duration:
+    groups:
+      required: false
+      selector:
+        text:
+          multiple: true

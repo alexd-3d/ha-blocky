@@ -1,0 +1,38 @@
+{
+  "entity": {
+    "switch": {
+      "blocking": {
+        "default": "mdi:shield-check",
+        "state": {
+          "off": "mdi:shield-off"
+        }
+      }
+    },
+    "sensor": {
+      "resumes_at": {
+        "default": "mdi:timer-outline"
+      }
+    },
+    "button": {
+      "refresh_lists": {
+        "default": "mdi:playlist-check"
+      },
+      "flush_cache": {
+        "default": "mdi:cached"
+      }
+    },
+    "select": {
+      "pause_blocking": {
+        "default": "mdi:timer-pause-outline",
+        "state": {
+          "active": "mdi:shield-check"
+        }
+      }
+    }
+  },
+  "services": {
+    "disable_blocking": {
+      "service": "mdi:shield-off"
+    }
+  }
+}

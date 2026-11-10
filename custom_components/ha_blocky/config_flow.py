@@ -33,6 +33,13 @@ STEP_USER_SCHEMA = vol.Schema(
 )
 
 
+# Example addresses shown in the form; translations must not embed URLs.
+URL_PLACEHOLDERS = {
+    "example_url": "http://blocky.example:4000",
+    "addon_url": "http://4d2c38a0-blocky:4000",
+}
+
+
 class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the setup of a Blocky instance."""
 
@@ -69,4 +76,5 @@ class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
                 STEP_USER_SCHEMA, user_input
             ),
             errors=errors,
+            description_placeholders=URL_PLACEHOLDERS,
         )
