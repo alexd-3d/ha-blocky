@@ -23,7 +23,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the blocking switch."""
-    async_add_entities([BlockingSwitch(entry.runtime_data, "blocking")])
+    async_add_entities([BlockingSwitch(entry.runtime_data.coordinator, "blocking")])
 
 
 class BlockingSwitch(BlockyEntity, SwitchEntity):

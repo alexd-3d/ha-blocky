@@ -1,6 +1,6 @@
 [project]
 name = "ha-blocky"
-version = "0.2.0"
+version = "0.3.0"
 description = "Home Assistant custom integration for the Blocky DNS proxy"
 readme = "README.md"
 license = "Apache-2.0"
@@ -25,7 +25,7 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests use assert and call git to list repository files.
-"tests/*" = ["S101", "S603", "S607"]
+"tests/*" = ["S101", "S105", "S106", "S603", "S607"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

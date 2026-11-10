@@ -35,11 +35,44 @@
     "sensor": {
       "resumes_at": {
         "name": "Blocking resumes at"
+      },
+      "queries_total": {
+        "name": "Queries"
+      },
+      "blocked_total": {
+        "name": "Blocked queries"
+      },
+      "queries_24h": {
+        "name": "Queries (24 h)"
+      },
+      "blocked_24h": {
+        "name": "Blocked queries (24 h)"
+      },
+      "blocked_ratio_24h": {
+        "name": "Blocked share (24 h)"
+      },
+      "clients_24h": {
+        "name": "Clients (24 h)"
+      },
+      "avg_response_time_24h": {
+        "name": "Average response time (24 h)"
+      },
+      "top_domains": {
+        "name": "Top domains"
+      },
+      "top_blocked_domains": {
+        "name": "Top blocked domains"
+      },
+      "top_clients": {
+        "name": "Top clients"
       }
     },
     "binary_sensor": {
       "connection": {
         "name": "Connection"
+      },
+      "database": {
+        "name": "Query log database"
       }
     },
     "button": {
@@ -83,6 +116,32 @@
           "description": "Blocking groups to pause. Leave empty to pause all of them."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Query log database",
+        "description": "Optional. Connect to the MySQL or MariaDB database Blocky writes its query log to. Use an account that can only read: an account with write privileges is refused. Leave the host empty to switch the query log off.",
+        "data": {
+          "db_host": "Host",
+          "db_port": "Port",
+          "db_name": "Database",
+          "db_username": "Username",
+          "db_password": "Password"
+        },
+        "data_description": {
+          "db_host": "Hostname or IP address of the database server.",
+          "db_password": "Enter it again whenever you change these settings."
+        }
+      }
+    },
+    "error": {
+      "invalid_db_setting": "This value is not valid.",
+      "db_driver_missing": "No MySQL driver is installed in this Home Assistant.",
+      "db_cannot_connect": "Could not connect to the database with these settings.",
+      "db_schema": "This database does not contain Blocky's query log table.",
+      "db_not_read_only": "This account can change data. Use an account that only has the SELECT privilege."
     }
   }
 }

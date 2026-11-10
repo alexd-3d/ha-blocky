@@ -1,20 +1,30 @@
-"""Config flow for the Blocky DNS integration."""
+"""Config and options flow for the Blocky DNS integration."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import CONF_URL
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 from yarl import URL
 
+from . import db
 from .api import (
     BlockyClient,
     BlockyConnectionError,
@@ -22,7 +32,15 @@ from .api import (
     BlockyResponseError,
     normalize_base_url,
 )
-from .const import DOMAIN
+from .const import (
+    CONF_DB_HOST,
+    CONF_DB_NAME,
+    CONF_DB_PASSWORD,
+    CONF_DB_PORT,
+    CONF_DB_USERNAME,
+    DEFAULT_DB_PORT,
+    DOMAIN,
+)
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -32,6 +50,20 @@ STEP_USER_SCHEMA = vol.Schema(
     }
 )
 
+# All fields optional: leaving the host empty disables the query log.
+STEP_DATABASE_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_DB_HOST): TextSelector(),
+        vol.Optional(CONF_DB_PORT, default=DEFAULT_DB_PORT): NumberSelector(
+            NumberSelectorConfig(min=1, max=65535, step=1, mode=NumberSelectorMode.BOX)
+        ),
+        vol.Optional(CONF_DB_NAME): TextSelector(),
+        vol.Optional(CONF_DB_USERNAME): TextSelector(),
+        vol.Optional(CONF_DB_PASSWORD): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        ),
+    }
+)
 
 # Example addresses shown in the form; translations must not embed URLs.
 URL_PLACEHOLDERS = {
@@ -40,10 +72,35 @@ URL_PLACEHOLDERS = {
 }
 
 
+# Which form field a rejected database setting belongs to.
+_SETTING_FIELDS = {
+    "host": CONF_DB_HOST,
+    "port": CONF_DB_PORT,
+    "database": CONF_DB_NAME,
+    "username": CONF_DB_USERNAME,
+    "password": CONF_DB_PASSWORD,
+}
+
+
+def _test_database(settings: db.DbSettings) -> None:
+    """Open the database once to validate it. Executor only."""
+    database = db.QueryLogDatabase(db.build_url(settings))
+    try:
+        database.connect()
+    finally:
+        database.close()
+
+
 class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the setup of a Blocky instance."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> BlockyOptionsFlow:
+        """Return the options flow."""
+        return BlockyOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -77,4 +134,69 @@ class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
             description_placeholders=URL_PLACEHOLDERS,
+        )
+
+
+class BlockyOptionsFlow(OptionsFlowWithReload):
+    """Configure the optional query log database."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the database connection and verify it is usable."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input.get(CONF_DB_HOST)
+            if not isinstance(host, str) or not host.strip():
+                # No host: the query log is switched off.
+                return self.async_create_entry(data={})
+
+            port = user_input.get(CONF_DB_PORT, DEFAULT_DB_PORT)
+            if isinstance(port, float) and port.is_integer():
+                port = int(port)
+            try:
+                settings = db.validate_settings(
+                    host,
+                    port,
+                    user_input.get(CONF_DB_NAME),
+                    user_input.get(CONF_DB_USERNAME),
+                    user_input.get(CONF_DB_PASSWORD),
+                )
+            except db.BlockyDbSettingsError as err:
+                errors[_SETTING_FIELDS.get(str(err), "base")] = "invalid_db_setting"
+            else:
+                try:
+                    await self.hass.async_add_executor_job(_test_database, settings)
+                except db.BlockyDbDriverError:
+                    errors["base"] = "db_driver_missing"
+                except db.BlockyDbSchemaError:
+                    errors["base"] = "db_schema"
+                except db.BlockyDbNotReadOnlyError:
+                    errors["base"] = "db_not_read_only"
+                except db.BlockyDbError:
+                    errors["base"] = "db_cannot_connect"
+                else:
+                    return self.async_create_entry(
+                        data={
+                            CONF_DB_HOST: settings.host,
+                            CONF_DB_PORT: settings.port,
+                            CONF_DB_NAME: settings.database,
+                            CONF_DB_USERNAME: settings.username,
+                            CONF_DB_PASSWORD: settings.password,
+                        }
+                    )
+
+        # Never send the stored password back to the browser.
+        suggested = {
+            key: value
+            for key, value in (user_input or self.config_entry.options).items()
+            if key != CONF_DB_PASSWORD
+        }
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_DATABASE_SCHEMA, suggested
+            ),
+            errors=errors,
         )

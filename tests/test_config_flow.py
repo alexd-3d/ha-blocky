@@ -54,7 +54,8 @@ async def test_user_flow_creates_entry(
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     assert entry.state is ConfigEntryState.LOADED
-    assert isinstance(entry.runtime_data, BlockyCoordinator)
+    assert isinstance(entry.runtime_data.coordinator, BlockyCoordinator)
+    assert entry.runtime_data.stats is None
 
 
 @pytest.mark.parametrize(

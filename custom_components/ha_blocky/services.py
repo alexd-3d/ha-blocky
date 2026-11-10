@@ -46,7 +46,7 @@ def _get_coordinator(hass: HomeAssistant, call: ServiceCall) -> BlockyCoordinato
         raise ServiceValidationError(
             "Specify config_entry_id: there is not exactly one loaded Blocky entry"
         )
-    return entries[0].runtime_data
+    return entries[0].runtime_data.coordinator
 
 
 async def _async_disable_blocking(call: ServiceCall) -> None:
