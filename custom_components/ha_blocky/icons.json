@@ -11,6 +11,33 @@
     "sensor": {
       "resumes_at": {
         "default": "mdi:timer-outline"
+      },
+      "queries_total": {
+        "default": "mdi:dns"
+      },
+      "blocked_total": {
+        "default": "mdi:shield-remove"
+      },
+      "queries_24h": {
+        "default": "mdi:dns"
+      },
+      "blocked_24h": {
+        "default": "mdi:shield-remove"
+      },
+      "blocked_ratio_24h": {
+        "default": "mdi:percent"
+      },
+      "clients_24h": {
+        "default": "mdi:devices"
+      },
+      "top_domains": {
+        "default": "mdi:format-list-numbered"
+      },
+      "top_blocked_domains": {
+        "default": "mdi:format-list-numbered"
+      },
+      "top_clients": {
+        "default": "mdi:format-list-numbered"
       }
     },
     "button": {

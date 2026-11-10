@@ -21,7 +21,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the select entities."""
-    async_add_entities([PauseBlockingSelect(entry.runtime_data, "pause_blocking")])
+    async_add_entities(
+        [PauseBlockingSelect(entry.runtime_data.coordinator, "pause_blocking")]
+    )
 
 
 class PauseBlockingSelect(BlockyEntity, SelectEntity):
