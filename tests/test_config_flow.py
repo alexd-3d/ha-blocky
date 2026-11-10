@@ -13,8 +13,8 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from custom_components.ha_blocky.api import BlockyClient
 from custom_components.ha_blocky.const import DOMAIN
+from custom_components.ha_blocky.coordinator import BlockyCoordinator
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -50,7 +50,7 @@ async def test_user_flow_creates_entry(
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     assert entry.state is ConfigEntryState.LOADED
-    assert isinstance(entry.runtime_data, BlockyClient)
+    assert isinstance(entry.runtime_data, BlockyCoordinator)
 
 
 @pytest.mark.parametrize(

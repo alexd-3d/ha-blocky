@@ -20,5 +20,68 @@
     "abort": {
       "already_configured": "This Blocky instance is already configured."
     }
+  },
+  "entity": {
+    "switch": {
+      "blocking": {
+        "name": "Blocking",
+        "state_attributes": {
+          "disabled_groups": {
+            "name": "Disabled groups"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "resumes_at": {
+        "name": "Blocking resumes at"
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Connection"
+      }
+    },
+    "button": {
+      "refresh_lists": {
+        "name": "Refresh lists"
+      },
+      "flush_cache": {
+        "name": "Flush cache"
+      }
+    },
+    "select": {
+      "pause_duration": {
+        "name": "Pause duration",
+        "state": {
+          "5": "5 minutes",
+          "15": "15 minutes",
+          "30": "30 minutes",
+          "60": "1 hour",
+          "120": "2 hours",
+          "240": "4 hours"
+        }
+      }
+    }
+  },
+  "services": {
+    "disable_blocking": {
+      "name": "Pause blocking",
+      "description": "Pauses Blocky's blocking for a limited time. Blocking resumes on its own afterwards.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Which Blocky instance to pause. Only needed when more than one is configured."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long to pause blocking, from 1 second to 24 hours."
+        },
+        "groups": {
+          "name": "Groups",
+          "description": "Blocking groups to pause. Leave empty to pause all of them."
+        }
+      }
+    }
   }
 }

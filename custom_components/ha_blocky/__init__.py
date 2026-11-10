@@ -2,20 +2,33 @@
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_URL
+from homeassistant.const import CONF_URL, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
-from .api import (
-    BlockyClient,
-    BlockyConnectionError,
-    BlockyInvalidUrlError,
-    BlockyResponseError,
-)
+from .api import BlockyClient, BlockyInvalidUrlError
+from .const import DOMAIN
+from .coordinator import BlockyConfigEntry, BlockyCoordinator
+from .services import async_setup_services
 
-type BlockyConfigEntry = ConfigEntry[BlockyClient]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the integration: register its service actions."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bool:
@@ -25,17 +38,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     except BlockyInvalidUrlError as err:
         raise ConfigEntryError("Stored Blocky URL is not valid") from err
 
-    try:
-        await client.async_get_status()
-    except BlockyConnectionError as err:
-        raise ConfigEntryNotReady("Blocky is not reachable") from err
-    except BlockyResponseError as err:
-        raise ConfigEntryNotReady("Blocky returned an unexpected response") from err
+    coordinator = BlockyCoordinator(hass, entry, client)
+    await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = client
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bool:
     """Unload a config entry."""
-    return True
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
