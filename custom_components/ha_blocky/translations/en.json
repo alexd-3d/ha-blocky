@@ -121,6 +121,13 @@
   "options": {
     "step": {
       "init": {
+        "title": "HA-Blocky options",
+        "menu_options": {
+          "database": "Query log database",
+          "intervals": "Update intervals"
+        }
+      },
+      "database": {
         "title": "Query log database",
         "description": "Optional. Connect to the MySQL or MariaDB database Blocky writes its query log to. Use an account that can only read: an account with write privileges is refused. Leave the host empty to switch the query log off.",
         "data": {
@@ -133,6 +140,20 @@
         "data_description": {
           "db_host": "Hostname or IP address of the database server.",
           "db_password": "Enter it again whenever you change these settings."
+        }
+      },
+      "intervals": {
+        "title": "Update intervals",
+        "description": "How often Home Assistant asks Blocky and the query log database for new data. Blocky itself writes the query log in batches, by default every 30 seconds, so polling faster than that shows nothing new.",
+        "data": {
+          "status_interval": "Blocking status",
+          "stats_interval": "Query counters and 24 hour summary",
+          "tops_interval": "Top lists"
+        },
+        "data_description": {
+          "status_interval": "10 to 600 seconds. Default: 30.",
+          "stats_interval": "30 to 3600 seconds. Default: 60.",
+          "tops_interval": "30 to 3600 seconds. Default: 300. Top lists are the heaviest queries; they are never refreshed more often than the counters."
         }
       }
     },

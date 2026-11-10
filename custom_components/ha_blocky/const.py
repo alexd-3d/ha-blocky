@@ -1,5 +1,6 @@
 """Constants for the Blocky DNS integration."""
 
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Final
 
@@ -32,8 +33,36 @@ CONF_DB_USERNAME: Final = "db_username"
 CONF_DB_PASSWORD: Final = "db_password"  # noqa: S105 (an option key)
 DEFAULT_DB_PORT: Final = 3306
 
-# How often new log rows are counted, and how often top lists are rebuilt.
+# Default for how often new log rows are counted, and how often top lists
+# are rebuilt.
 STATS_INTERVAL: Final = timedelta(seconds=60)
 TOPS_INTERVAL: Final = timedelta(minutes=5)
+
+# Update intervals the user can change in the options, in seconds.
+CONF_STATUS_INTERVAL: Final = "status_interval"
+CONF_STATS_INTERVAL: Final = "stats_interval"
+CONF_TOPS_INTERVAL: Final = "tops_interval"
+
+
+@dataclass(frozen=True, slots=True)
+class IntervalSpec:
+    """Default and allowed range of one update interval, in seconds."""
+
+    default: int
+    minimum: int
+    maximum: int
+
+
+INTERVALS: Final = {
+    CONF_STATUS_INTERVAL: IntervalSpec(
+        default=int(UPDATE_INTERVAL.total_seconds()), minimum=10, maximum=600
+    ),
+    CONF_STATS_INTERVAL: IntervalSpec(
+        default=int(STATS_INTERVAL.total_seconds()), minimum=30, maximum=3600
+    ),
+    CONF_TOPS_INTERVAL: IntervalSpec(
+        default=int(TOPS_INTERVAL.total_seconds()), minimum=30, maximum=3600
+    ),
+}
 # The window of the summary and top-list sensors.
 STATS_WINDOW: Final = timedelta(hours=24)

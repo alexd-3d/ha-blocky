@@ -18,10 +18,11 @@ from .api import BlockingStatus, BlockyClient, BlockyError
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DISABLED_GROUPS,
+    CONF_STATUS_INTERVAL,
     DOMAIN,
     EVENT_BLOCKING_DISABLED_EXTERNALLY,
-    UPDATE_INTERVAL,
 )
+from .intervals import interval
 
 if TYPE_CHECKING:
     from .stats import BlockyStatsCoordinator
@@ -59,7 +60,7 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=interval(entry.options, CONF_STATUS_INTERVAL),
         )
         self.client = client
         # Minutes of the pause started through the switch or the select; None

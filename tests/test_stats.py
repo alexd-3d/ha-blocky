@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -40,7 +39,7 @@ from custom_components.ha_blocky.const import (
 from custom_components.ha_blocky.diagnostics import async_get_config_entry_diagnostics
 from custom_components.ha_blocky.sensor import BlockyTopSensor
 
-from .test_db import add_rows, make_log, sqlite_url
+from .test_db import add_rows, sqlite_url
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -96,14 +95,6 @@ def log_row(
     }
 
 
-@pytest.fixture
-def log_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[URL]:
-    """A query log on SQLite that the integration is pointed at."""
-    url = make_log(tmp_path / "log.db")
-    monkeypatch.setattr(db, "build_url", lambda settings: url)
-    return url
-
-
 async def _setup(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
@@ -135,6 +126,18 @@ def _state(hass: HomeAssistant, entry: MockConfigEntry, key: str) -> str:
 
 def _items(hass: HomeAssistant, entry: MockConfigEntry, key: str) -> list[dict]:
     return hass.states.get(_entity_id(hass, entry, key)).attributes["items"]
+
+
+async def open_options_step(
+    hass: HomeAssistant, entry: MockConfigEntry, step: str
+) -> dict[str, Any]:
+    """Open the options menu and pick one of its steps."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.MENU
+    assert result["menu_options"] == ["database", "intervals"]
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": step}
+    )
 
 
 async def _poll(
@@ -457,9 +460,9 @@ async def test_options_flow_enables_the_query_log(
 ) -> None:
     entry = await _setup(hass, aioclient_mock)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_step(hass, entry, "database")
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "init"
+    assert result["step_id"] == "database"
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {**DB_OPTIONS, CONF_DB_HOST: "  db.example  "}
@@ -478,7 +481,7 @@ async def test_options_flow_empty_host_disables_the_query_log(
 ) -> None:
     entry = await _setup(hass, aioclient_mock, DB_OPTIONS)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_step(hass, entry, "database")
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_DB_PORT: 3306}
     )
@@ -494,7 +497,7 @@ async def test_options_flow_never_returns_the_stored_password(
 ) -> None:
     entry = await _setup(hass, aioclient_mock, DB_OPTIONS)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_step(hass, entry, "database")
 
     suggested = {
         str(key): key.description.get("suggested_value")
@@ -524,7 +527,7 @@ async def test_options_flow_rejects_bad_settings(
     field: str,
 ) -> None:
     entry = await _setup(hass, aioclient_mock)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_step(hass, entry, "database")
 
     schema_errors: InvalidData | None = None
     try:
@@ -562,7 +565,7 @@ async def test_options_flow_reports_database_problems(
 
     monkeypatch.setattr(config_flow, "_test_database", fail)
     entry = await _setup(hass, aioclient_mock)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_step(hass, entry, "database")
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], DB_OPTIONS

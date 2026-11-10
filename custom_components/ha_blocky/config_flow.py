@@ -11,7 +11,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_URL
+from homeassistant.const import CONF_URL, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -40,7 +40,9 @@ from .const import (
     CONF_DB_USERNAME,
     DEFAULT_DB_PORT,
     DOMAIN,
+    INTERVALS,
 )
+from .intervals import interval_seconds
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -65,12 +67,34 @@ STEP_DATABASE_SCHEMA = vol.Schema(
     }
 )
 
+STEP_INTERVALS_SCHEMA = vol.Schema(
+    {
+        vol.Required(key): NumberSelector(
+            NumberSelectorConfig(
+                min=spec.minimum,
+                max=spec.maximum,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+                unit_of_measurement=UnitOfTime.SECONDS,
+            )
+        )
+        for key, spec in INTERVALS.items()
+    }
+)
+
+DB_KEYS = (
+    CONF_DB_HOST,
+    CONF_DB_PORT,
+    CONF_DB_NAME,
+    CONF_DB_USERNAME,
+    CONF_DB_PASSWORD,
+)
+
 # Example addresses shown in the form; translations must not embed URLs.
 URL_PLACEHOLDERS = {
     "example_url": "http://blocky.example:4000",
     "addon_url": "http://4d2c38a0-blocky:4000",
 }
-
 
 # Which form field a rejected database setting belongs to.
 _SETTING_FIELDS = {
@@ -138,19 +162,36 @@ class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class BlockyOptionsFlow(OptionsFlowWithReload):
-    """Configure the optional query log database."""
+    """Configure the query log database and the update intervals."""
+
+    def _options_without(self, keys: tuple[str, ...]) -> dict[str, Any]:
+        """Return the stored options minus the keys a step is replacing."""
+        return {
+            key: value
+            for key, value in self.config_entry.options.items()
+            if key not in keys
+        }
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Let the user choose what to configure."""
+        return self.async_show_menu(
+            step_id="init", menu_options=["database", "intervals"]
+        )
+
+    async def async_step_database(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Ask for the database connection and verify it is usable."""
         errors: dict[str, str] = {}
+        other_options = self._options_without(DB_KEYS)
 
         if user_input is not None:
             host = user_input.get(CONF_DB_HOST)
             if not isinstance(host, str) or not host.strip():
                 # No host: the query log is switched off.
-                return self.async_create_entry(data={})
+                return self.async_create_entry(data=other_options)
 
             port = user_input.get(CONF_DB_PORT, DEFAULT_DB_PORT)
             if isinstance(port, float) and port.is_integer():
@@ -179,6 +220,7 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
                 else:
                     return self.async_create_entry(
                         data={
+                            **other_options,
                             CONF_DB_HOST: settings.host,
                             CONF_DB_PORT: settings.port,
                             CONF_DB_NAME: settings.database,
@@ -191,12 +233,34 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
         suggested = {
             key: value
             for key, value in (user_input or self.config_entry.options).items()
-            if key != CONF_DB_PASSWORD
+            if key in DB_KEYS and key != CONF_DB_PASSWORD
         }
         return self.async_show_form(
-            step_id="init",
+            step_id="database",
             data_schema=self.add_suggested_values_to_schema(
                 STEP_DATABASE_SCHEMA, suggested
             ),
             errors=errors,
+        )
+
+    async def async_step_intervals(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask how often Blocky and the query log are polled."""
+        if user_input is not None:
+            # The form schema bounds every value; re-read them through the
+            # same validation the coordinators use rather than trusting it.
+            intervals = {key: interval_seconds(user_input, key) for key in INTERVALS}
+            return self.async_create_entry(
+                data={**self._options_without(tuple(INTERVALS)), **intervals}
+            )
+
+        current = {
+            key: interval_seconds(self.config_entry.options, key) for key in INTERVALS
+        }
+        return self.async_show_form(
+            step_id="intervals",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_INTERVALS_SCHEMA, current
+            ),
         )
