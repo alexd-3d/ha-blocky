@@ -2,11 +2,12 @@
   "domain": "ha_blocky",
   "name": "HA-Blocky",
   "codeowners": ["@alexd-3d"],
+  "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/alexd-3d/ha-blocky",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/alexd-3d/ha-blocky/issues",
   "requirements": [],
-  "version": "0.0.1"
+  "version": "0.1.0"
 }
