@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -21,13 +23,26 @@ from .const import (
     UPDATE_INTERVAL,
 )
 
+if TYPE_CHECKING:
+    from .stats import BlockyStatsCoordinator
+
 _LOGGER = logging.getLogger(__name__)
 
 # A recomputed resume time within this distance of the known one is the same
 # deadline seen through polling jitter.
 _RESUME_JITTER = timedelta(seconds=5)
 
-type BlockyConfigEntry = ConfigEntry[BlockyCoordinator]
+
+@dataclass(slots=True)
+class BlockyData:
+    """Runtime objects of one config entry."""
+
+    coordinator: BlockyCoordinator
+    # None when no query log database is configured.
+    stats: BlockyStatsCoordinator | None = None
+
+
+type BlockyConfigEntry = ConfigEntry[BlockyData]
 
 
 class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
