@@ -3,8 +3,9 @@
 A Home Assistant custom integration for the [Blocky](https://github.com/0xERR0R/blocky)
 DNS proxy and ad-blocker.
 
-> **Status: early development.** The integration can currently only connect to
-> Blocky and verify the connection. It provides no entities or actions yet.
+> **Status: early development.** The integration can pause and resume blocking,
+> refresh lists, flush the cache and report whether Blocky is reachable. The
+> query log, statistics and list management are not implemented yet.
 
 ## Goals
 
