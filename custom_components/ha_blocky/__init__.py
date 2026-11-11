@@ -26,10 +26,11 @@ from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
 from .frontend import async_register_card
 from .http import async_register_view
 from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
-from .lists import ListManager, storage_key
+from .lists import ListManager, read_definitions, storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
 from .websocket_api import async_register_commands
+from .zones import read_zones
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,10 +84,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     coordinator = BlockyCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
+    zones = read_zones(entry.options, read_definitions(entry.options))
     stats: BlockyStatsCoordinator | None = None
     database = _database_from_options(entry)
     if database is not None:
-        stats = BlockyStatsCoordinator(hass, entry, database)
+        stats = BlockyStatsCoordinator(hass, entry, database, zones)
         await stats.async_load()
         # A database outage must not stop the entry from loading.
         await stats.async_refresh()
@@ -95,7 +97,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     await lists.async_load()
     lists.set_refresh(coordinator.async_refresh_lists)
 
-    entry.runtime_data = BlockyData(coordinator=coordinator, lists=lists, stats=stats)
+    entry.runtime_data = BlockyData(
+        coordinator=coordinator, lists=lists, stats=stats, zones=zones
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

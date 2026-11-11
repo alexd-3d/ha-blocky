@@ -1,6 +1,6 @@
 [project]
 name = "ha-blocky"
-version = "0.5.0"
+version = "0.6.0"
 description = "Home Assistant custom integration for the Blocky DNS proxy"
 readme = "README.md"
 license = "Apache-2.0"

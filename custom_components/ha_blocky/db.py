@@ -411,6 +411,29 @@ class QueryLogDatabase:
             latest_request=latest if isinstance(latest, datetime) else None,
         )
 
+    def client_counts(
+        self, since: datetime, limit: int = 5000
+    ) -> list[tuple[str, int, int]]:
+        """Return (client address, queries, blocked) per client since ``since``."""
+        blocked = case(
+            (LOG_TABLE.c.response_type.in_(BLOCKED_RESPONSE_TYPES), 1), else_=0
+        )
+        total = func.count().label("total")
+        statement = (
+            select(LOG_TABLE.c.client_ip, total, func.sum(blocked))
+            .where(LOG_TABLE.c.request_ts >= since)
+            .where(LOG_TABLE.c.client_ip.is_not(None))
+            .group_by(LOG_TABLE.c.client_ip)
+            .order_by(total.desc(), LOG_TABLE.c.client_ip)
+            .limit(max(1, min(int(limit), 5000)))
+        )
+        counts: list[tuple[str, int, int]] = []
+        for address, queries, blocked_queries in self._run(statement, one=False):
+            cleaned = clean_text(address)
+            if cleaned:
+                counts.append((cleaned, int(queries or 0), int(blocked_queries or 0)))
+        return counts
+
     def _top(self, column, since: datetime, *, blocked_only: bool) -> list[TopItem]:  # type: ignore[no-untyped-def]
         count = func.count().label("hits")
         statement = (

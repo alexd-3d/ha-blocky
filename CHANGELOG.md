@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **Zones**: named groups of client addresses or networks, defined under
+  Configure → Zones. Each zone has a mode (`filter`, `learning` or
+  `allowlist_only`) and linked manual lists. A zone is only a record used to
+  tell which policy applies to a client seen in the query log; the
+  integration never changes Blocky's configuration.
+  - Up to 16 zones with up to 8 networks each. Zones must not overlap,
+    because Blocky merges the groups of every match, which would silently
+    switch an allowlist-only group off.
+  - An `allowlist_only` zone needs at least one linked list, and only allow
+    lists marked "exact domains only" are accepted.
+  - A manual list that a zone uses cannot be removed or changed in a way
+    that breaks the zone.
+- **Blocky configuration for zones**: a ready fragment (`denylists`,
+  `allowlists`, `clientGroupsBlock`) to copy into the Blocky configuration.
+- Two sensors per zone: queries and blocked queries in the last 24 hours.
+- The query log card shows the zone of each client.
+
+### Security
+
+- Zone networks never appear in diagnostics, logs or the card's
+  configuration data.
+- Stored zones are validated again on every read; an invalid one is ignored.
+
 ## 0.5.0
 
 ### Added

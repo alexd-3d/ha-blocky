@@ -61,6 +61,16 @@ DEFAULT_LIST_NETWORKS: Final = ("172.30.32.0/23",)
 # Blocky is asked to reload this long after the last change to a list.
 REFRESH_DEBOUNCE_SECONDS: Final = 10
 
+# Zones: user-defined client groups, used only to tell which policy applies to
+# a client address seen in the query log. Blocky's own config is never changed.
+CONF_ZONES: Final = "zones"
+ZONE_MODE_FILTER: Final = "filter"
+ZONE_MODE_LEARNING: Final = "learning"
+ZONE_MODE_ALLOWLIST_ONLY: Final = "allowlist_only"
+ZONE_MODES: Final = (ZONE_MODE_FILTER, ZONE_MODE_LEARNING, ZONE_MODE_ALLOWLIST_ONLY)
+MAX_ZONES: Final = 16
+MAX_ZONE_NETWORKS: Final = 8
+
 EVENT_LIST_CHANGED: Final = f"{DOMAIN}_list_changed"
 SERVICE_ALLOW_DOMAIN: Final = "allow_domain"
 SERVICE_BLOCK_DOMAIN: Final = "block_domain"

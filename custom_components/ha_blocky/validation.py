@@ -13,6 +13,8 @@ import re
 from collections.abc import Iterable
 from typing import Final
 
+from .const import MAX_ZONE_NETWORKS
+
 MAX_DOMAIN_LENGTH: Final = 253
 MAX_LIST_NAME_LENGTH: Final = 32
 MAX_NETWORKS: Final = 16
@@ -30,6 +32,10 @@ class InvalidDomainError(ValueError):
 
 class InvalidListNameError(ValueError):
     """The value is not an acceptable list name."""
+
+
+class InvalidZoneNameError(ValueError):
+    """The value is not an acceptable zone name."""
 
 
 class InvalidNetworkError(ValueError):
@@ -94,6 +100,13 @@ def validate_list_name(value: object) -> str:
     return value
 
 
+def validate_zone_name(value: object) -> str:
+    """Return a valid zone name (same rule as list names) or raise."""
+    if not isinstance(value, str) or _LIST_NAME_RE.fullmatch(value) is None:
+        raise InvalidZoneNameError("zone name")
+    return value
+
+
 def parse_networks(values: object) -> tuple[IPNetwork, ...]:
     """Parse the networks allowed to fetch lists.
 
@@ -116,6 +129,37 @@ def parse_networks(values: object) -> tuple[IPNetwork, ...]:
         if len(networks) > MAX_NETWORKS:
             raise InvalidNetworkError("too many networks")
     return tuple(networks)
+
+
+def parse_zone_networks(values: object) -> tuple[IPNetwork, ...]:
+    """Parse the networks of a zone: addresses or CIDR, 1 to 8 of them.
+
+    A network that matches every address (prefix length 0) is refused.
+    """
+    if isinstance(values, str) or not isinstance(values, Iterable):
+        raise InvalidNetworkError("not a list")
+    networks: list[IPNetwork] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidNetworkError("not a string")
+        if len(networks) >= MAX_ZONE_NETWORKS:
+            raise InvalidNetworkError("too many networks")
+        try:
+            network = ipaddress.ip_network(value.strip(), strict=False)
+        except ValueError as err:
+            raise InvalidNetworkError("not a network") from err
+        if network.prefixlen == 0:
+            raise InvalidNetworkError("matches every address")
+        networks.append(network)
+    if not networks:
+        raise InvalidNetworkError("no network")
+    return tuple(networks)
+
+
+def networks_overlap(first: Iterable[IPNetwork], second: Iterable[IPNetwork]) -> bool:
+    """Return whether any network of ``first`` overlaps one of ``second``."""
+    others = list(second)
+    return any(a.version == b.version and a.overlaps(b) for a in first for b in others)
 
 
 def address_in_networks(address: object, networks: Iterable[IPNetwork]) -> bool:

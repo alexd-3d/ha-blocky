@@ -18,6 +18,12 @@
       "blocked_total": {
         "default": "mdi:shield-remove"
       },
+      "zone_queries_24h": {
+        "default": "mdi:dns"
+      },
+      "zone_blocked_24h": {
+        "default": "mdi:shield-remove"
+      },
       "queries_24h": {
         "default": "mdi:dns"
       },

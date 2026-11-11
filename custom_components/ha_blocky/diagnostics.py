@@ -12,10 +12,23 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_DB_HOST, CONF_DB_NAME, CONF_DB_PASSWORD, CONF_DB_USERNAME
+from .const import (
+    CONF_DB_HOST,
+    CONF_DB_NAME,
+    CONF_DB_PASSWORD,
+    CONF_DB_USERNAME,
+    CONF_ZONES,
+)
 from .coordinator import BlockyConfigEntry
 
-TO_REDACT = {CONF_URL, CONF_DB_HOST, CONF_DB_NAME, CONF_DB_USERNAME, CONF_DB_PASSWORD}
+TO_REDACT = {
+    CONF_URL,
+    CONF_DB_HOST,
+    CONF_DB_NAME,
+    CONF_DB_USERNAME,
+    CONF_DB_PASSWORD,
+    CONF_ZONES,
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -36,6 +49,16 @@ async def async_get_config_entry_diagnostics(
             "disabled_group_count": len(status.disabled_groups),
             "auto_enable_in_sec": status.auto_enable_in_sec,
         },
+        # Zone networks are client addresses and never appear here.
+        "zones": [
+            {
+                "name": zone.name,
+                "mode": zone.mode,
+                "lists": list(zone.lists),
+                "networks": len(zone.networks),
+            }
+            for zone in data.zones.values()
+        ],
         "query_log": None,
     }
 

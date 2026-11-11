@@ -174,6 +174,7 @@ async def test_config_command(
                     {"name": "deny_default", "type": "deny", "exact_only": False},
                     {"name": "allow_quarantine", "type": "allow", "exact_only": True},
                 ],
+                "zones": [],
             }
         ]
     }

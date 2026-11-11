@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -27,6 +27,7 @@ from .intervals import interval
 if TYPE_CHECKING:
     from .lists import ListManager
     from .stats import BlockyStatsCoordinator
+    from .zones import ZoneDefinition
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ class BlockyData:
     lists: ListManager
     # None when no query log database is configured.
     stats: BlockyStatsCoordinator | None = None
+    # Validated zones, read from the options at setup.
+    zones: dict[str, ZoneDefinition] = field(default_factory=dict)
 
 
 type BlockyConfigEntry = ConfigEntry[BlockyData]

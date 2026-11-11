@@ -83,7 +83,17 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
     source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
 
     steps = set(re.findall(r'step_id="(\w+)"', source))
-    assert steps == {"user", "init", "database", "intervals", "lists", "list_urls"}
+    assert steps == {
+        "user",
+        "init",
+        "database",
+        "intervals",
+        "lists",
+        "list_urls",
+        "zones",
+        "zone_edit",
+        "zone_config",
+    }
     known_steps = set(ENGLISH["config"]["step"]) | set(ENGLISH["options"]["step"])
     assert steps <= known_steps
 
@@ -100,6 +110,28 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
     aborts = set(re.findall(r'async_abort\(reason="(\w+)"\)', source))
     known_aborts = set(ENGLISH["config"]["abort"]) | set(ENGLISH["options"]["abort"])
     assert aborts and aborts <= known_aborts
+
+
+def test_zone_selectors_and_errors_have_english_text() -> None:
+    from custom_components.ha_blocky.const import ZONE_MODES
+
+    source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
+    zones_source = (COMPONENT / "zones.py").read_text(encoding="utf-8")
+
+    selectors = set(re.findall(r'translation_key="(\w+)"', source))
+    assert selectors == {"zone_choice", "zone_mode"}
+    assert selectors <= set(ENGLISH["selector"])
+    assert set(ENGLISH["selector"]["zone_mode"]["options"]) == set(ZONE_MODES)
+    assert "add-new" in ENGLISH["selector"]["zone_choice"]["options"]
+
+    # Every refusal code of a zone has a message; the form maps them to fields.
+    zone_errors = set(re.findall(r'ZoneError\("(\w+)"\)', zones_source))
+    field_errors = set(re.findall(r'"(\w+)": CONF_ZONE\w*', source))
+    assert zone_errors and field_errors
+    assert zone_errors | field_errors <= set(ENGLISH["options"]["error"])
+
+    zone_fields = set(ENGLISH["options"]["step"]["zone_edit"]["data"])
+    assert zone_fields == {"name", "networks", "mode", "lists", "delete"}
 
 
 def test_every_form_field_has_an_english_label() -> None:
