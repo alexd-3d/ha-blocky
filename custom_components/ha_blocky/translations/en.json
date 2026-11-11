@@ -68,6 +68,18 @@
       },
       "list_entries": {
         "name": "List {name}"
+      },
+      "resolved_total": {
+        "name": "Resolved queries"
+      },
+      "cached_total": {
+        "name": "Cached queries"
+      },
+      "local_total": {
+        "name": "Locally answered queries"
+      },
+      "other_total": {
+        "name": "Other queries"
       }
     },
     "binary_sensor": {

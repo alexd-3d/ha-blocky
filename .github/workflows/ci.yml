@@ -40,6 +40,9 @@ jobs:
       - name: Pytest
         run: python -m pytest -q
 
+      - name: Card JavaScript syntax
+        run: node --check custom_components/ha_blocky/frontend/ha-blocky-card.js
+
   hassfest:
     name: Hassfest
     runs-on: ubuntu-latest

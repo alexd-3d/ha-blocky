@@ -59,6 +59,10 @@ DB_OPTIONS = {
 STATS_KEYS = (
     "queries_total",
     "blocked_total",
+    "resolved_total",
+    "cached_total",
+    "local_total",
+    "other_total",
     "queries_24h",
     "blocked_24h",
     "blocked_ratio_24h",
@@ -174,6 +178,10 @@ async def test_statistics_entities_and_ids(
     assert {key: _entity_id(hass, entry, key) for key in (*STATS_KEYS, "database")} == {
         "queries_total": "sensor.ha_blocky_queries",
         "blocked_total": "sensor.ha_blocky_blocked_queries",
+        "resolved_total": "sensor.ha_blocky_resolved_queries",
+        "cached_total": "sensor.ha_blocky_cached_queries",
+        "local_total": "sensor.ha_blocky_locally_answered_queries",
+        "other_total": "sensor.ha_blocky_other_queries",
         "queries_24h": "sensor.ha_blocky_queries_24_h",
         "blocked_24h": "sensor.ha_blocky_blocked_queries_24_h",
         "blocked_ratio_24h": "sensor.ha_blocky_blocked_share_24_h",
@@ -185,7 +193,7 @@ async def test_statistics_entities_and_ids(
         "database": "binary_sensor.ha_blocky_query_log_database",
     }
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 11
+    assert len(entities) == 6 + 15
     assert _state(hass, entry, "database") == STATE_ON
     assert "items" in BlockyTopSensor._unrecorded_attributes
 
@@ -236,6 +244,55 @@ async def test_new_rows_are_counted(
 
     assert _state(hass, entry, "queries_total") == "5"
     assert _state(hass, entry, "blocked_total") == "2"
+
+
+async def test_new_rows_are_counted_by_category(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    log_url: URL,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    entry = await _setup(hass, aioclient_mock, DB_OPTIONS)
+    categories = (
+        "resolved_total",
+        "cached_total",
+        "local_total",
+        "blocked_total",
+        "other_total",
+    )
+    assert [_state(hass, entry, key) for key in categories] == ["0"] * 5
+
+    add_rows(
+        log_url,
+        [
+            log_row(response_type="RESOLVED"),
+            log_row(response_type="RESOLVED"),
+            log_row(response_type="CACHED"),
+            log_row(response_type="CUSTOMDNS"),
+            log_row(response_type="CONDITIONAL"),
+            log_row(response_type="BLOCKED"),
+            log_row(response_type="NOTFQDN"),
+            log_row(response_type="<b>made up</b>"),
+        ],
+    )
+    await _poll(hass, freezer, STATS_INTERVAL)
+
+    counted = {key: int(_state(hass, entry, key)) for key in categories}
+    assert counted == {
+        "resolved_total": 2,
+        "cached_total": 1,
+        "local_total": 2,
+        "blocked_total": 1,
+        "other_total": 2,
+    }
+    assert sum(counted.values()) == int(_state(hass, entry, "queries_total")) == 8
+
+    add_rows(log_url, [log_row(response_type="CACHED")])
+    await _poll(hass, freezer, STATS_INTERVAL)
+
+    assert _state(hass, entry, "cached_total") == "2"
+    assert _state(hass, entry, "resolved_total") == "2"
+    assert _state(hass, entry, "queries_total") == "9"
 
 
 async def test_top_lists_refresh_on_their_own_interval(

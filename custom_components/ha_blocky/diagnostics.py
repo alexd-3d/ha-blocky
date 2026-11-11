@@ -51,6 +51,7 @@ async def async_get_config_entry_diagnostics(
                 {
                     "queries_total": stats.queries_total,
                     "blocked_total": stats.blocked_total,
+                    "category_totals": stats.category_totals,
                     "queries_24h": stats.summary.queries,
                     "blocked_24h": stats.summary.blocked,
                     "clients_24h": stats.summary.clients,

@@ -5,9 +5,9 @@ DNS proxy and ad-blocker.
 
 > **Status: early development.** The integration can pause and resume blocking,
 > refresh lists, flush the cache, report whether Blocky is reachable, show
-> statistics from Blocky's query log database and manage manual allow and
-> deny lists. The query log browser and the approval workflow are not
-> implemented yet.
+> statistics from Blocky's query log database, manage manual allow and deny
+> lists and browse the query log in a dashboard card. The approval workflow
+> is not implemented yet.
 
 ## Goals
 

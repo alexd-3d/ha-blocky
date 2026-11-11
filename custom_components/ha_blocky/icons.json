@@ -41,6 +41,18 @@
       },
       "list_entries": {
         "default": "mdi:format-list-checks"
+      },
+      "resolved_total": {
+        "default": "mdi:dns-outline"
+      },
+      "cached_total": {
+        "default": "mdi:cached"
+      },
+      "local_total": {
+        "default": "mdi:home-outline"
+      },
+      "other_total": {
+        "default": "mdi:help-circle-outline"
       }
     },
     "button": {

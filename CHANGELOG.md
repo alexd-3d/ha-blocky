@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- **Query log card** (`custom:ha-blocky-card`). The integration registers it
+  itself; add it from the dashboard card picker as "HA-Blocky query log".
+  - Search by domain and by client address, filter by status and period.
+  - Click a column header to sort the loaded rows; "Load more" fetches the
+    next page.
+  - **Allow** and **Block** buttons on each row add the domain to one of the
+    manual lists.
+  - Options: `title`, `entry_id`, `page_size` (10 to 200, default 50) and
+    `auto_refresh` in seconds (off by default, at least 10).
+  - English and Ukrainian texts.
+- Running totals by kind of answer: **Resolved queries**, **Cached
+  queries**, **Locally answered queries** and **Other queries**, next to
+  the existing **Blocked queries**. Every query is counted in exactly one
+  of the five, so they can be stacked in one bar per period.
+
+### Security
+
+- The card and its two WebSocket commands are for administrators only.
+- Values from the log are always shown as plain text and never interpreted
+  as markup. The card loads nothing from outside Home Assistant.
+- The domain search is literal: `%` and `_` match themselves.
+
 ## 0.4.0
 
 ### Added

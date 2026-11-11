@@ -148,7 +148,7 @@ async def test_every_entity_has_an_english_name(
     await hass.async_block_till_done()
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 11 + 3
+    assert len(entities) == 6 + 15 + 3
     for entity in entities:
         assert entity.translation_key, entity.entity_id
         assert entity.translation_key in ENGLISH["entity"][entity.domain], (

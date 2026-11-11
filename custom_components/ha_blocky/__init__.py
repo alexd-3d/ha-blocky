@@ -23,11 +23,13 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
+from .frontend import async_register_card
 from .http import async_register_view
 from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
 from .lists import ListManager, storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
+from .websocket_api import async_register_commands
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,9 +45,11 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the integration: its service actions and the list endpoint."""
+    """Set up actions, the list endpoint, the card and its commands."""
     async_setup_services(hass)
     async_register_view(hass)
+    async_register_commands(hass)
+    await async_register_card(hass)
     return True
 
 
