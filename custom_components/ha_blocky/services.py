@@ -24,24 +24,37 @@ from homeassistant.helpers.service import async_register_admin_service
 from .api import MAX_DISABLE_SECONDS, BlockyError, validate_group_names
 from .const import (
     ATTR_ACTION,
+    ATTR_CLIENT,
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DOMAIN,
     ATTR_DURATION,
     ATTR_GROUPS,
     ATTR_LIST,
+    ATTR_PHASE,
+    ATTR_REQUEST_ID,
     DOMAIN,
     EVENT_LIST_CHANGED,
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
+    PHASES,
+    REQUEST_ACTION_APPROVE,
+    REQUEST_ACTION_BLOCK,
+    REQUEST_ACTION_REJECT,
     SERVICE_ALLOW_DOMAIN,
+    SERVICE_APPROVE_REQUEST,
     SERVICE_BLOCK_DOMAIN,
+    SERVICE_BLOCK_REQUEST,
     SERVICE_DISABLE_BLOCKING,
     SERVICE_GET_LIST,
+    SERVICE_GET_REQUESTS,
+    SERVICE_REJECT_REQUEST,
     SERVICE_REMOVE_DOMAIN,
     SERVICE_ROTATE_LIST_TOKEN,
+    SERVICE_SET_CLIENT_PHASE,
 )
 from .coordinator import BlockyConfigEntry
 from .lists import ListError
+from .requests import RequestError, RequestTracker
 
 DISABLE_BLOCKING_SCHEMA = vol.Schema(
     {
@@ -67,6 +80,31 @@ GET_LIST_SCHEMA = vol.Schema(
 )
 
 ENTRY_ONLY_SCHEMA = vol.Schema({vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string})
+
+_REQUEST_ID = vol.All(cv.string, vol.Length(min=1, max=64))
+
+APPROVE_REQUEST_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Required(ATTR_REQUEST_ID): _REQUEST_ID,
+        vol.Optional(ATTR_LIST): cv.string,
+    }
+)
+
+REQUEST_ID_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Required(ATTR_REQUEST_ID): _REQUEST_ID,
+    }
+)
+
+SET_CLIENT_PHASE_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Required(ATTR_CLIENT): vol.All(cv.string, vol.Length(max=64)),
+        vol.Required(ATTR_PHASE): vol.In(PHASES),
+    }
+)
 
 
 def _get_entry(hass: HomeAssistant, call: ServiceCall) -> BlockyConfigEntry:
@@ -175,6 +213,55 @@ async def _async_rotate_list_token(call: ServiceCall) -> None:
     _fire_list_changed(call, entry, "rotate_token", "", "")
 
 
+def _get_tracker(call: ServiceCall) -> tuple[BlockyConfigEntry, RequestTracker]:
+    """Return the entry and its request tracker, which needs the query log."""
+    entry = _get_entry(call.hass, call)
+    tracker = entry.runtime_data.requests
+    if tracker is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="no_query_log"
+        )
+    return entry, tracker
+
+
+def _request_failure(err: RequestError) -> ServiceValidationError:
+    return ServiceValidationError(translation_domain=DOMAIN, translation_key=err.code)
+
+
+def _make_resolve_handler(action: str) -> Any:
+    async def _async_resolve(call: ServiceCall) -> None:
+        _entry, tracker = _get_tracker(call)
+        try:
+            tracker.async_resolve(
+                call.data[ATTR_REQUEST_ID],
+                action,
+                call.data.get(ATTR_LIST),
+                call.context,
+            )
+        except RequestError as err:
+            raise _request_failure(err) from err
+
+    return _async_resolve
+
+
+async def _async_get_requests(call: ServiceCall) -> ServiceResponse:
+    """Return the requests waiting for a decision."""
+    _entry, tracker = _get_tracker(call)
+    return {
+        "requests": tracker.describe_requests(),
+        "clients": tracker.describe_clients(),
+    }
+
+
+async def _async_set_client_phase(call: ServiceCall) -> None:
+    """Switch a client of an allowlist-only zone between learning and locked."""
+    _entry, tracker = _get_tracker(call)
+    try:
+        tracker.async_set_client_phase(call.data[ATTR_CLIENT], call.data[ATTR_PHASE])
+    except RequestError as err:
+        raise _request_failure(err) from err
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the integration's service actions (administrators only)."""
@@ -220,4 +307,40 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_ROTATE_LIST_TOKEN,
         _async_rotate_list_token,
         schema=ENTRY_ONLY_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_APPROVE_REQUEST,
+        _make_resolve_handler(REQUEST_ACTION_APPROVE),
+        schema=APPROVE_REQUEST_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_REJECT_REQUEST,
+        _make_resolve_handler(REQUEST_ACTION_REJECT),
+        schema=REQUEST_ID_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_BLOCK_REQUEST,
+        _make_resolve_handler(REQUEST_ACTION_BLOCK),
+        schema=REQUEST_ID_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_GET_REQUESTS,
+        _async_get_requests,
+        schema=ENTRY_ONLY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_SET_CLIENT_PHASE,
+        _async_set_client_phase,
+        schema=SET_CLIENT_PHASE_SCHEMA,
     )

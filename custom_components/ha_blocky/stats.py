@@ -20,6 +20,7 @@ from .zones import ZoneDefinition, zone_for_address
 
 if TYPE_CHECKING:
     from .coordinator import BlockyConfigEntry
+    from .requests import RequestTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,6 +90,8 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
         )
         self.database = database
         self.zones: Mapping[str, ZoneDefinition] = zones or {}
+        # Set by the setup; driven after every successful round.
+        self.requests: RequestTracker | None = None
         self.tops_interval = interval(entry.options, CONF_TOPS_INTERVAL)
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.stats"
@@ -194,6 +197,11 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             self._tops_at = now
         self._store.async_delay_save(self._stored, SAVE_DELAY_SECONDS)
 
+        if self.requests is not None:
+            # Never raises: a failure there is logged and counted, not shown
+            # as a statistics failure.
+            await self.requests.async_round()
+
         return QueryStats(
             queries_total=self._queries_total,
             blocked_total=self._blocked_total,
@@ -208,6 +216,8 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
     async def async_close(self) -> None:
         """Save state and close the database."""
         await self.async_save()
+        if self.requests is not None:
+            await self.requests.async_close()
         await self.hass.async_add_executor_job(self.database.close)
 
 

@@ -145,6 +145,7 @@ async def open_options_step(
         "list_urls",
         "zones",
         "zone_config",
+        "new_domains",
     ]
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}
@@ -195,7 +196,7 @@ async def test_statistics_entities_and_ids(
         "database": "binary_sensor.ha_blocky_query_log_database",
     }
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 15
+    assert len(entities) == 6 + 15 + 2
     assert _state(hass, entry, "database") == STATE_ON
     assert "items" in BlockyTopSensor._unrecorded_attributes
 

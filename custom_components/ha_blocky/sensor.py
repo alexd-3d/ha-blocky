@@ -24,6 +24,7 @@ from .coordinator import BlockyConfigEntry
 from .db import TopItem
 from .entity import BlockyEntity, BlockyStatsEntity, device_info
 from .lists import ListManager
+from .requests import RequestTracker
 from .stats import BlockyStatsCoordinator, QueryStats, blocked_ratio
 
 PARALLEL_UPDATES = 0
@@ -31,6 +32,7 @@ PARALLEL_UPDATES = 0
 UNIT_QUERIES = "queries"
 UNIT_CLIENTS = "clients"
 UNIT_ENTRIES = "entries"
+UNIT_REQUESTS = "requests"
 LIST_SENSOR_PREFIX = "list_"
 ZONE_SENSOR_PREFIX = "zone_"
 ZONE_SENSOR_SUFFIXES = ("queries_24h", "blocked_24h")
@@ -179,6 +181,8 @@ async def async_setup_entry(
             for zone in data.zones
             for blocked in (False, True)
         )
+    if data.requests is not None:
+        entities.append(PendingRequestsSensor(entry.entry_id, data.requests))
     entities.extend(
         BlockyListSensor(entry.entry_id, data.lists, name)
         for name in data.lists.definitions
@@ -249,6 +253,36 @@ class BlockyListSensor(SensorEntity):
     def native_value(self) -> int:
         """Return the number of entries."""
         return self._lists.count(self._list_name)
+
+
+class PendingRequestsSensor(SensorEntity):
+    """How many requests for new domains wait for a decision.
+
+    The requests themselves (clients and domains) are not exposed here.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_translation_key = "pending_requests"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UNIT_REQUESTS
+
+    def __init__(self, entry_id: str, tracker: RequestTracker) -> None:
+        """Initialize the sensor."""
+        self._tracker = tracker
+        self._attr_unique_id = f"{entry_id}_pending_requests"
+        self._attr_device_info = device_info(entry_id)
+
+    async def async_added_to_hass(self) -> None:
+        """Follow changes of the requests."""
+        self.async_on_remove(
+            self._tracker.async_add_listener(self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of pending requests."""
+        return self._tracker.pending_count
 
 
 class BlockingResumesAtSensor(BlockyEntity, SensorEntity):

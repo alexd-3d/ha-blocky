@@ -109,3 +109,51 @@ INTERVALS: Final = {
 }
 # The window of the summary and top-list sensors.
 STATS_WINDOW: Final = timedelta(hours=24)
+
+# Requests for new domains: what the clients of "learning" and
+# "allowlist_only" zones ask for, read from the query log.
+CONF_REPORT_EXISTING_DOMAINS: Final = "report_existing_domains"
+EVENT_NEW_DOMAIN: Final = f"{DOMAIN}_new_domain"
+EVENT_UNEXPECTED_DOMAIN: Final = f"{DOMAIN}_unexpected_domain"
+EVENT_ZONE_LEAK: Final = f"{DOMAIN}_zone_leak"
+EVENT_NEW_DOMAINS_SUMMARY: Final = f"{DOMAIN}_new_domains_summary"
+SERVICE_APPROVE_REQUEST: Final = "approve_request"
+SERVICE_REJECT_REQUEST: Final = "reject_request"
+SERVICE_BLOCK_REQUEST: Final = "block_request"
+SERVICE_GET_REQUESTS: Final = "get_requests"
+SERVICE_SET_CLIENT_PHASE: Final = "set_client_phase"
+ATTR_REQUEST_ID: Final = "request_id"
+ATTR_CLIENT: Final = "client"
+ATTR_PHASE: Final = "phase"
+REQUEST_ACTION_APPROVE: Final = "approve"
+REQUEST_ACTION_REJECT: Final = "reject"
+REQUEST_ACTION_BLOCK: Final = "block"
+REQUEST_ACTIONS: Final = (
+    REQUEST_ACTION_APPROVE,
+    REQUEST_ACTION_REJECT,
+    REQUEST_ACTION_BLOCK,
+)
+# A client of an allowlist-only zone is either still being learned (blocked
+# domains become requests) or locked (blocked domains are only reported).
+PHASE_LEARNING: Final = "learning"
+PHASE_LOCKED: Final = "locked"
+PHASES: Final = (PHASE_LEARNING, PHASE_LOCKED)
+
+# Hard caps; the state is kept in memory and in one store.
+MAX_REQUEST_CLIENTS: Final = 256
+MAX_KNOWN_PAIRS_PER_CLIENT: Final = 1000
+MAX_PENDING_REQUESTS: Final = 200
+MAX_REJECTED_PAIRS_PER_CLIENT: Final = 500
+MAX_LEAKS_PER_CLIENT: Final = 200
+# Log rows read per statistics round.
+REQUEST_WINDOW_ROWS: Final = 5000
+# Silent baseline of a new client in a learning zone: its names of this long
+# ago are taken as known, for at most this many clients per round.
+BASELINE_WINDOW: Final = timedelta(days=7)
+MAX_BASELINE_CLIENTS_PER_ROUND: Final = 10
+REQUEST_TTL: Final = timedelta(hours=24)
+# Per client: at most this many events in the window; the rest is summarised.
+EVENT_RATE_LIMIT: Final = 5
+EVENT_RATE_WINDOW: Final = timedelta(minutes=10)
+# A leak keeps the problem sensor on, and is not reported again, this long.
+LEAK_WINDOW: Final = timedelta(hours=1)

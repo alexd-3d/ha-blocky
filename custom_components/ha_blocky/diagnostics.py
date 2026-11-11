@@ -87,6 +87,9 @@ async def async_get_config_entry_diagnostics(
                     ],
                 }
             )
+        # Counts only: no client address and no domain.
+        if data.requests is not None:
+            query_log["requests"] = data.requests.diagnostics()
         diagnostics["query_log"] = query_log
 
     return diagnostics

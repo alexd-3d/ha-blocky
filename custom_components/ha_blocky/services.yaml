@@ -82,3 +82,70 @@ rotate_list_token:
       selector:
         config_entry:
           integration: ha_blocky
+
+approve_request:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    request_id:
+      required: true
+      selector:
+        text:
+    list:
+      required: false
+      selector:
+        text:
+
+reject_request:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    request_id:
+      required: true
+      selector:
+        text:
+
+block_request:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    request_id:
+      required: true
+      selector:
+        text:
+
+get_requests:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+
+set_client_phase:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    client:
+      required: true
+      selector:
+        text:
+    phase:
+      required: true
+      selector:
+        select:
+          options:
+            - learning
+            - locked

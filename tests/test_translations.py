@@ -93,6 +93,7 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
         "zones",
         "zone_edit",
         "zone_config",
+        "new_domains",
     }
     known_steps = set(ENGLISH["config"]["step"]) | set(ENGLISH["options"]["step"])
     assert steps <= known_steps
@@ -142,6 +143,7 @@ def test_every_form_field_has_an_english_label() -> None:
         ("options", "database"): config_flow.STEP_DATABASE_SCHEMA,
         ("options", "intervals"): config_flow.STEP_INTERVALS_SCHEMA,
         ("options", "lists"): config_flow.STEP_LISTS_SCHEMA,
+        ("options", "new_domains"): config_flow.STEP_NEW_DOMAINS_SCHEMA,
     }
     for (flow, step), schema in schemas.items():
         labels = ENGLISH[flow]["step"][step]["data"]
@@ -180,7 +182,7 @@ async def test_every_entity_has_an_english_name(
     await hass.async_block_till_done()
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 15 + 3
+    assert len(entities) == 6 + 15 + 3 + 2
     for entity in entities:
         assert entity.translation_key, entity.entity_id
         assert entity.translation_key in ENGLISH["entity"][entity.domain], (

@@ -1,0 +1,179 @@
+blueprint:
+  name: HA-Blocky requests and alarms through Telegram
+  description: >-
+    Example of how to act on the events of the HA-Blocky integration. Requests
+    for new domains are sent to a Telegram chat with inline buttons; pressing
+    one calls the matching HA-Blocky action. Unexpected domains, zone leaks and
+    flood summaries are sent as plain alarms. Messages are plain text, because
+    domains and client addresses come from the DNS log.
+
+
+    Only the Telegram user ids you list can press a button, and each button
+    can only approve, reject or block one request id. Needs the Telegram bot
+    integration of Home Assistant with polling or webhooks that deliver the
+    telegram_callback event.
+  domain: automation
+  source_url: https://github.com/alexd-3d/ha-blocky/blob/main/blueprints/automation/ha_blocky/telegram_requests.yaml
+  input:
+    requests_chat_id:
+      name: Chat for requests
+      description: Telegram chat id that receives requests with buttons.
+      selector:
+        text:
+    alarms_chat_id:
+      name: Chat for alarms
+      description: >-
+        Telegram chat id that receives unexpected domains, zone leaks and
+        summaries of suppressed events.
+      selector:
+        text:
+    allowed_user_ids:
+      name: Allowed Telegram user ids
+      description: >-
+        Telegram user ids that may press the buttons. Required: with an empty
+        list no button does anything.
+      selector:
+        text:
+          multiple: true
+
+mode: queued
+max: 10
+
+variables:
+  requests_chat: !input requests_chat_id
+  alarms_chat: !input alarms_chat_id
+  allowed_users: !input allowed_user_ids
+
+triggers:
+  - trigger: event
+    event_type: ha_blocky_new_domain
+    id: new_domain
+  - trigger: event
+    event_type: ha_blocky_unexpected_domain
+    id: alarm
+  - trigger: event
+    event_type: ha_blocky_zone_leak
+    id: alarm
+  - trigger: event
+    event_type: ha_blocky_new_domains_summary
+    id: summary
+  - trigger: event
+    event_type: telegram_callback
+    id: callback
+
+actions:
+  - choose:
+      # A request with its buttons.
+      - conditions:
+          - condition: trigger
+            id: new_domain
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.request_id is string
+                 and trigger.event.data.request_id | length > 0 }}
+        sequence:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: "{{ requests_chat }}"
+              parse_mode: plain_text
+              message: >-
+                New domain in zone {{ trigger.event.data.zone }}:
+                {{ trigger.event.data.client }} asked for
+                {{ trigger.event.data.domain }}
+              inline_keyboard: >-
+                {% set command = {
+                  'approve': '/blocky_approve',
+                  'reject': '/blocky_reject',
+                  'block': '/blocky_block',
+                  'dismiss': '/blocky_reject'} %}
+                {% set label = {
+                  'approve': 'Approve',
+                  'reject': 'Reject',
+                  'block': 'Block',
+                  'dismiss': 'Dismiss'} %}
+                {% set ns = namespace(row=[]) %}
+                {% for name in trigger.event.data.actions if name in command %}
+                {% set ns.row = ns.row + [[label[name], command[name] ~ ' ' ~ trigger.event.data.request_id]] %}
+                {% endfor %}
+                {{ [ns.row] }}
+      # Alarms: no buttons.
+      - conditions:
+          - condition: trigger
+            id: alarm
+        sequence:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: "{{ alarms_chat }}"
+              parse_mode: plain_text
+              message: >-
+                {% if trigger.event.event_type == 'ha_blocky_zone_leak' %}
+                Leak in zone {{ trigger.event.data.zone }}: {{ trigger.event.data.client }}
+                got an answer for {{ trigger.event.data.domain }}, which is on no allow list.
+                {% else %}
+                Unexpected domain in zone {{ trigger.event.data.zone }}:
+                {{ trigger.event.data.client }} asked for {{ trigger.event.data.domain }}.
+                {% endif %}
+      - conditions:
+          - condition: trigger
+            id: summary
+        sequence:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: "{{ alarms_chat }}"
+              parse_mode: plain_text
+              message: >-
+                {{ trigger.event.data.suppressed }} more new-domain events from
+                {{ trigger.event.data.client }} (zone {{ trigger.event.data.zone }})
+                were held back.
+      # A button was pressed.
+      - conditions:
+          - condition: trigger
+            id: callback
+          # The sender must be on the list; an empty list allows nobody.
+          - condition: template
+            value_template: >-
+              {{ allowed_users | length > 0
+                 and trigger.event.data.user_id is defined
+                 and (trigger.event.data.user_id | string) in (allowed_users | map('string') | list) }}
+          # Only the three known command words.
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.command in
+                 ['/blocky_approve', '/blocky_reject', '/blocky_block'] }}
+          # Exactly one argument, shaped like a request id.
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.args is defined
+                 and trigger.event.data.args | length == 1
+                 and trigger.event.data.args[0] is match('^[A-Za-z0-9_-]{16,64}$') }}
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.event.data.command == '/blocky_approve' }}"
+                sequence:
+                  - action: ha_blocky.approve_request
+                    data:
+                      request_id: "{{ trigger.event.data.args[0] }}"
+                    continue_on_error: true
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.event.data.command == '/blocky_reject' }}"
+                sequence:
+                  - action: ha_blocky.reject_request
+                    data:
+                      request_id: "{{ trigger.event.data.args[0] }}"
+                    continue_on_error: true
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.event.data.command == '/blocky_block' }}"
+                sequence:
+                  - action: ha_blocky.block_request
+                    data:
+                      request_id: "{{ trigger.event.data.args[0] }}"
+                    continue_on_error: true
+          - action: telegram_bot.answer_callback_query
+            data:
+              callback_query_id: "{{ trigger.event.data.id }}"
+              message: Sent to Home Assistant.
+              show_alert: false

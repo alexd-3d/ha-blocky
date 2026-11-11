@@ -89,7 +89,7 @@ def test_card_loads_nothing_from_outside() -> None:
 
 
 def test_card_stays_small() -> None:
-    assert len(SOURCE.splitlines()) <= 600
+    assert len(SOURCE.splitlines()) <= 1000
 
 
 def _texts(language: str) -> dict[str, str]:
@@ -116,6 +116,46 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     used |= set(re.findall(r'label: "(\w+)"', SOURCE))
     assert used <= set(english)
     assert "TEXT_EN[key]" in SOURCE
+
+
+def test_requests_tab_uses_the_commands_and_only_known_actions() -> None:
+    assert "`${DOMAIN}/requests`" in SOURCE
+    assert "`${DOMAIN}/resolve_request`" in SOURCE
+    assert '"set_client_phase"' in SOURCE
+    assert "callService(DOMAIN" in SOURCE
+    # Dismiss is a rejection; the card sends nothing but these three actions.
+    assert re.search(r"ACTION_OF = \{[^}]*dismiss: \"reject\"", SOURCE)
+    actions = re.search(r"ACTION_OF = \{([^}]*)\}", SOURCE)
+    assert actions is not None
+    assert set(re.findall(r'"(\w+)"', actions.group(1))) == {
+        "approve",
+        "reject",
+        "block",
+    }
+    assert 'PHASES = ["learning", "locked"]' in SOURCE
+    # The device name comes from the "ip" attribute of device trackers.
+    assert 'startsWith("device_tracker.")' in SOURCE
+    assert "attributes.ip" in SOURCE
+    # Buttons of a request in flight are disabled.
+    assert "button.disabled = busy" in SOURCE
+
+
+def test_requests_tab_never_builds_style_or_links_from_data() -> None:
+    for sink in (".style", 'setAttribute("style"', "href", "src=", "location"):
+        assert sink not in SOURCE.split("const STYLE")[0] + SOURCE.split("`;", 1)[1], (
+            sink
+        )
+
+
+def test_requests_tab_texts_exist_in_both_languages() -> None:
+    english = _texts("en")
+    ukrainian = _texts("uk")
+    keys = {f"act_{name}" for name in ("approve", "reject", "block", "dismiss")}
+    keys |= {f"phase_{phase}" for phase in ("learning", "locked")}
+    keys |= {"tab_log", "tab_requests", "req_none", "req_error", "req_phases"}
+    keys |= {"req_client", "req_zone", "req_domain", "req_age", "unit_min", "unit_h"}
+    assert keys <= set(english)
+    assert keys <= set(ukrainian)
 
 
 def test_card_javascript_is_valid() -> None:
