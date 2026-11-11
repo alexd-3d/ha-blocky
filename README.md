@@ -4,9 +4,10 @@ A Home Assistant custom integration for the [Blocky](https://github.com/0xERR0R/
 DNS proxy and ad-blocker.
 
 > **Status: early development.** The integration can pause and resume blocking,
-> refresh lists, flush the cache, report whether Blocky is reachable and show
-> statistics from Blocky's query log database. The query log browser and list
-> management are not implemented yet.
+> refresh lists, flush the cache, report whether Blocky is reachable, show
+> statistics from Blocky's query log database and manage manual allow and
+> deny lists. The query log browser and the approval workflow are not
+> implemented yet.
 
 ## Goals
 

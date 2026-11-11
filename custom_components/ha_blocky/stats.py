@@ -12,8 +12,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STATS_INTERVAL, STATS_WINDOW, TOPS_INTERVAL
+from .const import CONF_STATS_INTERVAL, CONF_TOPS_INTERVAL, DOMAIN, STATS_WINDOW
 from .db import BlockyDbError, QueryLogDatabase, Summary, TopItem
+from .intervals import interval
 
 if TYPE_CHECKING:
     from .coordinator import BlockyConfigEntry
@@ -73,9 +74,10 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN}_stats",
-            update_interval=STATS_INTERVAL,
+            update_interval=interval(entry.options, CONF_STATS_INTERVAL),
         )
         self.database = database
+        self.tops_interval = interval(entry.options, CONF_TOPS_INTERVAL)
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.stats"
         )
@@ -144,7 +146,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
 
     async def _async_update_data(self) -> QueryStats:
         now = dt_util.utcnow()
-        with_tops = self._tops_at is None or now - self._tops_at >= TOPS_INTERVAL
+        with_tops = self._tops_at is None or now - self._tops_at >= self.tops_interval
         try:
             collected = await self.hass.async_add_executor_job(
                 self._collect, self._last_id, with_tops

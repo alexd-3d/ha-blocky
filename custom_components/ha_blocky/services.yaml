@@ -14,3 +14,71 @@ disable_blocking:
       selector:
         text:
           multiple: true
+
+allow_domain:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    list:
+      required: true
+      selector:
+        text:
+    domain:
+      required: true
+      selector:
+        text:
+
+block_domain:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    list:
+      required: true
+      selector:
+        text:
+    domain:
+      required: true
+      selector:
+        text:
+
+remove_domain:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    list:
+      required: true
+      selector:
+        text:
+    domain:
+      required: true
+      selector:
+        text:
+
+get_list:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky
+    list:
+      required: true
+      selector:
+        text:
+
+rotate_list_token:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_blocky

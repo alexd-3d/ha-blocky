@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- Manual allow and deny lists, managed from Home Assistant and downloaded by
+  Blocky:
+  - Define any number of named lists in **Configure → Manual lists**. A list
+    can be marked as accepting only exact domain names, without wildcards.
+  - Actions `ha_blocky.allow_domain`, `ha_blocky.block_domain`,
+    `ha_blocky.remove_domain` and `ha_blocky.get_list`. Blocky is asked to
+    reload its lists once, shortly after the last change.
+  - **Configure → List addresses for Blocky** shows the address of each list
+    to add as a source in Blocky's configuration.
+  - A sensor per list with the number of entries.
+  - The `ha_blocky_list_changed` event records every change together with
+    the user who made it.
+- Update intervals in **Configure → Update intervals**: blocking status,
+  query counters and top lists.
+
+### Changed
+
+- The **Configure** dialog is now a menu.
+
+### Security
+
+- Lists are served from the integration's only endpoint without a Home
+  Assistant login, because Blocky cannot log in. Access needs a 256-bit token
+  in the address and a client inside the configured networks; by default only
+  Home Assistant apps (add-ons) qualify. The token can be replaced with
+  `ha_blocky.rotate_list_token`.
+- List entries are limited to domain names and an optional leading `*.`.
+  Blocky's regular expressions and entries broader than a domain are refused.
+- All list actions are restricted to administrators.
+
 ## 0.3.0
 
 ### Added

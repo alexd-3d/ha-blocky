@@ -91,7 +91,13 @@ STATEMENT_TIMEOUT_SECONDS: Final = 10
 CONNECT_TIMEOUT_SECONDS: Final = 5
 
 _HOST_RE: Final = re.compile(r"[A-Za-z0-9]([A-Za-z0-9._-]{0,251}[A-Za-z0-9])?")
-_IDENTIFIER_RE: Final = re.compile(r"[A-Za-z0-9_$-]{1,64}")
+_DATABASE_RE: Final = re.compile(r"[A-Za-z0-9_$-]{1,64}")
+# The characters the Home Assistant MariaDB app accepts in a user name; the
+# value is passed to the driver as a quoted URL component, never spliced
+# into SQL.
+_USERNAME_RE: Final = re.compile(
+    r"[A-Za-z0-9_.@$-]([A-Za-z0-9_.@$ -]{0,126}[A-Za-z0-9_.@$-])?"
+)
 _GRANT_RE: Final = re.compile(r"^GRANT\s+(?P<privileges>.+?)\s+ON\s+", re.IGNORECASE)
 _PAREN_RE: Final = re.compile(r"\([^)]*\)")
 
@@ -163,9 +169,9 @@ def validate_settings(
         raise BlockyDbSettingsError("host")
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
         raise BlockyDbSettingsError("port")
-    if not isinstance(database, str) or _IDENTIFIER_RE.fullmatch(database) is None:
+    if not isinstance(database, str) or _DATABASE_RE.fullmatch(database) is None:
         raise BlockyDbSettingsError("database")
-    if not isinstance(username, str) or _IDENTIFIER_RE.fullmatch(username) is None:
+    if not isinstance(username, str) or _USERNAME_RE.fullmatch(username) is None:
         raise BlockyDbSettingsError("username")
     if (
         not isinstance(password, str)

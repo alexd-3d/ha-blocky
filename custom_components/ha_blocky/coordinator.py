@@ -18,12 +18,14 @@ from .api import BlockingStatus, BlockyClient, BlockyError
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DISABLED_GROUPS,
+    CONF_STATUS_INTERVAL,
     DOMAIN,
     EVENT_BLOCKING_DISABLED_EXTERNALLY,
-    UPDATE_INTERVAL,
 )
+from .intervals import interval
 
 if TYPE_CHECKING:
+    from .lists import ListManager
     from .stats import BlockyStatsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class BlockyData:
     """Runtime objects of one config entry."""
 
     coordinator: BlockyCoordinator
+    lists: ListManager
     # None when no query log database is configured.
     stats: BlockyStatsCoordinator | None = None
 
@@ -59,7 +62,7 @@ class BlockyCoordinator(DataUpdateCoordinator[BlockingStatus]):
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=interval(entry.options, CONF_STATUS_INTERVAL),
         )
         self.client = client
         # Minutes of the pause started through the switch or the select; None

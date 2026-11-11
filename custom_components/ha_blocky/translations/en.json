@@ -65,6 +65,9 @@
       },
       "top_clients": {
         "name": "Top clients"
+      },
+      "list_entries": {
+        "name": "List {name}"
       }
     },
     "binary_sensor": {
@@ -116,11 +119,98 @@
           "description": "Blocking groups to pause. Leave empty to pause all of them."
         }
       }
+    },
+    "allow_domain": {
+      "name": "Allow domain",
+      "description": "Adds a domain to an allow list. Blocky reloads its lists shortly afterwards.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "list": {
+          "name": "List",
+          "description": "Name of the manual list."
+        },
+        "domain": {
+          "name": "Domain",
+          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+        }
+      }
+    },
+    "block_domain": {
+      "name": "Block domain",
+      "description": "Adds a domain to a deny list. Blocky reloads its lists shortly afterwards.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "list": {
+          "name": "List",
+          "description": "Name of the manual list."
+        },
+        "domain": {
+          "name": "Domain",
+          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+        }
+      }
+    },
+    "remove_domain": {
+      "name": "Remove domain",
+      "description": "Removes a domain from a manual list.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "list": {
+          "name": "List",
+          "description": "Name of the manual list."
+        },
+        "domain": {
+          "name": "Domain",
+          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+        }
+      }
+    },
+    "get_list": {
+      "name": "Get list",
+      "description": "Returns the entries of a manual list.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "list": {
+          "name": "List",
+          "description": "Name of the manual list."
+        }
+      }
+    },
+    "rotate_list_token": {
+      "name": "Rotate list token",
+      "description": "Replaces the secret token in the list addresses. Blocky's configuration must be updated with the new addresses afterwards.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "HA-Blocky options",
+        "menu_options": {
+          "database": "Query log database",
+          "intervals": "Update intervals",
+          "lists": "Manual lists",
+          "list_urls": "List addresses for Blocky"
+        }
+      },
+      "database": {
         "title": "Query log database",
         "description": "Optional. Connect to the MySQL or MariaDB database Blocky writes its query log to. Use an account that can only read: an account with write privileges is refused. Leave the host empty to switch the query log off.",
         "data": {
@@ -134,6 +224,40 @@
           "db_host": "Hostname or IP address of the database server.",
           "db_password": "Enter it again whenever you change these settings."
         }
+      },
+      "intervals": {
+        "title": "Update intervals",
+        "description": "How often Home Assistant asks Blocky and the query log database for new data. Blocky itself writes the query log in batches, by default every 30 seconds, so polling faster than that shows nothing new.",
+        "data": {
+          "status_interval": "Blocking status",
+          "stats_interval": "Query counters and 24 hour summary",
+          "tops_interval": "Top lists"
+        },
+        "data_description": {
+          "status_interval": "10 to 600 seconds. Default: 30.",
+          "stats_interval": "30 to 3600 seconds. Default: 60.",
+          "tops_interval": "30 to 3600 seconds. Default: 300. Top lists are the heaviest queries; they are never refreshed more often than the counters."
+        }
+      },
+      "lists": {
+        "title": "Manual lists",
+        "description": "Define the lists you manage from Home Assistant. Blocky downloads each one from Home Assistant; which client group uses which list is set in Blocky's own configuration. Removing a name here deletes that list and its entries.",
+        "data": {
+          "allow_lists": "Allow lists",
+          "deny_lists": "Deny lists",
+          "exact_only_lists": "Lists without wildcards",
+          "list_networks": "Clients allowed to download lists"
+        },
+        "data_description": {
+          "allow_lists": "Names of allow lists: lower-case letters, digits and underscores, up to 32 characters.",
+          "deny_lists": "Names of deny lists, same rules.",
+          "exact_only_lists": "Lists named here accept only exact domain names, never a leading wildcard. Use this for lists that grant access.",
+          "list_networks": "Networks in CIDR notation. Only clients in them can download a list. The default is the network of Home Assistant apps (add-ons)."
+        }
+      },
+      "list_urls": {
+        "title": "List addresses for Blocky",
+        "description": "Add these addresses as list sources in Blocky's configuration. Each one contains a secret token: anyone who knows an address and connects from an allowed network can read that list.\n\n{urls}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
       }
     },
     "error": {
@@ -141,7 +265,16 @@
       "db_driver_missing": "No MySQL driver is installed in this Home Assistant.",
       "db_cannot_connect": "Could not connect to the database with these settings.",
       "db_schema": "This database does not contain Blocky's query log table.",
-      "db_not_read_only": "This account can change data. Use an account that only has the SELECT privilege."
+      "db_not_read_only": "This account can change data. Use an account that only has the SELECT privilege.",
+      "invalid_list_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
+      "duplicate_list_name": "Every list name must be used only once.",
+      "unknown_list_name": "This name is not among the allow or deny lists.",
+      "too_many_lists": "Too many lists.",
+      "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted."
+    },
+    "abort": {
+      "list_urls_closed": "Nothing was changed.",
+      "not_loaded": "The integration is not loaded."
     }
   }
 }
