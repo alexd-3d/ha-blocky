@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 import voluptuous as vol
 from homeassistant.config_entries import (
@@ -16,9 +16,13 @@ from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -44,6 +48,7 @@ from .const import (
     CONF_EXACT_ONLY_LISTS,
     CONF_LIST_NETWORKS,
     CONF_LISTS,
+    CONF_ZONES,
     DEFAULT_DB_PORT,
     DEFAULT_LIST_NETWORKS,
     DOMAIN,
@@ -51,6 +56,8 @@ from .const import (
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
     MAX_LISTS,
+    MAX_ZONES,
+    ZONE_MODES,
 )
 from .intervals import interval_seconds
 from .lists import read_definitions
@@ -59,6 +66,14 @@ from .validation import (
     InvalidNetworkError,
     parse_networks,
     validate_list_name,
+)
+from .zones import (
+    ZoneDefinition,
+    ZoneError,
+    build_zone,
+    read_zones,
+    render_blocky_config,
+    zone_to_options,
 )
 
 STEP_USER_SCHEMA = vol.Schema(
@@ -117,6 +132,26 @@ STEP_LISTS_SCHEMA = vol.Schema(
 )
 
 LIST_KEYS = (CONF_LISTS, CONF_LIST_NETWORKS)
+
+# Fields of the zone forms.
+CONF_ZONE: Final = "zone"
+CONF_ZONE_NAME: Final = "name"
+CONF_ZONE_NETWORKS: Final = "networks"
+CONF_ZONE_MODE: Final = "mode"
+CONF_ZONE_LISTS: Final = "lists"
+CONF_ZONE_DELETE: Final = "delete"
+# The "add a new zone" choice. A hyphen can never be part of a zone name.
+ZONE_CHOICE_NEW: Final = "add-new"
+
+# Which form field a refused zone belongs to.
+_ZONE_ERROR_FIELDS: Final = {
+    "invalid_zone_name": CONF_ZONE_NAME,
+    "invalid_network": CONF_ZONE_NETWORKS,
+    "zone_overlap": CONF_ZONE_NETWORKS,
+    "invalid_zone_mode": CONF_ZONE_MODE,
+    "unknown_list_name": CONF_ZONE_LISTS,
+    "allowlist_only_lists": CONF_ZONE_LISTS,
+}
 
 DB_KEYS = (
     CONF_DB_HOST,
@@ -200,6 +235,8 @@ class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
 class BlockyOptionsFlow(OptionsFlowWithReload):
     """Configure the query log database and the update intervals."""
 
+    _zone_choice: str = ZONE_CHOICE_NEW
+
     def _options_without(self, keys: tuple[str, ...]) -> dict[str, Any]:
         """Return the stored options minus the keys a step is replacing."""
         return {
@@ -213,7 +250,15 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Let the user choose what to configure."""
         return self.async_show_menu(
-            step_id="init", menu_options=["database", "intervals", "lists", "list_urls"]
+            step_id="init",
+            menu_options=[
+                "database",
+                "intervals",
+                "lists",
+                "list_urls",
+                "zones",
+                "zone_config",
+            ],
         )
 
     async def async_step_database(
@@ -348,6 +393,9 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
                     )
                     for name in names
                 }
+                if not self._zones_stay_valid(definitions):
+                    errors["base"] = "list_in_use"
+            if not errors:
                 return self.async_create_entry(
                     data={
                         **self._options_without(LIST_KEYS),
@@ -416,4 +464,182 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             step_id="list_urls",
             data_schema=vol.Schema({}),
             description_placeholders={"urls": "\n".join(lines) or "-"},
+        )
+
+    def _zones_stay_valid(self, new_lists: dict[str, dict[str, Any]]) -> bool:
+        """Return whether every stored zone is still valid with new lists."""
+        options = self.config_entry.options
+        new_definitions = read_definitions({CONF_LISTS: new_lists})
+        for zone in read_zones(options, read_definitions(options)).values():
+            try:
+                build_zone(
+                    zone.name,
+                    [str(net) for net in zone.networks],
+                    zone.mode,
+                    list(zone.lists),
+                    definitions=new_definitions,
+                    others=(),
+                )
+            except ZoneError:
+                return False
+        return True
+
+    def _zones(self) -> dict[str, ZoneDefinition]:
+        options = self.config_entry.options
+        return read_zones(options, read_definitions(options))
+
+    async def async_step_zones(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose a zone to edit, or add a new one."""
+        zones = self._zones()
+        if user_input is not None:
+            choice = user_input.get(CONF_ZONE)
+            if choice == ZONE_CHOICE_NEW or choice in zones:
+                self._zone_choice = choice
+                return await self.async_step_zone_edit()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ZONE, default=ZONE_CHOICE_NEW): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[ZONE_CHOICE_NEW, *zones],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="zone_choice",
+                    )
+                )
+            }
+        )
+        return self.async_show_form(step_id="zones", data_schema=schema)
+
+    async def async_step_zone_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a zone, or change or delete one."""
+        errors: dict[str, str] = {}
+        zones = self._zones()
+        definitions = read_definitions(self.config_entry.options)
+        choice = self._zone_choice
+        editing = choice != ZONE_CHOICE_NEW and choice in zones
+        if choice != ZONE_CHOICE_NEW and not editing:
+            return await self.async_step_zones()
+
+        if user_input is not None:
+            if editing and user_input.get(CONF_ZONE_DELETE) is True:
+                remaining = {
+                    name: zone_to_options(zone)
+                    for name, zone in zones.items()
+                    if name != choice
+                }
+                return self._save_zones(remaining)
+
+            name = (
+                choice if editing else str(user_input.get(CONF_ZONE_NAME, "")).strip()
+            )
+            if not editing and name in zones:
+                errors[CONF_ZONE_NAME] = "duplicate_zone_name"
+            elif not editing and len(zones) >= MAX_ZONES:
+                errors["base"] = "too_many_zones"
+            else:
+                try:
+                    zone = build_zone(
+                        name,
+                        [
+                            str(net).strip()
+                            for net in user_input.get(CONF_ZONE_NETWORKS, [])
+                        ],
+                        user_input.get(CONF_ZONE_MODE),
+                        list(user_input.get(CONF_ZONE_LISTS, [])),
+                        definitions=definitions,
+                        others=[z for key, z in zones.items() if key != name],
+                    )
+                except ZoneError as err:
+                    field = _ZONE_ERROR_FIELDS.get(err.code, "base")
+                    if field == CONF_ZONE_NAME and editing:
+                        field = "base"
+                    if field == CONF_ZONE_LISTS and not definitions:
+                        field = "base"
+                    errors[field] = err.code
+                else:
+                    saved = {key: zone_to_options(z) for key, z in zones.items()}
+                    saved[zone.name] = zone_to_options(zone)
+                    return self._save_zones(saved)
+            suggested: dict[str, Any] = dict(user_input)
+        elif editing:
+            existing = zones[choice]
+            suggested = {
+                CONF_ZONE_NETWORKS: [str(net) for net in existing.networks],
+                CONF_ZONE_MODE: existing.mode,
+                CONF_ZONE_LISTS: list(existing.lists),
+            }
+        else:
+            suggested = {}
+
+        fields: dict[Any, Any] = {}
+        if not editing:
+            fields[vol.Required(CONF_ZONE_NAME)] = TextSelector()
+        fields[vol.Required(CONF_ZONE_NETWORKS, default=list)] = TextSelector(
+            TextSelectorConfig(multiple=True)
+        )
+        fields[vol.Required(CONF_ZONE_MODE, default=ZONE_MODES[0])] = SelectSelector(
+            SelectSelectorConfig(
+                options=list(ZONE_MODES),
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="zone_mode",
+            )
+        )
+        if definitions:
+            fields[vol.Optional(CONF_ZONE_LISTS, default=list)] = SelectSelector(
+                SelectSelectorConfig(
+                    options=list(definitions),
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
+        if editing:
+            fields[vol.Optional(CONF_ZONE_DELETE, default=False)] = BooleanSelector()
+
+        return self.async_show_form(
+            step_id="zone_edit",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(fields), suggested
+            ),
+            errors=errors,
+            description_placeholders={CONF_ZONE: choice if editing else "-"},
+        )
+
+    def _save_zones(self, zones: dict[str, dict[str, Any]]) -> ConfigFlowResult:
+        return self.async_create_entry(
+            data={**self._options_without((CONF_ZONES,)), CONF_ZONES: zones}
+        )
+
+    async def async_step_zone_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show the Blocky configuration fragment for the zones."""
+        if user_input is not None:
+            # Nothing to save; keep the options exactly as they are.
+            return self.async_abort(reason="zone_config_closed")
+
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None:
+            return self.async_abort(reason="not_loaded")
+        try:
+            base = get_url(
+                self.hass, allow_external=False, allow_cloud=False, allow_ip=True
+            )
+        except NoURLAvailableError:
+            base = ""
+
+        urls = {
+            name: f"{base}{runtime.lists.path(name)}"
+            for name in runtime.lists.definitions
+        }
+        fragment = render_blocky_config(runtime.zones, urls, runtime.lists.definitions)
+        return self.async_show_form(
+            step_id="zone_config",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "config": f"```yaml\n{fragment}```" if fragment else "-"
+            },
         )

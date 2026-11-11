@@ -80,6 +80,12 @@
       },
       "other_total": {
         "name": "Other queries"
+      },
+      "zone_queries_24h": {
+        "name": "Zone {zone} queries (24 h)"
+      },
+      "zone_blocked_24h": {
+        "name": "Zone {zone} blocked queries (24 h)"
       }
     },
     "binary_sensor": {
@@ -219,7 +225,9 @@
           "database": "Query log database",
           "intervals": "Update intervals",
           "lists": "Manual lists",
-          "list_urls": "List addresses for Blocky"
+          "list_urls": "List addresses for Blocky",
+          "zones": "Zones",
+          "zone_config": "Zone configuration for Blocky"
         }
       },
       "database": {
@@ -270,6 +278,38 @@
       "list_urls": {
         "title": "List addresses for Blocky",
         "description": "Add these addresses as list sources in Blocky's configuration. Each one contains a secret token: anyone who knows an address and connects from an allowed network can read that list.\n\n{urls}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
+      },
+      "zones": {
+        "title": "Zones",
+        "description": "A zone is a named group of client networks. It is only a record kept in Home Assistant, used to tell which policy applies to a client in the query log. Home Assistant never changes Blocky's configuration; use \"Zone configuration for Blocky\" to get a fragment to copy. Zones must not overlap.",
+        "data": {
+          "zone": "Zone"
+        },
+        "data_description": {
+          "zone": "Choose a zone to change or delete, or add a new one."
+        }
+      },
+      "zone_edit": {
+        "title": "Zone",
+        "description": "Zone: {zone}. Clients in the networks below belong to this zone. Filter: filtered as usual with the linked lists. Learning: filtered as usual; meant for watching which domains the clients ask for. Allowlist only: the clients may reach only the domains on the linked allow lists, which must be lists without wildcards.",
+        "data": {
+          "name": "Name",
+          "networks": "Networks",
+          "mode": "Mode",
+          "lists": "Linked lists",
+          "delete": "Delete this zone"
+        },
+        "data_description": {
+          "name": "Lower-case letters, digits and underscores, up to 32 characters. It cannot be changed later.",
+          "networks": "Between 1 and 8 addresses or networks in CIDR notation, for example 192.0.2.0/24. A network that matches every address is not accepted.",
+          "mode": "How the clients of this zone are meant to be treated in Blocky.",
+          "lists": "Manual lists used by this zone. Allowlist only needs at least one allow list without wildcards.",
+          "delete": "Tick to remove this zone. Nothing in Blocky changes."
+        }
+      },
+      "zone_config": {
+        "title": "Zone configuration for Blocky",
+        "description": "Merge this fragment into the blocking section of Blocky's configuration. Home Assistant does not apply it. The list addresses contain a secret token, so keep the configuration private.\n\n{config}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
       }
     },
     "error": {
@@ -282,11 +322,33 @@
       "duplicate_list_name": "Every list name must be used only once.",
       "unknown_list_name": "This name is not among the allow or deny lists.",
       "too_many_lists": "Too many lists.",
-      "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted."
+      "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted.",
+      "list_in_use": "A zone uses a list that this change would remove or make unsuitable. Edit or delete the zone first.",
+      "duplicate_zone_name": "A zone with this name already exists.",
+      "too_many_zones": "Too many zones.",
+      "invalid_zone_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
+      "invalid_zone_mode": "Choose one of the modes.",
+      "zone_overlap": "These networks overlap another zone. Zones must not overlap, because Blocky would merge their groups.",
+      "allowlist_only_lists": "Allowlist only needs at least one linked list, and every linked list must be an allow list without wildcards."
     },
     "abort": {
       "list_urls_closed": "Nothing was changed.",
-      "not_loaded": "The integration is not loaded."
+      "not_loaded": "The integration is not loaded.",
+      "zone_config_closed": "Nothing was changed."
+    }
+  },
+  "selector": {
+    "zone_mode": {
+      "options": {
+        "filter": "Filter",
+        "learning": "Learning",
+        "allowlist_only": "Allowlist only"
+      }
+    },
+    "zone_choice": {
+      "options": {
+        "add-new": "Add a new zone"
+      }
     }
   }
 }

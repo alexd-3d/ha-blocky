@@ -151,6 +151,7 @@ const STYLE = `
   .panel .name {
     word-break: break-all; font-family: var(--code-font-family, monospace);
   }
+  .zone { font-size: 0.85em; color: var(--secondary-text-color); }
   .message { margin: 12px 0; color: var(--secondary-text-color); }
   .message.error { color: var(--error-color); }
   .footer {
@@ -465,6 +466,12 @@ class HaBlockyCard extends HTMLElement {
     }
   }
 
+  _clientCell(row) {
+    const zone = typeof row.zone === "string" ? row.zone : "";
+    const children = zone ? [el("div", { text: zone, className: "zone" })] : [];
+    return el("td", { text: row.client || "" }, children);
+  }
+
   _renderRows() {
     const canAllow = this._lists("allow").length > 0;
     const canBlock = this._lists("deny").length > 0;
@@ -473,7 +480,7 @@ class HaBlockyCard extends HTMLElement {
     for (const row of this._sortedRows()) {
       const cells = [
         el("td", { text: this._formatTime(row.time) }),
-        el("td", { text: row.client || "" }),
+        this._clientCell(row),
         el("td", { text: row.domain || "", className: "domain" }),
         el("td", { text: row.query_type || "" }),
         el("td", { text: row.response_type || "", className: "status" }),

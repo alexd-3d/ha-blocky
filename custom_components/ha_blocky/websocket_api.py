@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS
 from .coordinator import BlockyConfigEntry
 from .db import BlockyDbError
+from .zones import zone_for_address
 
 STATUS_ALL = "all"
 STATUS_BLOCKED = "blocked"
@@ -67,6 +68,14 @@ def ws_config(
                             "exact_only": definition.exact_only,
                         }
                         for definition in entry.runtime_data.lists.definitions.values()
+                    ],
+                    "zones": [
+                        {
+                            "name": zone.name,
+                            "mode": zone.mode,
+                            "lists": list(zone.lists),
+                        }
+                        for zone in entry.runtime_data.zones.values()
                     ],
                 }
                 for entry in _loaded_entries(hass)
@@ -140,6 +149,10 @@ async def ws_query_log(
             msg["id"], "database_error", "The query log database did not answer"
         )
         return
+
+    zones = entries[0].runtime_data.zones
+    for row in rows:
+        row["zone"] = zone_for_address(row.get("client"), zones)
 
     connection.send_result(
         msg["id"],

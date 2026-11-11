@@ -33,6 +33,18 @@ DNS proxy and ad-blocker.
 - **Nothing network-specific in the code.** Client groups, subnets and lists are
   configured by the user.
 
+## Zones
+
+A zone is a named group of client networks that you define in the integration
+options. It is only a record kept in Home Assistant, used to tell which policy
+applies to a client seen in the query log: the query log card labels each client
+with its zone, and each zone gets 24 hour query and blocked-query sensors. A zone
+has one of three modes: `filter` (filtered as usual), `learning` (filtered as
+usual, meant for watching which domains its clients ask for) or `allowlist_only` (only the linked allow
+lists without wildcards). Zones must not overlap. The integration never edits
+Blocky's configuration: the options show a configuration fragment for you to
+copy into it.
+
 ## Requirements
 
 - Home Assistant 2026.10 or newer.

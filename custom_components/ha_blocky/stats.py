@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_STATS_INTERVAL, CONF_TOPS_INTERVAL, DOMAIN, STATS_WINDOW
 from .db import CATEGORIES, BlockyDbError, QueryLogDatabase, Summary, TopItem
 from .intervals import interval
+from .zones import ZoneDefinition, zone_for_address
 
 if TYPE_CHECKING:
     from .coordinator import BlockyConfigEntry
@@ -36,6 +38,8 @@ class QueryStats:
     top_domains: tuple[TopItem, ...]
     top_blocked_domains: tuple[TopItem, ...]
     top_clients: tuple[TopItem, ...]
+    # Per zone name: (queries, blocked) in the 24 hour window.
+    zone_counts: dict[str, tuple[int, int]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -49,6 +53,7 @@ class _Collected:
     new_categories: dict[str, int]
     summary: Summary
     tops: tuple[list[TopItem], list[TopItem], list[TopItem]] | None
+    zone_counts: dict[str, tuple[int, int]] = field(default_factory=dict)
 
 
 def _as_count(value: Any) -> int:
@@ -68,7 +73,11 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
     config_entry: BlockyConfigEntry
 
     def __init__(
-        self, hass: HomeAssistant, entry: BlockyConfigEntry, database: QueryLogDatabase
+        self,
+        hass: HomeAssistant,
+        entry: BlockyConfigEntry,
+        database: QueryLogDatabase,
+        zones: Mapping[str, ZoneDefinition] | None = None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -79,6 +88,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             update_interval=interval(entry.options, CONF_STATS_INTERVAL),
         )
         self.database = database
+        self.zones: Mapping[str, ZoneDefinition] = zones or {}
         self.tops_interval = interval(entry.options, CONF_TOPS_INTERVAL)
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.stats"
@@ -145,6 +155,14 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
                 self.database.top_blocked_domains(since),
                 self.database.top_clients(since),
             )
+        zone_counts: dict[str, tuple[int, int]] = {}
+        if self.zones:
+            zone_counts = dict.fromkeys(self.zones, (0, 0))
+            for address, queries, blocked in self.database.client_counts(since):
+                zone = zone_for_address(address, self.zones)
+                if zone is not None:
+                    total, total_blocked = zone_counts[zone]
+                    zone_counts[zone] = (total + queries, total_blocked + blocked)
         return _Collected(
             max_id=max_id,
             cursor_reset=cursor_reset,
@@ -153,6 +171,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             new_categories=new_categories,
             summary=self.database.summary(since),
             tops=tops,
+            zone_counts=zone_counts,
         )
 
     async def _async_update_data(self) -> QueryStats:
@@ -183,6 +202,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             top_domains=tuple(self._tops[0]),
             top_blocked_domains=tuple(self._tops[1]),
             top_clients=tuple(self._tops[2]),
+            zone_counts=collected.zone_counts,
         )
 
     async def async_close(self) -> None:
