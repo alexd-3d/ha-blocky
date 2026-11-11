@@ -110,7 +110,19 @@ def test_validate_settings_accepts() -> None:
         ("host", ["", "   ", "db host", "db;drop", "-db", "db/..", "a" * 300, None, 5]),
         ("port", [0, -1, 65536, "3306", 3306.5, True, None]),
         ("database", ["", "bl ocky", "blocky;", "blocky`", "a" * 65, None]),
-        ("username", ["", "ro'--", "ro user", "a" * 65, None]),
+        (
+            "username",
+            [
+                "",
+                "ro'--",
+                " lead",
+                "trail ",
+                "semi;colon",
+                "back`tick",
+                "a" * 129,
+                None,
+            ],
+        ),
         ("password", ["", "a" * 257, "line\nbreak", "nul\x00", None, 123]),
     ],
 )
@@ -126,6 +138,18 @@ def test_validate_settings_rejects(field: str, values: list[Any]) -> None:
         with pytest.raises(BlockyDbSettingsError) as excinfo:
             validate_settings(**{**good, field: value})
         assert str(excinfo.value) == field
+
+
+@pytest.mark.parametrize(
+    "username",
+    ["ha_blocky_ro", "reader@host", "ha.ro", "read only", "a" * 128, "u$-1"],
+)
+def test_validate_settings_accepts_user_names_the_mariadb_app_allows(
+    username: str,
+) -> None:
+    settings = validate_settings("db.example", 3306, "blocky", username, "Secret123")
+
+    assert settings.username == username
 
 
 def test_build_url_needs_a_driver(monkeypatch: pytest.MonkeyPatch) -> None:
