@@ -64,6 +64,39 @@ REQUIRED_COLUMNS: Final = frozenset(
 # Response types Blocky uses for a query it refused to answer.
 BLOCKED_RESPONSE_TYPES: Final = ("BLOCKED", "REBIND")
 
+# Every query falls into exactly one category, so the categories of a
+# period add up to its total. Unknown response types count as other.
+CATEGORY_RESOLVED: Final = "resolved"
+CATEGORY_CACHED: Final = "cached"
+CATEGORY_LOCAL: Final = "local"
+CATEGORY_BLOCKED: Final = "blocked"
+CATEGORY_OTHER: Final = "other"
+CATEGORIES: Final = (
+    CATEGORY_RESOLVED,
+    CATEGORY_CACHED,
+    CATEGORY_LOCAL,
+    CATEGORY_BLOCKED,
+    CATEGORY_OTHER,
+)
+_RESPONSE_CATEGORY: Final = {
+    "RESOLVED": CATEGORY_RESOLVED,
+    "CACHED": CATEGORY_CACHED,
+    "CONDITIONAL": CATEGORY_LOCAL,
+    "CUSTOMDNS": CATEGORY_LOCAL,
+    "HOSTSFILE": CATEGORY_LOCAL,
+    "SPECIAL": CATEGORY_LOCAL,
+    "SYNTHESIZED": CATEGORY_LOCAL,
+    **dict.fromkeys(BLOCKED_RESPONSE_TYPES, CATEGORY_BLOCKED),
+}
+
+
+def response_category(response_type: object) -> str:
+    """Return the category a response type is counted in."""
+    if not isinstance(response_type, str):
+        return CATEGORY_OTHER
+    return _RESPONSE_CATEGORY.get(response_type, CATEGORY_OTHER)
+
+
 # Privileges that let an account change data or structure.
 WRITE_PRIVILEGES: Final = frozenset(
     {
@@ -142,6 +175,7 @@ class Counts:
     max_id: int
     queries: int
     blocked: int
+    categories: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,19 +363,27 @@ class QueryLogDatabase:
         return int(row[0] or 0)
 
     def counts_since(self, last_id: int) -> Counts:
-        """Count rows with an id above ``last_id``."""
-        blocked = case(
-            (LOG_TABLE.c.response_type.in_(BLOCKED_RESPONSE_TYPES), 1), else_=0
-        )
-        row = self._run(
-            select(func.max(LOG_TABLE.c.id), func.count(), func.sum(blocked)).where(
-                LOG_TABLE.c.id > last_id
+        """Count rows with an id above ``last_id``, by category."""
+        rows = self._run(
+            select(
+                LOG_TABLE.c.response_type,
+                func.count(),
+                func.max(LOG_TABLE.c.id),
             )
+            .where(LOG_TABLE.c.id > last_id)
+            .group_by(LOG_TABLE.c.response_type),
+            one=False,
         )
+        categories = dict.fromkeys(CATEGORIES, 0)
+        max_id = last_id
+        for response_type, count, highest in rows:
+            categories[response_category(response_type)] += int(count or 0)
+            max_id = max(max_id, int(highest or 0))
         return Counts(
-            max_id=int(row[0] or last_id),
-            queries=int(row[1] or 0),
-            blocked=int(row[2] or 0),
+            max_id=max_id,
+            queries=sum(categories.values()),
+            blocked=categories[CATEGORY_BLOCKED],
+            categories=categories,
         )
 
     def summary(self, since: datetime) -> Summary:

@@ -13,6 +13,7 @@ from sqlalchemy.engine import URL
 
 from custom_components.ha_blocky import db
 from custom_components.ha_blocky.db import (
+    CATEGORIES,
     LOG_TABLE,
     BlockyDbDriverError,
     BlockyDbError,
@@ -24,6 +25,7 @@ from custom_components.ha_blocky.db import (
     build_url,
     clean_text,
     privileges_allow_writes,
+    response_category,
     validate_settings,
 )
 
@@ -279,6 +281,77 @@ def test_max_id_and_counts(database: QueryLogDatabase) -> None:
 
     counts = database.counts_since(7)
     assert (counts.max_id, counts.queries, counts.blocked) == (7, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("response_type", "category"),
+    [
+        ("RESOLVED", "resolved"),
+        ("CACHED", "cached"),
+        ("CONDITIONAL", "local"),
+        ("CUSTOMDNS", "local"),
+        ("HOSTSFILE", "local"),
+        ("SPECIAL", "local"),
+        ("SYNTHESIZED", "local"),
+        ("BLOCKED", "blocked"),
+        ("REBIND", "blocked"),
+        ("FILTERED", "other"),
+        ("NOTFQDN", "other"),
+        ("resolved", "other"),
+        ("", "other"),
+        ("' OR 1=1 --", "other"),
+        (None, "other"),
+        (7, "other"),
+        (b"BLOCKED", "other"),
+        (["BLOCKED"], "other"),
+    ],
+)
+def test_response_category(response_type: Any, category: str) -> None:
+    assert response_category(response_type) == category
+    assert category in CATEGORIES
+
+
+def test_counts_by_category(database: QueryLogDatabase) -> None:
+    counts = database.counts_since(0)
+    assert counts.categories == {
+        "resolved": 3,
+        "cached": 1,
+        "local": 0,
+        "blocked": 3,
+        "other": 0,
+    }
+    assert sum(counts.categories.values()) == counts.queries == 7
+
+    counts = database.counts_since(7)
+    assert counts.categories == dict.fromkeys(CATEGORIES, 0)
+
+
+def test_unknown_response_types_count_as_other(tmp_path: Path) -> None:
+    url = make_log(
+        tmp_path / "log.db",
+        [
+            row(response_type="RESOLVED"),
+            row(response_type="HOSTSFILE"),
+            row(response_type="NOTFQDN"),
+            row(response_type="FUTURE_TYPE"),
+            row(response_type="'; DROP TABLE log_entries; --"),
+            row(response_type=""),
+        ],
+    )
+    log = QueryLogDatabase(url)
+    try:
+        counts = log.counts_since(0)
+        assert counts.categories == {
+            "resolved": 1,
+            "cached": 0,
+            "local": 1,
+            "blocked": 0,
+            "other": 4,
+        }
+        assert (counts.max_id, counts.queries, counts.blocked) == (6, 6, 0)
+        assert log.max_id() == 6
+    finally:
+        log.close()
 
 
 def test_empty_table(tmp_path: Path) -> None:

@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_STATS_INTERVAL, CONF_TOPS_INTERVAL, DOMAIN, STATS_WINDOW
-from .db import BlockyDbError, QueryLogDatabase, Summary, TopItem
+from .db import CATEGORIES, BlockyDbError, QueryLogDatabase, Summary, TopItem
 from .intervals import interval
 
 if TYPE_CHECKING:
@@ -31,6 +31,7 @@ class QueryStats:
 
     queries_total: int
     blocked_total: int
+    category_totals: dict[str, int]
     summary: Summary
     top_domains: tuple[TopItem, ...]
     top_blocked_domains: tuple[TopItem, ...]
@@ -45,6 +46,7 @@ class _Collected:
     cursor_reset: bool
     new_queries: int
     new_blocked: int
+    new_categories: dict[str, int]
     summary: Summary
     tops: tuple[list[TopItem], list[TopItem], list[TopItem]] | None
 
@@ -86,6 +88,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
         self._blocked_total = 0
         self._tops: tuple[list[TopItem], list[TopItem], list[TopItem]] = ([], [], [])
         self._tops_at: datetime | None = None
+        self._category_totals = dict.fromkeys(CATEGORIES, 0)
 
     async def async_load(self) -> None:
         """Restore the cursor and totals saved before the last shutdown."""
@@ -97,12 +100,17 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             self._last_id = last_id
         self._queries_total = _as_count(stored.get("queries_total"))
         self._blocked_total = _as_count(stored.get("blocked_total"))
+        categories = stored.get("categories")
+        if isinstance(categories, dict):
+            for category in CATEGORIES:
+                self._category_totals[category] = _as_count(categories.get(category))
 
     def _stored(self) -> dict[str, Any]:
         return {
             "last_id": self._last_id,
             "queries_total": self._queries_total,
             "blocked_total": self._blocked_total,
+            "categories": dict(self._category_totals),
         }
 
     async def async_save(self) -> None:
@@ -123,10 +131,12 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             # First run, or the table was emptied or replaced: start counting
             # from here instead of adding the whole table to the totals.
             new_queries = new_blocked = 0
+            new_categories = dict.fromkeys(CATEGORIES, 0)
         else:
             counts = self.database.counts_since(last_id)
             max_id = max(max_id, counts.max_id)
             new_queries, new_blocked = counts.queries, counts.blocked
+            new_categories = counts.categories
 
         tops = None
         if with_tops:
@@ -140,6 +150,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
             cursor_reset=cursor_reset,
             new_queries=new_queries,
             new_blocked=new_blocked,
+            new_categories=new_categories,
             summary=self.database.summary(since),
             tops=tops,
         )
@@ -157,6 +168,8 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
         self._last_id = collected.max_id
         self._queries_total += collected.new_queries
         self._blocked_total += collected.new_blocked
+        for category in CATEGORIES:
+            self._category_totals[category] += collected.new_categories.get(category, 0)
         if collected.tops is not None:
             self._tops = collected.tops
             self._tops_at = now
@@ -165,6 +178,7 @@ class BlockyStatsCoordinator(DataUpdateCoordinator[QueryStats]):
         return QueryStats(
             queries_total=self._queries_total,
             blocked_total=self._blocked_total,
+            category_totals=dict(self._category_totals),
             summary=collected.summary,
             top_domains=tuple(self._tops[0]),
             top_blocked_domains=tuple(self._tops[1]),

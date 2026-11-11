@@ -68,6 +68,18 @@
       },
       "list_entries": {
         "name": "Список {name}"
+      },
+      "resolved_total": {
+        "name": "Запити, передані далі"
+      },
+      "cached_total": {
+        "name": "Запити з кешу"
+      },
+      "local_total": {
+        "name": "Запити з локальною відповіддю"
+      },
+      "other_total": {
+        "name": "Інші запити"
       }
     },
     "binary_sensor": {

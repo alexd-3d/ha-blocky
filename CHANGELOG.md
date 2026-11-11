@@ -14,6 +14,10 @@
   - Options: `title`, `entry_id`, `page_size` (10 to 200, default 50) and
     `auto_refresh` in seconds (off by default, at least 10).
   - English and Ukrainian texts.
+- Running totals by kind of answer: **Resolved queries**, **Cached
+  queries**, **Locally answered queries** and **Other queries**, next to
+  the existing **Blocked queries**. Every query is counted in exactly one
+  of the five, so they can be stacked in one bar per period.
 
 ### Security
 
