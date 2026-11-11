@@ -1,6 +1,6 @@
 """WebSocket commands used by the query log card.
 
-Both commands are restricted to administrators: the query log is the DNS
+All commands are restricted to administrators: the query log is the DNS
 history of everyone on the network.
 """
 
@@ -16,9 +16,10 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS
+from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS, REQUEST_ACTIONS
 from .coordinator import BlockyConfigEntry
 from .db import BlockyDbError
+from .requests import RequestError, RequestTracker
 from .zones import zone_for_address
 
 STATUS_ALL = "all"
@@ -164,8 +165,86 @@ async def ws_query_log(
     )
 
 
+def _tracker_of(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> tuple[BlockyConfigEntry, RequestTracker] | None:
+    """Find the entry and tracker a command addresses, or answer with an error."""
+    entries = _loaded_entries(hass)
+    entry_id = msg.get("entry_id")
+    if entry_id is not None:
+        entries = [entry for entry in entries if entry.entry_id == entry_id]
+    if len(entries) != 1:
+        connection.send_error(msg["id"], "entry_not_found", "Blocky entry not found")
+        return None
+    tracker = entries[0].runtime_data.requests
+    if tracker is None:
+        connection.send_error(
+            msg["id"], "no_query_log", "No query log database is configured"
+        )
+        return None
+    return entries[0], tracker
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/requests", vol.Optional("entry_id"): str}
+)
+@websocket_api.require_admin
+@callback
+def ws_requests(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List the requests waiting for a decision and the client phases."""
+    found = _tracker_of(hass, connection, msg)
+    if found is None:
+        return
+    entry, tracker = found
+    connection.send_result(
+        msg["id"],
+        {
+            "entry_id": entry.entry_id,
+            "requests": tracker.describe_requests(),
+            "clients": tracker.describe_clients(),
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/resolve_request",
+        vol.Optional("entry_id"): str,
+        vol.Required("request_id"): vol.All(str, vol.Length(min=1, max=64)),
+        vol.Required("action"): vol.In(REQUEST_ACTIONS),
+        vol.Optional("list"): vol.All(str, vol.Length(min=1, max=32)),
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_resolve_request(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Approve, reject or block one request (single use)."""
+    found = _tracker_of(hass, connection, msg)
+    if found is None:
+        return
+    _entry, tracker = found
+    try:
+        tracker.async_resolve(
+            msg["request_id"], msg["action"], msg.get("list"), connection.context(msg)
+        )
+    except RequestError as err:
+        connection.send_error(msg["id"], err.code, err.message)
+        return
+    connection.send_result(msg["id"], {"requests": tracker.describe_requests()})
+
+
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Register the WebSocket commands."""
     websocket_api.async_register_command(hass, ws_config)
     websocket_api.async_register_command(hass, ws_query_log)
+    websocket_api.async_register_command(hass, ws_requests)
+    websocket_api.async_register_command(hass, ws_resolve_request)

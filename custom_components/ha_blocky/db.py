@@ -190,6 +190,20 @@ class Summary:
 
 
 @dataclass(frozen=True, slots=True)
+class LogRow:
+    """The few columns of a log row the request tracker needs, uncleaned.
+
+    The values are hostile text; the caller validates every one of them.
+    """
+
+    id: int
+    client: str | None
+    domain: str | None
+    response_type: str | None
+    requested: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class TopItem:
     """One row of a top list."""
 
@@ -385,6 +399,63 @@ class QueryLogDatabase:
             blocked=categories[CATEGORY_BLOCKED],
             categories=categories,
         )
+
+    def rows_after(self, last_id: int, limit: int) -> list[LogRow]:
+        """Return up to ``limit`` rows with an id above ``last_id``, oldest first."""
+        table = LOG_TABLE.c
+        statement = (
+            select(
+                table.id,
+                table.client_ip,
+                table.question_name,
+                table.response_type,
+                table.request_ts,
+            )
+            .where(table.id > last_id)
+            .order_by(table.id)
+            .limit(max(1, min(int(limit), 10000)))
+        )
+        rows: list[LogRow] = []
+        for row_id, client, domain, response_type, requested in self._run(
+            statement, one=False
+        ):
+            if isinstance(requested, str):
+                try:
+                    requested = datetime.fromisoformat(requested)
+                except ValueError:
+                    requested = None
+            rows.append(
+                LogRow(
+                    id=int(row_id),
+                    client=client if isinstance(client, str) else None,
+                    domain=domain if isinstance(domain, str) else None,
+                    response_type=(
+                        response_type if isinstance(response_type, str) else None
+                    ),
+                    requested=requested if isinstance(requested, datetime) else None,
+                )
+            )
+        return rows
+
+    def client_domains(
+        self, client: str, since: datetime, limit: int
+    ) -> list[str | None]:
+        """Return the distinct names a client asked for since ``since``.
+
+        ``since`` is naive UTC. Raw values: the caller validates them.
+        """
+        table = LOG_TABLE.c
+        statement = (
+            select(distinct(table.question_name))
+            .where(table.client_ip == client)
+            .where(table.request_ts >= since)
+            .where(table.question_name.is_not(None))
+            .limit(max(1, min(int(limit), 5000)))
+        )
+        return [
+            name if isinstance(name, str) else None
+            for (name,) in self._run(statement, one=False)
+        ]
 
     def summary(self, since: datetime) -> Summary:
         """Aggregate the rows newer than ``since`` (naive UTC)."""

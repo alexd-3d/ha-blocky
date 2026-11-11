@@ -2,7 +2,9 @@
  * HA-Blocky query log card.
  *
  * Shows Blocky's query log with search, filters, sorting and paging, and lets
- * an administrator add a domain to a manual allow or deny list.
+ * an administrator add a domain to a manual allow or deny list. A second tab
+ * lists the requests for new domains and the phase of the clients of
+ * allowlist-only zones.
  *
  * Every value from the log is written with textContent. A DNS name can be
  * chosen by any device on the network, so nothing from the log is ever
@@ -49,7 +51,24 @@ const TEXT_EN = {
   "no_query_log": "No query log database is configured for this integration.",
   "no_entry": "The HA-Blocky integration is not set up or not loaded.",
   "not_admin": "Only administrators can view the query log.",
-  "error": "Could not load the query log."
+  "error": "Could not load the query log.",
+  "tab_log": "Query log",
+  "tab_requests": "Requests",
+  "req_none": "No requests are waiting.",
+  "req_error": "Could not load the requests.",
+  "req_client": "Client",
+  "req_zone": "Zone",
+  "req_domain": "Domain",
+  "req_age": "Age",
+  "req_phases": "Clients of allowlist-only zones",
+  "act_approve": "Approve",
+  "act_reject": "Reject",
+  "act_block": "Block",
+  "act_dismiss": "Dismiss",
+  "phase_learning": "Learning",
+  "phase_locked": "Locked",
+  "unit_min": "min",
+  "unit_h": "h"
 };
 /* i18n:end */
 
@@ -91,7 +110,24 @@ const TEXT_UK = {
   "no_query_log": "Для цієї інтеграції не налаштовано базу журналу запитів.",
   "no_entry": "Інтеграцію HA-Blocky не налаштовано або не завантажено.",
   "not_admin": "Журнал запитів доступний лише адміністраторам.",
-  "error": "Не вдалося завантажити журнал запитів."
+  "error": "Не вдалося завантажити журнал запитів.",
+  "tab_log": "Журнал запитів",
+  "tab_requests": "Запити",
+  "req_none": "Немає запитів, що очікують.",
+  "req_error": "Не вдалося завантажити запити.",
+  "req_client": "Клієнт",
+  "req_zone": "Зона",
+  "req_domain": "Домен",
+  "req_age": "Вік",
+  "req_phases": "Клієнти зон «лише дозволені»",
+  "act_approve": "Схвалити",
+  "act_reject": "Відхилити",
+  "act_block": "Заблокувати",
+  "act_dismiss": "Закрити",
+  "phase_learning": "Навчання",
+  "phase_locked": "Заблоковано",
+  "unit_min": "хв",
+  "unit_h": "год"
 };
 /* i18n:end */
 
@@ -107,6 +143,10 @@ const COLUMNS = [
   { key: "duration_ms", label: "col_ms", sort: "duration_ms", numeric: true },
 ];
 const MIN_REFRESH_SECONDS = 10;
+// What the card may ask the server to do; "dismiss" is a rejection.
+const ACTION_OF = { approve: "approve", reject: "reject", block: "block", dismiss: "reject" };
+const PHASES = ["learning", "locked"];
+const SENSOR_FALLBACK = "sensor.ha_blocky_pending_domain_requests";
 
 const STYLE = `
   :host { display: block; }
@@ -158,6 +198,15 @@ const STYLE = `
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; margin-top: 12px; color: var(--secondary-text-color);
   }
+  .tabs { display: flex; gap: 8px; margin: 0 0 12px; }
+  button.tab.active {
+    color: var(--text-primary-color); background: var(--primary-color);
+    border-color: var(--primary-color);
+  }
+  .sub { color: var(--secondary-text-color); font-size: 0.85em; }
+  h3 { margin: 16px 0 8px; font-size: 1em; font-weight: 500; }
+  td.buttons button { margin-right: 4px; }
+  .rowerror { color: var(--error-color); font-size: 0.85em; white-space: normal; }
   [hidden] { display: none !important; }
 `;
 
@@ -189,6 +238,14 @@ class HaBlockyCard extends HTMLElement {
     this._filters = { domain: "", client: "", status: "all", hours: 24 };
     this._sort = { key: "id", direction: -1 };
     this._pending = undefined;
+    this._tab = "log";
+    this._reqs = [];
+    this._phases = [];
+    this._busy = new Set();
+    this._errors = new Map();
+    this._reqToken = 0;
+    this._sensorId = undefined;
+    this._sensorState = undefined;
     this._debounce = undefined;
     this._timer = undefined;
   }
@@ -219,6 +276,7 @@ class HaBlockyCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._built) this._build();
+    this._watchSensor();
     if (!this._started) {
       this._started = true;
       this._start();
@@ -257,6 +315,18 @@ class HaBlockyCard extends HTMLElement {
     root.appendChild(this._card);
     this._renderTitle();
 
+    this._logTab = el("button", { text: this._t("tab_log"), className: "tab" });
+    this._reqTab = el("button", { text: this._t("tab_requests"), className: "tab" });
+    this._logTab.addEventListener("click", () => this._selectTab("log"));
+    this._reqTab.addEventListener("click", () => this._selectTab("requests"));
+    this._tabs = el("div", { className: "tabs" }, [this._logTab, this._reqTab]);
+    this._logView = el("div");
+    this._reqView = el("div", { attrs: { hidden: "" } });
+    this._reqMessage = el("div", { className: "message", attrs: { hidden: "" } });
+    this._reqBody = el("div");
+    this._reqView.append(this._reqMessage, this._reqBody);
+    this._body.append(this._tabs, this._logView, this._reqView);
+
     this._domainInput = el("input", {
       attrs: { type: "search", maxlength: 253, placeholder: this._t("search_domain") },
     });
@@ -286,7 +356,7 @@ class HaBlockyCard extends HTMLElement {
     this._hoursSelect.addEventListener("change", () => this._filterChanged(false));
     this._refreshButton.addEventListener("click", () => this._load(true));
 
-    this._body.appendChild(
+    this._logView.appendChild(
       el("div", { className: "filters" }, [
         this._domainInput,
         this._clientInput,
@@ -297,25 +367,26 @@ class HaBlockyCard extends HTMLElement {
     );
 
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
-    this._body.appendChild(this._message);
+    this._logView.appendChild(this._message);
 
     this._panel = el("div", { className: "panel", attrs: { hidden: "" } });
-    this._body.appendChild(this._panel);
+    this._logView.appendChild(this._panel);
 
     this._headRow = el("tr");
     this._tbody = el("tbody");
     this._table = el("table", {}, [el("thead", {}, [this._headRow]), this._tbody]);
-    this._body.appendChild(el("div", { className: "scroll" }, [this._table]));
+    this._logView.appendChild(el("div", { className: "scroll" }, [this._table]));
 
     this._count = el("span");
     this._moreButton = el("button", { text: this._t("load_more") });
     this._moreButton.addEventListener("click", () => this._load(false));
-    this._body.appendChild(
+    this._logView.appendChild(
       el("div", { className: "footer" }, [this._count, this._moreButton])
     );
 
     this._renderHead();
     this._renderRows();
+    this._selectTab("log");
   }
 
   _renderTitle() {
@@ -355,7 +426,215 @@ class HaBlockyCard extends HTMLElement {
     }
     this._renderHead();
     await this._load(true);
+    if (this._tab === "requests") this._loadRequests();
     this._restartTimer();
+  }
+
+  _selectTab(tab) {
+    this._tab = tab;
+    this._logView.hidden = tab !== "log";
+    this._reqView.hidden = tab !== "requests";
+    this._logTab.className = tab === "log" ? "tab active" : "tab";
+    this._reqTab.className = tab === "requests" ? "tab active" : "tab";
+    if (tab === "requests") this._loadRequests();
+  }
+
+  // Reload the requests when the pending-requests sensor changes.
+  _watchSensor() {
+    const hass = this._hass;
+    if (!this._sensorId) {
+      const entities = hass.entities || {};
+      for (const [id, info] of Object.entries(entities)) {
+        if (info && info.platform === DOMAIN && info.translation_key === "pending_requests") {
+          this._sensorId = id;
+          break;
+        }
+      }
+      if (!this._sensorId && hass.states && hass.states[SENSOR_FALLBACK]) {
+        this._sensorId = SENSOR_FALLBACK;
+      }
+    }
+    const sensor = this._sensorId && hass.states ? hass.states[this._sensorId] : undefined;
+    const state = sensor ? sensor.state : undefined;
+    if (state === this._sensorState) return;
+    const first = this._sensorState === undefined;
+    this._sensorState = state;
+    if (!first && this._tab === "requests" && this._busy.size === 0) {
+      this._loadRequests();
+    }
+  }
+
+  // A friendly name for a client address, from device trackers the frontend
+  // already has: their "ip" attribute is the address.
+  _deviceName(address) {
+    const states = (this._hass && this._hass.states) || {};
+    for (const id of Object.keys(states)) {
+      if (!id.startsWith("device_tracker.")) continue;
+      const attributes = states[id].attributes || {};
+      if (attributes.ip !== address) continue;
+      const name = attributes.friendly_name || attributes.host_name;
+      return typeof name === "string" ? name : "";
+    }
+    return "";
+  }
+
+  _age(created) {
+    const time = new Date(created).getTime();
+    if (Number.isNaN(time)) return "";
+    const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+    return minutes < 120
+      ? `${minutes} ${this._t("unit_min")}`
+      : `${Math.round(minutes / 60)} ${this._t("unit_h")}`;
+  }
+
+  async _loadRequests() {
+    if (!this._entry || !this._entry.has_query_log) return;
+    const token = ++this._reqToken;
+    try {
+      const result = await this._hass.callWS({
+        type: `${DOMAIN}/requests`,
+        entry_id: this._entry.entry_id,
+      });
+      if (token !== this._reqToken) return;
+      this._reqs = Array.isArray(result.requests) ? result.requests : [];
+      this._phases = Array.isArray(result.clients) ? result.clients : [];
+      this._reqMessage.hidden = true;
+    } catch (err) {
+      if (token !== this._reqToken) return;
+      this._reqMessage.textContent = this._t("req_error");
+      this._reqMessage.className = "message error";
+      this._reqMessage.hidden = false;
+    }
+    this._renderRequests();
+  }
+
+  async _resolve(request, name) {
+    const action = ACTION_OF[name];
+    if (!action || typeof request.id !== "string") return;
+    this._busy.add(request.id);
+    this._errors.delete(request.id);
+    this._renderRequests();
+    try {
+      await this._hass.callWS({
+        type: `${DOMAIN}/resolve_request`,
+        entry_id: this._entry.entry_id,
+        request_id: request.id,
+        action,
+      });
+    } catch (err) {
+      this._errors.set(
+        request.id,
+        (err && (err.message || err.code)) || this._t("error")
+      );
+    } finally {
+      this._busy.delete(request.id);
+    }
+    await this._loadRequests();
+  }
+
+  async _setPhase(client, phase) {
+    if (!PHASES.includes(phase) || typeof client !== "string") return;
+    const key = `phase:${client}`;
+    this._busy.add(key);
+    this._errors.delete(key);
+    this._renderRequests();
+    try {
+      await this._hass.callService(DOMAIN, "set_client_phase", {
+        config_entry_id: this._entry.entry_id,
+        client,
+        phase,
+      });
+    } catch (err) {
+      this._errors.set(key, (err && err.message) || this._t("error"));
+    } finally {
+      this._busy.delete(key);
+    }
+    await this._loadRequests();
+  }
+
+  _clientBlock(address, zone) {
+    const name = this._deviceName(address);
+    const children = [];
+    if (name) children.push(el("div", { text: name, className: "sub" }));
+    if (zone) children.push(el("div", { text: zone, className: "zone" }));
+    return el("td", { text: address }, children);
+  }
+
+  _renderRequests() {
+    const fragment = document.createDocumentFragment();
+    if (!this._reqs.length) {
+      fragment.appendChild(el("div", { text: this._t("req_none"), className: "message" }));
+    } else {
+      const head = el("tr", {}, [
+        el("th", { text: this._t("req_client"), className: "plain" }),
+        el("th", { text: this._t("req_zone"), className: "plain" }),
+        el("th", { text: this._t("req_domain"), className: "plain" }),
+        el("th", { text: this._t("req_age"), className: "plain" }),
+        el("th", { className: "plain" }),
+      ]);
+      const body = el("tbody");
+      for (const request of this._reqs) {
+        const busy = this._busy.has(request.id);
+        const actions = el("td", { className: "buttons" });
+        const names = Array.isArray(request.actions) ? request.actions : [];
+        for (const name of names) {
+          if (!Object.prototype.hasOwnProperty.call(ACTION_OF, name)) continue;
+          const button = el("button", {
+            text: this._t(`act_${name}`),
+            className: name === "approve" || name === "block" ? "primary" : "",
+          });
+          button.disabled = busy;
+          button.addEventListener("click", () => this._resolve(request, name));
+          actions.appendChild(button);
+        }
+        const error = this._errors.get(request.id);
+        if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
+        body.appendChild(
+          el("tr", {}, [
+            el("td", { text: request.client || "" }, [
+              ...(this._deviceName(request.client)
+                ? [el("div", { text: this._deviceName(request.client), className: "sub" })]
+                : []),
+            ]),
+            el("td", { text: request.zone || "" }),
+            el("td", { text: request.domain || "", className: "domain" }),
+            el("td", { text: this._age(request.created) }),
+            actions,
+          ])
+        );
+      }
+      fragment.appendChild(
+        el("div", { className: "scroll" }, [
+          el("table", {}, [el("thead", {}, [head]), body]),
+        ])
+      );
+    }
+
+    if (this._phases.length) {
+      fragment.appendChild(el("h3", { text: this._t("req_phases") }));
+      const body = el("tbody");
+      for (const entry of this._phases) {
+        const key = `phase:${entry.client}`;
+        const select = el(
+          "select",
+          { attrs: { "aria-label": this._t("req_phases") } },
+          PHASES.map((phase) =>
+            el("option", { text: this._t(`phase_${phase}`), attrs: { value: phase } })
+          )
+        );
+        select.value = PHASES.includes(entry.phase) ? entry.phase : "learning";
+        select.disabled = this._busy.has(key);
+        select.addEventListener("change", () => this._setPhase(entry.client, select.value));
+        const control = el("td", {}, [select]);
+        const error = this._errors.get(key);
+        if (error) control.appendChild(el("div", { text: error, className: "rowerror" }));
+        body.appendChild(el("tr", {}, [this._clientBlock(entry.client || "", entry.zone || ""), control]));
+      }
+      fragment.appendChild(
+        el("div", { className: "scroll" }, [el("table", {}, [body])])
+      );
+    }
+    this._reqBody.replaceChildren(fragment);
   }
 
   _lists(type) {

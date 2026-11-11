@@ -86,6 +86,9 @@
       },
       "zone_blocked_24h": {
         "name": "Zone {zone} blocked queries (24 h)"
+      },
+      "pending_requests": {
+        "name": "Pending domain requests"
       }
     },
     "binary_sensor": {
@@ -94,6 +97,9 @@
       },
       "database": {
         "name": "Query log database"
+      },
+      "zone_leak": {
+        "name": "Zone leak"
       }
     },
     "button": {
@@ -215,6 +221,80 @@
           "description": "Only needed when more than one Blocky instance is configured."
         }
       }
+    },
+    "approve_request": {
+      "name": "Approve request",
+      "description": "Approves a request of an allowlist-only zone: the domain is added to an allow list of the zone. A request can be used once.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "request_id": {
+          "name": "Request",
+          "description": "The id of the request, from the new domain event or from the list of requests."
+        },
+        "list": {
+          "name": "List",
+          "description": "An allow list of the zone to add the domain to. Leave empty to use the first allow list of the zone."
+        }
+      }
+    },
+    "reject_request": {
+      "name": "Reject request",
+      "description": "Rejects a request of an allowlist-only zone, which then never asks again for that client and domain. In a learning zone it dismisses the request. A request can be used once.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "request_id": {
+          "name": "Request",
+          "description": "The id of the request, from the new domain event or from the list of requests."
+        }
+      }
+    },
+    "block_request": {
+      "name": "Block request",
+      "description": "Blocks the domain of a request of a learning zone: it is added to the first deny list of the zone. A request can be used once.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "request_id": {
+          "name": "Request",
+          "description": "The id of the request, from the new domain event or from the list of requests."
+        }
+      }
+    },
+    "get_requests": {
+      "name": "Get requests",
+      "description": "Returns the requests waiting for a decision and the phase of the clients of allowlist-only zones.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        }
+      }
+    },
+    "set_client_phase": {
+      "name": "Set client phase",
+      "description": "Sets the phase of a client of an allowlist-only zone. A learning client turns blocked domains into requests; a locked client only causes an event.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Blocky instance",
+          "description": "Only needed when more than one Blocky instance is configured."
+        },
+        "client": {
+          "name": "Client",
+          "description": "The IP address of the client."
+        },
+        "phase": {
+          "name": "Phase",
+          "description": "Learning or locked."
+        }
+      }
     }
   },
   "options": {
@@ -227,7 +307,8 @@
           "lists": "Manual lists",
           "list_urls": "List addresses for Blocky",
           "zones": "Zones",
-          "zone_config": "Zone configuration for Blocky"
+          "zone_config": "Zone configuration for Blocky",
+          "new_domains": "New domain requests"
         }
       },
       "database": {
@@ -310,6 +391,16 @@
       "zone_config": {
         "title": "Zone configuration for Blocky",
         "description": "Merge this fragment into the blocking section of Blocky's configuration. Home Assistant does not apply it. The list addresses contain a secret token, so keep the configuration private.\n\n{config}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
+      },
+      "new_domains": {
+        "title": "New domain requests",
+        "description": "Home Assistant watches the query log for domains that clients of learning and allowlist-only zones ask for the first time and turns them into requests. When tracking starts, the latest 5000 rows of the query log are the existing history: it can be taken as known without any request (in learning zones), or be reported as new.",
+        "data": {
+          "report_existing_domains": "Report existing history as new"
+        },
+        "data_description": {
+          "report_existing_domains": "Off (default): domains already in the query log when tracking starts are taken as known, in learning zones, and raise no request. On: they raise requests like new domains."
+        }
       }
     },
     "error": {
@@ -349,6 +440,44 @@
       "options": {
         "add-new": "Add a new zone"
       }
+    }
+  },
+  "exceptions": {
+    "no_query_log": {
+      "message": "No query log database is configured."
+    },
+    "request_not_found": {
+      "message": "The request does not exist, was already resolved or expired."
+    },
+    "request_not_approvable": {
+      "message": "Only a request of an allowlist-only zone can be approved."
+    },
+    "request_not_blockable": {
+      "message": "Only a request of a learning zone can be blocked."
+    },
+    "zone_changed": {
+      "message": "The zone of this request has changed; the request was dropped."
+    },
+    "no_allow_list": {
+      "message": "The zone has no allow list to add the domain to."
+    },
+    "no_deny_list": {
+      "message": "The zone has no deny list to add the domain to."
+    },
+    "list_not_in_zone": {
+      "message": "That is not one of the allow lists of the zone."
+    },
+    "list_failed": {
+      "message": "The list refused the entry, for example because it is full."
+    },
+    "invalid_client": {
+      "message": "The client is not a valid IP address."
+    },
+    "client_not_in_allowlist_zone": {
+      "message": "The client is not in an allowlist-only zone."
+    },
+    "too_many_clients": {
+      "message": "Too many clients are tracked already."
     }
   }
 }

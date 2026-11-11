@@ -59,6 +59,9 @@
       },
       "other_total": {
         "default": "mdi:help-circle-outline"
+      },
+      "pending_requests": {
+        "default": "mdi:playlist-plus"
       }
     },
     "button": {
@@ -75,6 +78,11 @@
         "state": {
           "active": "mdi:shield-check"
         }
+      }
+    },
+    "binary_sensor": {
+      "zone_leak": {
+        "default": "mdi:shield-alert-outline"
       }
     }
   },

@@ -26,6 +26,7 @@ from .intervals import interval
 
 if TYPE_CHECKING:
     from .lists import ListManager
+    from .requests import RequestTracker
     from .stats import BlockyStatsCoordinator
     from .zones import ZoneDefinition
 
@@ -46,6 +47,8 @@ class BlockyData:
     stats: BlockyStatsCoordinator | None = None
     # Validated zones, read from the options at setup.
     zones: dict[str, ZoneDefinition] = field(default_factory=dict)
+    # None when no query log database is configured.
+    requests: RequestTracker | None = None
 
 
 type BlockyConfigEntry = ConfigEntry[BlockyData]

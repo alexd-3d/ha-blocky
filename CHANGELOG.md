@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- **New-domain tracking** (BLO-010): the clients of `learning` and
+  `allowlist_only` zones are watched through the query log. A new domain fires
+  `ha_blocky_new_domain` and creates a request (24 hours, single use) that you
+  approve, reject or block. Locked clients of an allowlist-only zone fire
+  `ha_blocky_unexpected_domain`; answers for domains on none of a zone's allow
+  lists fire `ha_blocky_zone_leak` and drive a problem sensor. Per client at
+  most 5 events per 10 minutes, then one `ha_blocky_new_domains_summary`.
+  - Actions: `approve_request`, `reject_request`, `block_request`,
+    `get_requests`, `set_client_phase`.
+  - A pending-requests sensor and a zone leak sensor.
+  - Option "Report existing history as new"; by default a new client of a
+    learning zone starts with its last 7 days taken as known.
+  - A Requests tab in the query log card, with client phases and device names.
+  - Example Telegram blueprint in `blueprints/automation/ha_blocky/`.
+
+### Security
+
+- Names read from the log are validated, client addresses must be IP addresses,
+  all state is capped and validated again on load, and diagnostics show counts
+  only.
+
 ## 0.6.0
 
 ### Added

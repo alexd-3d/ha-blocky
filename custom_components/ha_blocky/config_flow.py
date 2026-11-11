@@ -48,6 +48,7 @@ from .const import (
     CONF_EXACT_ONLY_LISTS,
     CONF_LIST_NETWORKS,
     CONF_LISTS,
+    CONF_REPORT_EXISTING_DOMAINS,
     CONF_ZONES,
     DEFAULT_DB_PORT,
     DEFAULT_LIST_NETWORKS,
@@ -132,6 +133,10 @@ STEP_LISTS_SCHEMA = vol.Schema(
 )
 
 LIST_KEYS = (CONF_LISTS, CONF_LIST_NETWORKS)
+
+STEP_NEW_DOMAINS_SCHEMA = vol.Schema(
+    {vol.Required(CONF_REPORT_EXISTING_DOMAINS, default=False): BooleanSelector()}
+)
 
 # Fields of the zone forms.
 CONF_ZONE: Final = "zone"
@@ -258,6 +263,7 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
                 "list_urls",
                 "zones",
                 "zone_config",
+                "new_domains",
             ],
         )
 
@@ -464,6 +470,30 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             step_id="list_urls",
             data_schema=vol.Schema({}),
             description_placeholders={"urls": "\n".join(lines) or "-"},
+        )
+
+    async def async_step_new_domains(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask whether the existing query log history is reported as new."""
+        if user_input is not None:
+            report = user_input.get(CONF_REPORT_EXISTING_DOMAINS) is True
+            return self.async_create_entry(
+                data={
+                    **self._options_without((CONF_REPORT_EXISTING_DOMAINS,)),
+                    CONF_REPORT_EXISTING_DOMAINS: report,
+                }
+            )
+        current = {
+            CONF_REPORT_EXISTING_DOMAINS: (
+                self.config_entry.options.get(CONF_REPORT_EXISTING_DOMAINS) is True
+            )
+        }
+        return self.async_show_form(
+            step_id="new_domains",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_NEW_DOMAINS_SCHEMA, current
+            ),
         )
 
     def _zones_stay_valid(self, new_lists: dict[str, dict[str, Any]]) -> bool:

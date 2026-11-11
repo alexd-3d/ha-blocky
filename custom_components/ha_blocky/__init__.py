@@ -20,6 +20,7 @@ from .const import (
     CONF_DB_PASSWORD,
     CONF_DB_PORT,
     CONF_DB_USERNAME,
+    CONF_REPORT_EXISTING_DOMAINS,
     DOMAIN,
 )
 from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
@@ -27,6 +28,9 @@ from .frontend import async_register_card
 from .http import async_register_view
 from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
 from .lists import ListManager, read_definitions, storage_key
+from .requests import STORAGE_VERSION as REQUESTS_STORAGE_VERSION
+from .requests import RequestTracker
+from .requests import storage_key as requests_storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
 from .websocket_api import async_register_commands
@@ -85,20 +89,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     await coordinator.async_config_entry_first_refresh()
 
     zones = read_zones(entry.options, read_definitions(entry.options))
-    stats: BlockyStatsCoordinator | None = None
-    database = _database_from_options(entry)
-    if database is not None:
-        stats = BlockyStatsCoordinator(hass, entry, database, zones)
-        await stats.async_load()
-        # A database outage must not stop the entry from loading.
-        await stats.async_refresh()
-
     lists = ListManager(hass, entry)
     await lists.async_load()
     lists.set_refresh(coordinator.async_refresh_lists)
 
+    stats: BlockyStatsCoordinator | None = None
+    tracker: RequestTracker | None = None
+    database = _database_from_options(entry)
+    if database is not None:
+        stats = BlockyStatsCoordinator(hass, entry, database, zones)
+        await stats.async_load()
+        tracker = RequestTracker(
+            hass,
+            entry,
+            database,
+            zones,
+            lists,
+            report_existing=entry.options.get(CONF_REPORT_EXISTING_DOMAINS) is True,
+        )
+        await tracker.async_load()
+        stats.requests = tracker
+        # A database outage must not stop the entry from loading.
+        await stats.async_refresh()
+
     entry.runtime_data = BlockyData(
-        coordinator=coordinator, lists=lists, stats=stats, zones=zones
+        coordinator=coordinator,
+        lists=lists,
+        stats=stats,
+        zones=zones,
+        requests=tracker,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -120,3 +139,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> N
         hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.stats"
     ).async_remove()
     await Store(hass, LISTS_STORAGE_VERSION, storage_key(entry.entry_id)).async_remove()
+    await Store(
+        hass, REQUESTS_STORAGE_VERSION, requests_storage_key(entry.entry_id)
+    ).async_remove()
