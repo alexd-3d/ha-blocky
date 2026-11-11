@@ -12,7 +12,7 @@ import importlib.util
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import (
     BigInteger,
@@ -28,6 +28,8 @@ from sqlalchemy import (
     distinct,
     func,
     inspect,
+    not_,
+    or_,
     select,
     text,
 )
@@ -400,3 +402,73 @@ class QueryLogDatabase:
     def top_clients(self, since: datetime) -> list[TopItem]:
         """Return the clients with the most queries."""
         return self._top(LOG_TABLE.c.client_ip, since, blocked_only=False)
+
+    def query_log(
+        self,
+        *,
+        since: datetime,
+        client: str | None = None,
+        domain: str | None = None,
+        blocked: bool | None = None,
+        before_id: int | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return log rows, newest first, as plain cleaned values.
+
+        ``domain`` matches anywhere in the name; the pattern characters ``%``
+        and ``_`` in it are escaped, so it is always a literal search.
+        """
+        table = LOG_TABLE.c
+        is_blocked = table.response_type.in_(BLOCKED_RESPONSE_TYPES)
+        statement = select(
+            table.id,
+            table.request_ts,
+            table.client_ip,
+            table.question_name,
+            table.question_type,
+            table.response_type,
+            table.response_code,
+            table.duration_ms,
+            table.reason,
+        ).where(table.request_ts >= since)
+        if before_id is not None:
+            statement = statement.where(table.id < before_id)
+        if client:
+            statement = statement.where(table.client_ip == client)
+        if domain:
+            statement = statement.where(
+                table.question_name.contains(domain, autoescape=True)
+            )
+        if blocked is True:
+            statement = statement.where(is_blocked)
+        elif blocked is False:
+            statement = statement.where(
+                or_(table.response_type.is_(None), not_(is_blocked))
+            )
+        statement = statement.order_by(table.id.desc()).limit(limit)
+
+        rows: list[dict[str, Any]] = []
+        for row in self._run(statement, one=False):
+            requested = row[1]
+            if isinstance(requested, str):
+                requested = datetime.fromisoformat(requested)
+            response_type = clean_text(row[5])
+            rows.append(
+                {
+                    "id": int(row[0]),
+                    "time": (
+                        f"{requested.isoformat(timespec='seconds')}+00:00"
+                        if isinstance(requested, datetime)
+                        else None
+                    ),
+                    "client": clean_text(row[2]),
+                    "domain": clean_text(row[3]),
+                    "query_type": clean_text(row[4])[:16],
+                    "response_type": response_type[:32],
+                    "response_code": clean_text(row[6])[:32],
+                    "duration_ms": int(row[7] or 0),
+                    "reason": clean_text(row[8]),
+                    "blocked": response_type in BLOCKED_RESPONSE_TYPES,
+                }
+            )
+        return rows

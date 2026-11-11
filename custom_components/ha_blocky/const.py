@@ -38,6 +38,10 @@ DEFAULT_DB_PORT: Final = 3306
 STATS_INTERVAL: Final = timedelta(seconds=60)
 TOPS_INTERVAL: Final = timedelta(minutes=5)
 
+# Limits of one query log request from the card.
+MAX_LOG_ROWS: Final = 200
+MAX_LOG_HOURS: Final = 24 * 30
+
 # Manual lists served to Blocky.
 CONF_LISTS: Final = "lists"
 CONF_LIST_NETWORKS: Final = "list_networks"
