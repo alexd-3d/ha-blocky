@@ -84,8 +84,10 @@ export const DASHBOARD_STYLE = `
   .phead { display: flex; align-items: center; gap: 8px; }
   .phead h3 { margin: 0; font-size: 1.05em; font-weight: 600; }
   .help {
-    flex: 0 0 auto; min-width: 28px; min-height: 28px; padding: 0; border-radius: 50%;
-    font-size: 0.8em; line-height: 1; color: var(--secondary-text-color);
+    flex: none; box-sizing: border-box; width: 24px; height: 24px; min-width: 24px;
+    padding: 0; border-radius: 50%; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 0.85em; line-height: 1;
+    color: var(--secondary-text-color);
   }
   .help[aria-expanded="true"] {
     color: var(--text-primary-color); background: var(--primary-color);

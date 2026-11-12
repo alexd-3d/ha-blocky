@@ -27,9 +27,6 @@ from sqlalchemy.engine import URL
 
 from custom_components.ha_blocky import db
 from custom_components.ha_blocky.const import (
-    CONF_ALLOW_LISTS,
-    CONF_DENY_LISTS,
-    CONF_EXACT_ONLY_LISTS,
     CONF_LIST_NETWORKS,
     CONF_LISTS,
     CONF_ZONES,
@@ -833,31 +830,24 @@ async def test_zone_form_refuses_a_seventeenth_zone(
 async def test_list_change_refused_while_a_zone_uses_the_list(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
+    settings_ws: Any,
     stored_zone: dict[str, Any],
     new_lists: list[tuple[str, str]],
     new_exact: list[str],
 ) -> None:
     stored = {"office": stored_zone}
     entry = await _setup(hass, aioclient_mock, {**LIST_OPTIONS, CONF_ZONES: stored})
-    result = await open_options_step(hass, entry, "lists")
 
     allow = [name for name, kind in new_lists if kind == "allow"]
     deny = [name for name, kind in new_lists if kind == "deny"]
-    result = await _configure(
-        hass,
-        result["flow_id"],
-        {
-            CONF_ALLOW_LISTS: allow,
-            CONF_DENY_LISTS: deny,
-            CONF_EXACT_ONLY_LISTS: new_exact,
-            CONF_LIST_NETWORKS: LOOPBACK,
-        },
+    response = await settings_ws(
+        allow_lists=allow, deny_lists=deny, exact_only_lists=new_exact
     )
 
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "lists"
-    assert result["errors"] == {"base": "list_in_use"}
+    assert response["success"] is False
+    assert response["error"] == {"code": "list_in_use", "message": "allow_lists"}
     assert entry.options[CONF_ZONES] == stored
+    assert entry.options[CONF_LISTS] == LIST_OPTIONS[CONF_LISTS]
 
 
 async def test_zone_config_shows_the_fragment(

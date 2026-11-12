@@ -1,13 +1,15 @@
 /*
  * HA-Blocky card.
  *
- * Three tabs. The Dashboard shows the blocking switch, the totals of a period,
+ * Five tabs. The Dashboard shows the blocking switch, the totals of a period,
  * a chart of queries over time and the top clients and domains. The Query log
  * has search, filters, sorting and paging, and lets an administrator add a
  * domain to a manual allow or deny list. Requests lists the requests for new
  * domains and the phase of the clients of allowlist-only zones, with the known
  * domains of every client. A click on a client names it (the name is kept by
- * the server, keyed by the client's address).
+ * the server, keyed by the client's address). Settings holds the colours of the
+ * query kinds, the default rows and the integration's operational options.
+ * Help is a short quick start with a few well-known blocklist sources.
  *
  * The card is split into plain ES modules next to this file; the browser
  * loads them by relative path. Every value from the log or the server is
@@ -21,14 +23,17 @@
 import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
 import { DashboardView } from "./ha-blocky-dashboard.js";
 import { DOMAIN, el } from "./ha-blocky-dom.js";
+import { HelpView } from "./ha-blocky-help.js";
 import { translate } from "./ha-blocky-i18n.js";
 import { LogView } from "./ha-blocky-log.js";
 import { RequestsView } from "./ha-blocky-requests.js";
+import { SettingsView } from "./ha-blocky-settings.js";
 import "./ha-blocky-overview.js";
+import { ColorStyle, loadPrefs, offPrefs, onPrefs } from "./ha-blocky-prefs.js";
 import { STYLE } from "./ha-blocky-style.js";
 
 const MIN_REFRESH_SECONDS = 10;
-const TABS = ["dashboard", "log", "requests"];
+const TABS = ["dashboard", "log", "requests", "settings", "help"];
 
 class HaBlockyCard extends HTMLElement {
   constructor() {
@@ -87,12 +92,16 @@ class HaBlockyCard extends HTMLElement {
 
   connectedCallback() {
     this._restartTimer();
+    if (this._colors) this._colors.start();
+    if (this._dash) onPrefs(this._onPrefs);
   }
 
   disconnectedCallback() {
     this._stopTimer();
     if (this._log) this._log.stop();
     if (this._dash) this._dash.stop();
+    if (this._colors) this._colors.stop();
+    offPrefs(this._onPrefs);
   }
 
   // Home Assistant sets this while the dashboard is being edited.
@@ -126,6 +135,25 @@ class HaBlockyCard extends HTMLElement {
     return Boolean(this.shadowRoot.querySelector("input.nameedit"));
   }
 
+  // Show these colours instead of the saved ones (undefined: the saved ones).
+  previewColors(colors) {
+    this._colors.preview(colors);
+  }
+
+  // Read the instance again, e.g. after its options were saved and it reloaded.
+  async reloadEntry() {
+    try {
+      const config = await this._hass.callWS({ type: `${DOMAIN}/config` });
+      const entries = Array.isArray(config.entries) ? config.entries : [];
+      const id = this._entry && this._entry.entry_id;
+      this._entry = entries.find((entry) => entry.entry_id === id) || this._entry;
+    } catch (err) {
+      return;
+    }
+    this._dash.updateHass();
+    if (this._tab === "settings") this._settings.load();
+  }
+
   // Reload what is shown, e.g. after a name was saved.
   async refresh() {
     await Promise.all([this._log.load(true), this._requests.load(), this._dash.load()]);
@@ -135,6 +163,10 @@ class HaBlockyCard extends HTMLElement {
     this._built = true;
     const root = this.shadowRoot;
     root.appendChild(el("style", { text: STYLE }));
+    this._colors = new ColorStyle(root);
+    this._colors.start();
+    this._onPrefs = () => this._dash.applyPrefs();
+    onPrefs(this._onPrefs);
 
     this._card = document.createElement("ha-card");
     this._body = el("div", { className: "body" });
@@ -162,6 +194,8 @@ class HaBlockyCard extends HTMLElement {
     this._dash = new DashboardView(this, this._views.dashboard);
     this._log = new LogView(this, this._views.log);
     this._requests = new RequestsView(this, this._views.requests);
+    this._settings = new SettingsView(this, this._views.settings);
+    this._help = new HelpView(this, this._views.help);
     this._selectTab(this._tab);
   }
 
@@ -193,6 +227,7 @@ class HaBlockyCard extends HTMLElement {
       this._dash.hideContent("no_entry", true);
       return;
     }
+    await loadPrefs(hass);
     this._dash.updateHass();
     this._dash.setActive(this._tab === "dashboard");
     if (!this._entry.has_query_log) {
@@ -214,6 +249,8 @@ class HaBlockyCard extends HTMLElement {
     }
     this._requests.setActive(tab === "requests");
     this._dash.setActive(tab === "dashboard");
+    this._log.setActive(tab === "log");
+    this._settings.setActive(tab === "settings");
   }
 
   _stopTimer() {

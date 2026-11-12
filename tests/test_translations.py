@@ -87,14 +87,11 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
         "user",
         "init",
         "database",
-        "intervals",
-        "lists",
+        "list_networks",
         "list_urls",
         "zones",
         "zone_edit",
         "zone_config",
-        "new_domains",
-        "sidebar",
     }
     known_steps = set(ENGLISH["config"]["step"]) | set(ENGLISH["options"]["step"])
     assert steps <= known_steps
@@ -142,10 +139,7 @@ def test_every_form_field_has_an_english_label() -> None:
     schemas = {
         ("config", "user"): config_flow.STEP_USER_SCHEMA,
         ("options", "database"): config_flow.STEP_DATABASE_SCHEMA,
-        ("options", "intervals"): config_flow.STEP_INTERVALS_SCHEMA,
-        ("options", "lists"): config_flow.STEP_LISTS_SCHEMA,
-        ("options", "new_domains"): config_flow.STEP_NEW_DOMAINS_SCHEMA,
-        ("options", "sidebar"): config_flow.STEP_SIDEBAR_SCHEMA,
+        ("options", "list_networks"): config_flow.STEP_LIST_NETWORKS_SCHEMA,
     }
     for (flow, step), schema in schemas.items():
         labels = ENGLISH[flow]["step"][step]["data"]

@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -139,85 +138,6 @@ async def test_tampered_intervals_fall_back_to_defaults(
     assert data.coordinator.update_interval == timedelta(seconds=30)
     assert data.stats.update_interval == timedelta(seconds=60)
     assert data.stats.tops_interval == timedelta(seconds=300)
-
-
-# --- Options flow -----------------------------------------------------------
-
-
-async def test_options_flow_shows_current_intervals(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(hass, aioclient_mock, {CONF_TOPS_INTERVAL: 90})
-
-    result = await open_options_step(hass, entry, "intervals")
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "intervals"
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {**DEFAULTS, CONF_TOPS_INTERVAL: 90}
-
-
-async def test_options_flow_saves_intervals_and_reloads(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(hass, aioclient_mock)
-    result = await open_options_step(hass, entry, "intervals")
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_STATUS_INTERVAL: 20, CONF_STATS_INTERVAL: 90, CONF_TOPS_INTERVAL: 60},
-    )
-    await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {
-        CONF_STATUS_INTERVAL: 20,
-        CONF_STATS_INTERVAL: 90,
-        CONF_TOPS_INTERVAL: 60,
-    }
-    assert entry.runtime_data.coordinator.update_interval == timedelta(seconds=20)
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {CONF_STATUS_INTERVAL: 5},
-        {CONF_STATUS_INTERVAL: 100000},
-        {CONF_STATS_INTERVAL: 0},
-        {CONF_TOPS_INTERVAL: -60},
-        {CONF_TOPS_INTERVAL: "fast"},
-    ],
-)
-async def test_options_flow_rejects_out_of_range_intervals(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, change: dict[str, Any]
-) -> None:
-    entry = await _setup(hass, aioclient_mock)
-    result = await open_options_step(hass, entry, "intervals")
-
-    with pytest.raises(InvalidData):
-        await hass.config_entries.options.async_configure(
-            result["flow_id"], {**DEFAULTS, **change}
-        )
-
-    assert entry.options == {}
-
-
-async def test_changing_intervals_keeps_the_database(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, log_url: URL
-) -> None:
-    entry = await _setup(hass, aioclient_mock, DB_OPTIONS)
-    result = await open_options_step(hass, entry, "intervals")
-
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {**DEFAULTS, CONF_STATS_INTERVAL: 45}
-    )
-    await hass.async_block_till_done()
-
-    assert entry.options == {**DB_OPTIONS, **DEFAULTS, CONF_STATS_INTERVAL: 45}
-    assert entry.runtime_data.stats.update_interval == timedelta(seconds=45)
 
 
 async def test_changing_the_database_keeps_intervals(

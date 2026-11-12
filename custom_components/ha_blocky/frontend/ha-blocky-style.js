@@ -1,17 +1,18 @@
 /* Styles of the HA-Blocky card (plain text, no data is ever added to them). */
 
 import { DASHBOARD_STYLE } from "./ha-blocky-style-dashboard.js";
+import { CATEGORIES, DEFAULT_COLORS } from "./ha-blocky-format.js";
+import { MORE_STYLE } from "./ha-blocky-style-more.js";
+
+// The defaults of the category colours; a saved colour overrides them.
+const DEFAULT_VARS = CATEGORIES.map((kind) => `--hb-color-${kind}: ${DEFAULT_COLORS[kind]};`).join(" ");
 
 export const STYLE = `
   :host {
     display: block;
     /* The colour of each kind of query; change them to restyle every bar,
        tile, legend and badge at once. */
-    --hb-color-resolved: #26a69a;
-    --hb-color-cached: #42a5f5;
-    --hb-color-local: #ab47bc;
-    --hb-color-blocked: #ef5350;
-    --hb-color-other: #9e9e9e;
+    ${DEFAULT_VARS}
     /* The colour of the effect of an action: lets through / keeps out. */
     --hb-good: var(--success-color, #43a047);
     --hb-bad: var(--error-color, #db4437);
@@ -176,6 +177,7 @@ export const STYLE = `
     table.kn td { display: block; border: 0; padding: 0; white-space: normal; }
   }
   ${DASHBOARD_STYLE}
+  ${MORE_STYLE}
   @container (max-width: 560px) {
     .tablabel { display: none; }
     button.tab { flex: 1 1 0; }

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
 from homeassistant.components import frontend
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -21,13 +21,12 @@ from custom_components.ha_blocky.const import (
     PANEL_URL_PATH,
 )
 from custom_components.ha_blocky.frontend import (
-    CARD_URL,
-    PANEL_URL,
+    CARD_FILE,
+    DATA_FRONTEND_BASE,
+    PANEL_FILE,
     async_register_panel,
     async_remove_panel,
 )
-
-from .test_stats import open_options_step
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -82,15 +81,14 @@ async def test_panel_is_registered_for_administrators(
     assert panel.sidebar_title == "HA-Blocky"
     custom = panel.config["_panel_custom"]
     assert custom["name"] == PANEL_ELEMENT
-    assert custom["module_url"].startswith(f"{PANEL_URL}?v=")
+    base = hass.data[DATA_FRONTEND_BASE]
+    assert re.fullmatch(r"/ha_blocky/[0-9a-f]{12}", base)
+    assert custom["module_url"] == f"{base}/{PANEL_FILE}"
     assert "js_url" not in custom
     assert custom["embed_iframe"] is False
     assert custom["trust_external"] is False
     # The card is still offered to dashboards.
-    assert any(
-        url.startswith(f"{CARD_URL}?v=")
-        for url in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
-    )
+    assert f"{base}/{CARD_FILE}" in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
 
 
 @pytest.mark.usefixtures("with_frontend")
@@ -155,52 +153,27 @@ async def test_registering_twice_does_not_raise(
 
 @pytest.mark.usefixtures("with_frontend")
 async def test_saving_the_option_reloads_and_moves_the_panel(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _add_entry(hass, aioclient_mock)
     assert _panel(hass) is not None
 
-    result = await open_options_step(hass, entry, "sidebar")
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "sidebar"
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {CONF_SHOW_IN_SIDEBAR: True}
+    response = await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: False}
-    )
-    await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert response["success"]
     assert entry.options[CONF_SHOW_IN_SIDEBAR] is False
     assert _panel(hass) is None
 
-    result = await open_options_step(hass, entry, "sidebar")
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {CONF_SHOW_IN_SIDEBAR: False}
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: True}
-    )
-    await hass.async_block_till_done()
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
     assert _panel(hass) is not None
 
 
 async def test_the_option_keeps_the_other_options(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _add_entry(hass, aioclient_mock, {"report_existing_domains": True})
 
-    result = await open_options_step(hass, entry, "sidebar")
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: False}
-    )
-    await hass.async_block_till_done()
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
 
     assert entry.options == {
         "report_existing_domains": True,
@@ -217,3 +190,58 @@ async def test_without_the_frontend_nothing_is_registered_and_nothing_fails(
 
     assert frontend.DATA_PANELS not in hass.data
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def _foreign_panel(hass: HomeAssistant) -> Any:
+    """Register somebody else's panel (a dashboard) at our URL path."""
+    frontend.async_register_built_in_panel(
+        hass,
+        "lovelace",
+        sidebar_title="Mine",
+        sidebar_icon="mdi:home",
+        frontend_url_path=PANEL_URL_PATH,
+        config={"mode": "storage"},
+    )
+    panel = _panel(hass)
+    assert panel is not None
+    return panel
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_a_panel_of_somebody_else_is_never_removed_or_replaced(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    foreign = _foreign_panel(hass)
+    entry = await _add_entry(hass, aioclient_mock)
+    assert _panel(hass) is foreign
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _panel(hass) is foreign
+
+    # Turning the option off and on again, which reloads, leaves it alone too.
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
+    assert _panel(hass) is foreign
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
+    assert _panel(hass) is foreign
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert _panel(hass) is foreign
+    async_remove_panel(hass)
+    assert _panel(hass) is foreign
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_our_own_panel_is_still_removed_and_added_again(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    entry = await _add_entry(hass, aioclient_mock)
+    own = _panel(hass)
+    assert own is not None
+
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
+    assert _panel(hass) is None
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
+    assert _panel(hass) is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert _panel(hass) is None

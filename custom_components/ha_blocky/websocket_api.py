@@ -33,8 +33,15 @@ from .const import (
 )
 from .coordinator import BlockyConfigEntry
 from .dashboard import async_dashboard
-from .db import BlockyDbError, TopItem
+from .db import CATEGORIES, BlockyDbError, TopItem
+from .display import get_display, valid_color, valid_rows
 from .requests import RequestError, RequestTracker, normalize_client
+from .settings import (
+    OPERATIONAL_KEYS,
+    SettingError,
+    apply_operational,
+    read_operational,
+)
 from .validation import (
     InvalidClientNameError,
     InvalidDomainError,
@@ -373,6 +380,125 @@ async def ws_dashboard(
 
 
 @websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/settings", vol.Optional("entry_id"): str}
+)
+@websocket_api.require_admin
+@callback
+def ws_settings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the display preferences and the operational settings of an entry."""
+    entries = _loaded_entries(hass)
+    entry_id = msg.get("entry_id")
+    if entry_id is not None:
+        entries = [entry for entry in entries if entry.entry_id == entry_id]
+        if not entries:
+            connection.send_error(
+                msg["id"], "entry_not_found", "Blocky entry not found"
+            )
+            return
+    display = get_display(hass)
+    result: dict[str, Any] = {
+        "display": display.describe() if display else {"colors": {}, "rows": None},
+        "entry": None,
+    }
+    if len(entries) == 1:
+        entry = entries[0]
+        result["entry"] = {
+            "entry_id": entry.entry_id,
+            "title": entry.title,
+            "has_query_log": entry.runtime_data.stats is not None,
+            **read_operational(entry.options),
+        }
+    connection.send_result(msg["id"], result)
+
+
+# Every value is checked in the handler, so that a refusal names its field; the
+# schema only fixes which keys exist. Nothing else can be written.
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_settings",
+        vol.Optional("entry_id"): str,
+        vol.Optional("colors"): {vol.Optional(kind): object for kind in CATEGORIES},
+        vol.Optional("rows"): object,
+        **{vol.Optional(key): object for key in OPERATIONAL_KEYS},
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_settings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Change display preferences and/or operational options (partial update).
+
+    Everything is validated before anything is written. An error names the
+    field and a stable code and never repeats the rejected value. Changed
+    options reload the entry.
+    """
+    colors: dict[str, str | None] = {}
+    try:
+        for kind, value in msg.get("colors", {}).items():
+            if value is None:
+                colors[kind] = None
+            elif (color := valid_color(value)) is not None:
+                colors[kind] = color
+            else:
+                raise SettingError(f"colors.{kind}", "invalid_color")
+        rows: int | None = None
+        if "rows" in msg and msg["rows"] is not None:
+            rows = valid_rows(msg["rows"])
+            if rows is None:
+                raise SettingError("rows", "invalid_rows")
+        changes = {key: msg[key] for key in OPERATIONAL_KEYS if key in msg}
+        has_display = bool(colors) or "rows" in msg
+        if not has_display and not changes:
+            raise SettingError("settings", "nothing_to_change")
+
+        entry: BlockyConfigEntry | None = None
+        new_options: dict[str, Any] | None = None
+        if changes:
+            entries = _loaded_entries(hass)
+            if msg.get("entry_id") is not None:
+                entries = [e for e in entries if e.entry_id == msg["entry_id"]]
+            if len(entries) != 1:
+                raise SettingError("entry_id", "entry_not_found")
+            entry = entries[0]
+            new_options = apply_operational(entry.options, changes)
+            # Compare what the options mean, not the stored keys: a default
+            # written out is no change and must not reload the entry.
+            if read_operational(new_options) == read_operational(entry.options):
+                new_options = None
+        display = get_display(hass)
+        if has_display and display is None:
+            raise SettingError("display", "not_ready")
+    except SettingError as err:
+        connection.send_error(msg["id"], err.code, err.field)
+        return
+
+    if has_display and display is not None:
+        await display.async_update(colors, rows, set_rows="rows" in msg)
+    entry_changed = False
+    if entry is not None and new_options is not None:
+        entry_changed = hass.config_entries.async_update_entry(
+            entry, options=new_options
+        )
+        if entry_changed:
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+    connection.send_result(
+        msg["id"],
+        {
+            "display_changed": has_display,
+            "entry_changed": entry_changed,
+            "reloading": entry_changed,
+        },
+    )
+
+
+@websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/known_domains",
         vol.Optional("entry_id"): str,
@@ -513,6 +639,8 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_requests)
     websocket_api.async_register_command(hass, ws_overview)
     websocket_api.async_register_command(hass, ws_dashboard)
+    websocket_api.async_register_command(hass, ws_settings)
+    websocket_api.async_register_command(hass, ws_set_settings)
     websocket_api.async_register_command(hass, ws_known_domains)
     websocket_api.async_register_command(hass, ws_block_known)
     websocket_api.async_register_command(hass, ws_resolve_request)
