@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.1
+
+### Fixed
+
+- The card showed "Configuration error" on a cold page load (empty cache, a private
+  window, a phone). `ha-blocky-card.js` defined its elements as soon as it ran, which
+  can be before Home Assistant's own app has installed its scoped custom-element
+  registry; an element defined earlier is invisible to `customElements.get()` and
+  `whenDefined()` afterwards, so the dashboard treated the card as missing. The card
+  and the overview card are now defined only once Home Assistant has defined its
+  `home-assistant` element.
+
 ## 0.12.0
 
 ### Added
