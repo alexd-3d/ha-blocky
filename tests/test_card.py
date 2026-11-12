@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
@@ -25,6 +26,7 @@ from sqlalchemy.engine import URL
 
 from custom_components.ha_blocky import db
 from custom_components.ha_blocky.const import DOMAIN, MAX_LOG_ROWS
+from custom_components.ha_blocky.db import CATEGORIES
 from custom_components.ha_blocky.frontend import (
     CARD_PATH,
     CARD_URL,
@@ -44,8 +46,10 @@ MODULES = sorted(FRONTEND_DIR.glob("*.js"))
 SOURCES = {path.name: path.read_text(encoding="utf-8") for path in MODULES}
 # Everything the browser runs, as one text.
 SOURCE = "\n".join(SOURCES.values())
-# The same without the style sheet text.
-CODE = SOURCE.replace(SOURCES["ha-blocky-style.js"], "")
+# The same without the style sheet texts.
+CODE = SOURCE.replace(SOURCES["ha-blocky-style.js"], "").replace(
+    SOURCES["ha-blocky-style-dashboard.js"], ""
+)
 I18N = SOURCES["ha-blocky-i18n.js"]
 
 
@@ -80,15 +84,23 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
     assert sorted(path.name for path in FRONTEND_DIR.iterdir()) == [
         "ha-blocky-actions.js",
         "ha-blocky-card.js",
+        "ha-blocky-chart.js",
+        "ha-blocky-dashboard-data.js",
+        "ha-blocky-dashboard.js",
         "ha-blocky-dom.js",
+        "ha-blocky-format.js",
         "ha-blocky-group.js",
         "ha-blocky-i18n.js",
         "ha-blocky-known.js",
         "ha-blocky-log.js",
         "ha-blocky-overview.js",
         "ha-blocky-panel.js",
+        "ha-blocky-popover.js",
         "ha-blocky-requests.js",
+        "ha-blocky-style-dashboard.js",
         "ha-blocky-style.js",
+        "ha-blocky-switch.js",
+        "ha-blocky-toplist.js",
     ]
     assert CARD_PATH in MODULES
 
@@ -117,7 +129,9 @@ def test_modules_use_text_content() -> None:
 
 @pytest.mark.parametrize("name", sorted(SOURCES))
 def test_module_loads_nothing_from_outside(name: str) -> None:
-    source = SOURCES[name]
+    # The one address in the code is the SVG namespace: an identifier that
+    # createElementNS needs, never a place anything is loaded from.
+    source = SOURCES[name].replace("http://www.w3.org/2000/svg", "")
     assert not re.search(r"https?://", source)
     for loader in ("import(", "importScripts", "fetch(", "XMLHttpRequest", "<script"):
         assert loader not in source, (name, loader)
@@ -133,7 +147,7 @@ def test_imports_are_relative_and_resolve_to_existing_modules() -> None:
             assert re.fullmatch(r"\./[\w-]+\.js", target), (name, target)
             assert (FRONTEND_DIR / target).is_file(), (name, target)
             found += 1
-    assert found >= 15
+    assert found >= 30
     # Nothing is imported with a path that leaves the directory.
     assert "../" not in SOURCE
 
@@ -165,6 +179,10 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     used = set(re.findall(r'\b_?t\("(\w+)"\)', CODE))
     used |= {f"status_{status}" for status in ("all", "blocked", "allowed")}
     used |= {f"hours_{hours}" for hours in (1, 6, 24, 168, 720)}
+    used |= {f"tab_{tab}" for tab in ("dashboard", "log", "requests")}
+    used |= {f"dash_period_{period}" for period in ("today", "24h", "7d", "30d")}
+    used |= {f"cat_{kind}" for kind in CATEGORIES}
+    used |= set(re.findall(r'"(dash_\w+)"', CODE))
     used |= set(re.findall(r'label: "(\w+)"', CODE))
     used |= set(re.findall(r'_section\("(\w+)"', CODE))
     used |= set(re.findall(r'_domainTable\("(\w+)"', CODE))
@@ -211,8 +229,18 @@ def test_names_come_from_the_server_only() -> None:
 
 
 def test_cards_never_build_style_or_links_from_data() -> None:
-    for sink in (".style", 'setAttribute("style"', "href", "src=", "location"):
+    for sink in ('setAttribute("style"', "href", "src=", "location", "cssText"):
         assert sink not in CODE, sink
+    # The only inline style is the position of the popover: two numbers.
+    for name, source in SOURCES.items():
+        if name != "ha-blocky-dom.js":
+            assert ".style" not in source.replace("ha-blocky-style", ""), name
+    dom = SOURCES["ha-blocky-dom.js"]
+    assert re.findall(r"\.style\.\w+ = [^;]+;", dom) == [
+        ".style.left = `${Math.round(Number(left) || 0)}px`;",
+        ".style.top = `${Math.round(Number(top) || 0)}px`;",
+    ]
+    assert dom.count(".style") == 2
 
 
 def test_icons_come_from_fixed_tables_only() -> None:
@@ -222,7 +250,7 @@ def test_icons_come_from_fixed_tables_only() -> None:
         if name != "ha-blocky-actions.js":
             assert "mdi:" not in source, name
     tables = re.findall(r"export const (\w*ICONS) = \{", actions_js)
-    assert tables == ["ICONS", "STATUS_ICONS"]
+    assert tables == ["ICONS", "STATUS_ICONS", "UI_ICONS"]
     names = re.findall(r'"(mdi:[a-z0-9-]+)"', actions_js)
     assert names and len(names) == actions_js.count("mdi:")
     assert 'allow: "mdi:shield-check"' in actions_js
@@ -254,7 +282,7 @@ def test_log_tab_offers_one_icon_action_per_row() -> None:
     assert 'if (row.blocked === true) return "allow";' in log_js
     assert 'LIST_TYPE_OF = { allow: "allow", block: "deny" }' in log_js
     assert "iconButton(this._host, action, action" in log_js
-    assert "this._picker.open(type, row.domain)" in log_js
+    assert "this._picker.open(type, row.domain, {" in log_js
     # The list picker is shared, not copied.
     assert "new ListPicker(" in log_js
     assert "callService" not in log_js
@@ -271,8 +299,14 @@ def test_log_tab_groups_repeats_by_default_and_keeps_it_in_memory() -> None:
     assert 'this._t("group_repeats")' in log_js
     assert "groupRows(this._sortedRows(), this._group)" in log_js
     assert chr(0xD7) + "${count}" in log_js
+    # Only the dashboard's period and rows are remembered (ha-blocky-format.js).
     for sink in ("localStorage", "sessionStorage", "indexedDB", "document.cookie"):
-        assert sink not in SOURCE, sink
+        for name, source in SOURCES.items():
+            if name != "ha-blocky-format.js":
+                assert sink not in source, (name, sink)
+    assert "sessionStorage" not in SOURCE and "indexedDB" not in SOURCE
+    assert "document.cookie" not in SOURCE
+    assert 'readChoice("' not in log_js
 
 
 def test_grouping_function_is_pure() -> None:
@@ -486,6 +520,10 @@ async def test_config_command(
     client = await hass_ws_client(hass)
 
     response = await _command(client, 1, type=f"{DOMAIN}/config")
+    blocking = er.async_get(hass).async_get_entity_id(
+        "switch", DOMAIN, f"{entry.entry_id}_blocking"
+    )
+    assert blocking is not None and blocking.startswith("switch.")
 
     assert response["success"]
     assert response["result"] == {
@@ -494,6 +532,7 @@ async def test_config_command(
                 "entry_id": entry.entry_id,
                 "title": entry.title,
                 "has_query_log": True,
+                "blocking_entity": blocking,
                 "lists": [
                     {"name": "allow_default", "type": "allow", "exact_only": False},
                     {"name": "deny_default", "type": "deny", "exact_only": False},
@@ -713,3 +752,301 @@ async def test_commands_are_admin_only(
 
     assert response["success"] is False
     assert response["error"]["code"] == "unauthorized"
+
+
+# --- The dashboard tab ------------------------------------------------------
+
+
+def test_dashboard_tab_reads_one_command_and_drives_the_switch_entity() -> None:
+    dashboard = SOURCES["ha-blocky-dashboard.js"]
+    switch = SOURCES["ha-blocky-switch.js"]
+    assert "`${DOMAIN}/dashboard`" in dashboard
+    assert dashboard.count("callWS(") == 1
+    assert "callService" not in dashboard
+    # The switch: the entity id comes from the server and must look like one.
+    assert r"SWITCH_ID = /^switch\.[a-z0-9_]+$/" in switch
+    assert "entry.blocking_entity" in switch
+    assert 'callService("switch", state === "on" ? "turn_off" : "turn_on"' in switch
+    assert 'role: "switch"' in switch
+    assert switch.count("callService(") == 1
+    # The period and the rows are validated against the allowed values.
+    assert 'readChoice("period", PERIODS, "24h")' in dashboard
+    assert 'readChoice("rows", ROW_CHOICES, 10)' in dashboard
+    fmt = SOURCES["ha-blocky-format.js"]
+    assert 'PERIODS = ["today", "24h", "7d", "30d"]' in fmt
+    assert "ROW_CHOICES = [5, 10, 20]" in fmt
+    assert "import " not in fmt
+
+
+def test_tabs_show_an_icon_and_a_title_and_the_dashboard_comes_first() -> None:
+    card = SOURCES["ha-blocky-card.js"]
+    style = SOURCES["ha-blocky-style.js"]
+    assert 'const TABS = ["dashboard", "log", "requests"];' in card
+    assert 'this._tab = "dashboard";' in card
+    assert 'role: "tab", title: label, "aria-label": label' in card
+    assert 'haIcon(UI_ICONS, `tab_${id}`, "tabicon")' in card
+    assert 'className: "tablabel"' in card
+    brief = style[style.index("${DASHBOARD_STYLE}") :]
+    assert ".tablabel { display: none; }" in brief
+    assert "@container (max-width: 560px)" in brief
+    # The dashboard is reloaded by a timer that stops while the tab is hidden
+    # or the dashboard is being edited.
+    dashboard = SOURCES["ha-blocky-dashboard.js"]
+    assert 'document.visibilityState === "visible"' in dashboard
+    assert "!this._host.editMode" in dashboard
+    assert "set editMode(value)" in card
+
+
+def test_query_colours_are_custom_properties_used_everywhere() -> None:
+    style = SOURCES["ha-blocky-style.js"]
+    dash_style = SOURCES["ha-blocky-style-dashboard.js"]
+    kinds = ("resolved", "cached", "local", "blocked", "other")
+    for kind in kinds:
+        # Defined once, with a default; mapped to one class that everything uses.
+        assert len(re.findall(rf"--hb-color-{kind}: #", style)) == 1, kind
+        assert f".c-{kind} {{ --c: var(--hb-color-{kind}); }}" in dash_style, kind
+        assert f"--hb-color-{kind}" not in CODE, kind
+    assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", CODE)
+    # Segments, swatches and tiles take their colour from `--c`, never a value.
+    for rule in (
+        "svg.bars .seg, svg.mbar .seg { fill: var(--c); }",
+        "background: var(--c);",
+    ):
+        assert rule in dash_style
+    chart = SOURCES["ha-blocky-chart.js"] + SOURCES["ha-blocky-toplist.js"]
+    assert "`seg c-${" in chart
+    assert "`sw c-${" in chart
+
+
+def test_popover_is_one_accessible_element_that_closes_properly() -> None:
+    popover = SOURCES["ha-blocky-popover.js"]
+    assert 'role: "tooltip"' in popover
+    assert '"pointerdown"' in popover and '"keydown"' in popover
+    assert 'event.key === "Escape"' in popover
+    assert '"scroll"' in popover
+    assert "aria-describedby" in popover
+    # Hover for a mouse, a tap for touch, Enter or Space for the keyboard.
+    assert 'event.pointerType === "mouse"' in popover
+    assert 'event.key !== "Enter" && event.key !== " "' in popover
+    # The chart bars and the list rows can be focused.
+    assert "tabindex: 0" in SOURCES["ha-blocky-chart.js"]
+    assert 'tabindex: "0"' in SOURCES["ha-blocky-toplist.js"]
+    assert "new Popover(" in SOURCES["ha-blocky-dashboard.js"]
+
+
+def test_actions_are_coloured_by_effect_and_the_row_flashes() -> None:
+    actions_js = SOURCES["ha-blocky-actions.js"]
+    style = SOURCES["ha-blocky-style.js"]
+    assert 'allow: "good"' in actions_js and 'block: "bad"' in actions_js
+    assert "fx-${effect}" in actions_js
+    for rule in (
+        ".iconbtn.fx-good, .iconbtn.fx-good:hover { color: var(--hb-good); }",
+        ".iconbtn.fx-bad, .iconbtn.fx-bad:hover { color: var(--hb-bad); }",
+        "tr.flash-good, .knownrow.flash-good",
+        "tr.flash-bad, .knownrow.flash-bad",
+        "@media (prefers-reduced-motion: reduce)",
+    ):
+        assert rule in style, rule
+    # Every list that offers an action lights the row up.
+    for name in ("log", "overview", "requests", "known"):
+        assert "flasher." in SOURCES[f"ha-blocky-{name}.js"], name
+
+
+NODE_SCRIPT = """
+import {
+  CATEGORIES, PERIODS, ROW_CHOICES, categoryCounts, choose, compact, labelStep,
+  percent, readChoice, stackBars, writeChoice,
+} from "./ha-blocky-format.js";
+import { normalize } from "./ha-blocky-dashboard-data.js";
+import { effectOf, flasher } from "./ha-blocky-actions.js";
+
+const out = {};
+out.compact = [compact(25100, "en"), compact(999, "en"), compact(1200000, "en"),
+  compact(-5, "en"), compact("x", "en"), compact(undefined, "en")];
+out.percent = [percent(1, 3), percent(5, 5), percent(0, 10), percent(1, 0),
+  percent("a", 10)];
+out.step = [labelStep(24), labelStep(7), labelStep(30), labelStep(1)];
+
+const counts = (values) => categoryCounts(values);
+const stack = stackBars([
+  { categories: counts({ resolved: 50, blocked: 50 }) },
+  { categories: counts({ cached: 25 }) },
+  { categories: counts({}) },
+]);
+out.stack = {
+  peak: stack.peak,
+  totals: stack.bars.map((bar) => bar.total),
+  slots: stack.bars.map((bar) => bar.slot),
+  first: stack.bars[0].segments,
+  second: stack.bars[1].segments,
+  third: stack.bars[2].segments,
+};
+out.empty = stackBars([]).bars.length;
+
+const data = {};
+globalThis.window = {
+  localStorage: {
+    getItem: (key) => (key in data ? data[key] : null),
+    setItem: (key, value) => { data[key] = String(value); },
+  },
+};
+const choices = [];
+choices.push(readChoice("rows", ROW_CHOICES, 10), readChoice("period", PERIODS, "24h"));
+writeChoice("rows", 20);
+writeChoice("period", "7d");
+choices.push(readChoice("rows", ROW_CHOICES, 10), readChoice("period", PERIODS, "24h"));
+data["ha_blocky.rows"] = "999";
+data["ha_blocky.period"] = "<script>alert(1)</script>";
+choices.push(readChoice("rows", ROW_CHOICES, 10), readChoice("period", PERIODS, "24h"));
+data["ha_blocky.rows"] = "10.0";
+data["ha_blocky.period"] = "constructor";
+choices.push(readChoice("rows", ROW_CHOICES, 20), readChoice("period", PERIODS, "30d"));
+globalThis.window = { localStorage: {
+  getItem: () => { throw new Error("blocked"); },
+  setItem: () => { throw new Error("blocked"); },
+} };
+choices.push(readChoice("rows", ROW_CHOICES, 5),
+  readChoice("period", PERIODS, "today"));
+writeChoice("rows", 5);
+delete globalThis.window;
+choices.push(readChoice("rows", ROW_CHOICES, 20));
+out.choices = choices;
+out.choose = [choose(10, ROW_CHOICES, 5), choose(null, PERIODS, "30d"),
+  choose("7d", PERIODS, "x")];
+
+const hostile = normalize({
+  state: "ok",
+  totals: {
+    queries: "12", unique_domains: -4, avg_duration_ms: null,
+    categories: {
+      resolved: "7", blocked: -1, cached: "NaN", evil: 99, __proto__: { x: 1 },
+    },
+  },
+  buckets: {
+    unit: "<b>",
+    items: [
+      { start: "2026-11-10T10:00:00+00:00", categories: { resolved: 3 } },
+      { start: "not a date", categories: { resolved: 5 } },
+      null,
+    ],
+  },
+  top_clients: [
+    {
+      address: "192.0.2.1", client_name: "N".repeat(500), count: "3",
+      categories: { blocked: 3 },
+    },
+    { address: 5, count: 1 },
+    { name: "wrong key", count: 1 },
+    null,
+  ],
+  top_domains: [{
+    name: "x".repeat(600), count: Infinity, last_seen: 5, reason: "r".repeat(500),
+  }],
+  top_blocked: "not a list",
+  meta: {
+    version: "v".repeat(100), blocky_version: null,
+    generated_at: "2026-11-10T12:00:00+00:00",
+  },
+});
+out.hostile = {
+  queries: hostile.queries, unique: hostile.unique, average: hostile.average ?? null,
+  categories: hostile.categories, unit: hostile.unit,
+  buckets: hostile.buckets.length,
+  clients: hostile.clients.map((item) => [
+    item.name, item.client_name.length, item.count, item.categories.blocked,
+  ]),
+  domainLength: hostile.domains[0].name.length, domainCount: hostile.domains[0].count,
+  lastSeen: hostile.domains[0].last_seen, reason: hostile.domains[0].reason.length,
+  blocked: hostile.blocked.length, version: hostile.version.length,
+  blockyVersion: hostile.blockyVersion, generated: hostile.generated.getTime(),
+  keys: Object.keys(hostile.categories),
+};
+
+out.effects = [
+  "allow", "approve", "block", "reject", "dismiss", "constructor", "toString", "",
+  undefined,
+].map((name) => effectOf(name));
+const timers = [];
+globalThis.setTimeout = (fn, ms) => { timers.push([fn, ms]); };
+const log = [];
+const node = { classList: {
+  add: (name) => log.push(["add", name]),
+  remove: (name) => log.push(["remove", name]),
+} };
+flasher.mark("row:1", "allow", node);
+flasher.mark("row:2", "constructor", node);
+flasher.apply("row:2", node);
+flasher.apply("row:3", node);
+flasher.mark("row:4", "block");
+flasher.apply("row:4", node);
+out.flash = { log, timers: timers.map(([, ms]) => ms > 0 && ms <= 1000) };
+timers.forEach(([fn]) => fn());
+out.flash.after = log.filter((entry) => entry[0] === "remove").map((entry) => entry[1]);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_dashboard_helpers_clean_and_validate(tmp_path: Any) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    for path in MODULES:
+        (tmp_path / path.name).write_text(SOURCES[path.name], encoding="utf-8")
+    # The modules are ES modules; a package.json says so for the .js files.
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    script = tmp_path / "check.mjs"
+    script.write_text(NODE_SCRIPT, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, check=False, cwd=tmp_path
+    )
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["compact"] == ["25.1K", "999", "1.2M", "0", "0", "0"]
+    assert out["percent"] == ["33.3%", "100%", "0%", "0%", "0%"]
+    assert out["step"] == [4, 2, 5, 1]
+    assert out["stack"]["peak"] == 100
+    assert out["stack"]["totals"] == [100, 25, 0]
+    assert out["stack"]["slots"] == [0, 10, 20]
+    assert out["stack"]["first"] == [
+        {"category": "resolved", "y": 50, "height": 50},
+        {"category": "blocked", "y": 0, "height": 50},
+    ]
+    assert out["stack"]["second"] == [{"category": "cached", "y": 75, "height": 25}]
+    assert out["stack"]["third"] == []
+    assert out["empty"] == 0
+    # Valid choices are kept; anything else falls back, also without storage.
+    assert out["choices"] == [10, "24h", 20, "7d", 10, "24h", 20, "30d", 5, "today", 20]
+    assert out["choose"] == [10, "30d", "7d"]
+
+    hostile = out["hostile"]
+    assert (hostile["queries"], hostile["unique"], hostile["average"]) == (12, 0, None)
+    assert hostile["categories"] == {
+        "resolved": 7,
+        "cached": 0,
+        "local": 0,
+        "blocked": 0,
+        "other": 0,
+    }
+    assert hostile["keys"] == ["resolved", "cached", "local", "blocked", "other"]
+    assert hostile["unit"] == "hour"
+    assert hostile["buckets"] == 1
+    assert hostile["clients"] == [["192.0.2.1", 64, 3, 3]]
+    assert (hostile["domainLength"], hostile["domainCount"]) == (253, 0)
+    assert (hostile["lastSeen"], hostile["reason"]) == ("", 120)
+    assert hostile["blocked"] == 0
+    assert hostile["version"] == 32
+    assert hostile["blockyVersion"] == ""
+
+    assert out["effects"] == ["good", "good", "bad", "bad", "bad", "", "", "", ""]
+    flash = out["flash"]
+    # Two classes were added at once; each is removed when its timer fires.
+    assert flash["log"] == [
+        ["add", "flash-good"],
+        ["add", "flash-bad"],
+        ["remove", "flash-good"],
+        ["remove", "flash-bad"],
+    ]
+    assert flash["timers"] == [True, True]
+    assert flash["after"] == ["flash-good", "flash-bad"]

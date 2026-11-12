@@ -6,6 +6,7 @@
  */
 
 import { ACTION_OF } from "./ha-blocky-actions.js";
+import { effectOf, flashPause, flasher } from "./ha-blocky-actions.js";
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
 import { KnownView } from "./ha-blocky-known.js";
 
@@ -110,11 +111,15 @@ export class RequestsView {
         request_id: request.id,
         action,
       });
+      flasher.mark(`req:${request.id}`, name);
     } catch (err) {
       this._errors.set(request.id, (err && (err.message || err.code)) || this._t("error"));
     } finally {
       this._busy.delete(request.id);
     }
+    // Show the highlighted row for a moment before the list is reloaded.
+    this._render();
+    if (!this._errors.has(request.id)) await flashPause();
     await this.load();
   }
 
@@ -159,7 +164,7 @@ export class RequestsView {
           if (!Object.prototype.hasOwnProperty.call(ACTION_OF, name)) continue;
           const button = el("button", {
             text: this._t(`act_${name}`),
-            className: name === "approve" || name === "block" ? "primary" : "",
+            className: `fx-${effectOf(name)}`,
           });
           button.disabled = busy;
           button.addEventListener("click", () => this._resolve(request, name));
@@ -167,19 +172,19 @@ export class RequestsView {
         }
         const error = this._errors.get(request.id);
         if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
-        body.appendChild(
-          el("tr", {}, [
-            clientCell(this._host, request.client, request.client_name, ""),
-            el("td", { text: request.zone || "" }),
-            el("td", { text: request.domain || "", className: "domain" }),
-            el("td", { text: this._age(request.created) }),
-            actions,
-          ])
-        );
+        const line = el("tr", {}, [
+          clientCell(this._host, request.client, request.client_name, ""),
+          el("td", { text: request.zone || "", className: "zone" }),
+          el("td", { text: request.domain || "", className: "domain" }),
+          el("td", { text: this._age(request.created), className: "age" }),
+          actions,
+        ]);
+        flasher.apply(`req:${request.id}`, line);
+        body.appendChild(line);
       }
       fragment.appendChild(
         el("div", { className: "scroll" }, [
-          el("table", {}, [el("thead", {}, [head]), body]),
+          el("table", { className: "req" }, [el("thead", {}, [head]), body]),
         ])
       );
     }

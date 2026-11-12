@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -49,6 +49,12 @@ class BlockyData:
     zones: dict[str, ZoneDefinition] = field(default_factory=dict)
     # None when no query log database is configured.
     requests: RequestTracker | None = None
+    # Dashboard answers by (period, rows), and the lock that makes several open
+    # cards share one database round.
+    dashboard_cache: dict[tuple[str, int], tuple[datetime, dict[str, Any]]] = field(
+        default_factory=dict
+    )
+    dashboard_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 type BlockyConfigEntry = ConfigEntry[BlockyData]

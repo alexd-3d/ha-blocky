@@ -1,12 +1,13 @@
 /*
- * HA-Blocky query log card.
+ * HA-Blocky card.
  *
- * Shows Blocky's query log with search, filters, sorting and paging, and lets
- * an administrator add a domain to a manual allow or deny list. A second tab
- * lists the requests for new domains and the phase of the clients of
- * allowlist-only zones, with the known domains of every client. A click on a
- * client names it (the name is kept by the
- * server, keyed by the client's address).
+ * Three tabs. The Dashboard shows the blocking switch, the totals of a period,
+ * a chart of queries over time and the top clients and domains. The Query log
+ * has search, filters, sorting and paging, and lets an administrator add a
+ * domain to a manual allow or deny list. Requests lists the requests for new
+ * domains and the phase of the clients of allowlist-only zones, with the known
+ * domains of every client. A click on a client names it (the name is kept by
+ * the server, keyed by the client's address).
  *
  * The card is split into plain ES modules next to this file; the browser
  * loads them by relative path. Every value from the log or the server is
@@ -17,6 +18,8 @@
  * Assistant loads on its own.
  */
 
+import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
+import { DashboardView } from "./ha-blocky-dashboard.js";
 import { DOMAIN, el } from "./ha-blocky-dom.js";
 import { translate } from "./ha-blocky-i18n.js";
 import { LogView } from "./ha-blocky-log.js";
@@ -25,6 +28,7 @@ import "./ha-blocky-overview.js";
 import { STYLE } from "./ha-blocky-style.js";
 
 const MIN_REFRESH_SECONDS = 10;
+const TABS = ["dashboard", "log", "requests"];
 
 class HaBlockyCard extends HTMLElement {
   constructor() {
@@ -35,7 +39,8 @@ class HaBlockyCard extends HTMLElement {
     this._built = false;
     this._started = false;
     this._entry = undefined;
-    this._tab = "log";
+    this._tab = "dashboard";
+    this._editMode = false;
     this._timer = undefined;
   }
 
@@ -53,10 +58,13 @@ class HaBlockyCard extends HTMLElement {
       page_size: Number.isInteger(pageSize)
         ? Math.min(Math.max(pageSize, 10), 200)
         : 50,
+      // Not set: the dashboard reloads by itself, the query log does not.
       auto_refresh:
-        Number.isFinite(refresh) && refresh > 0
-          ? Math.max(refresh, MIN_REFRESH_SECONDS)
-          : 0,
+        config && config.auto_refresh === undefined
+          ? undefined
+          : Number.isFinite(refresh) && refresh > 0
+            ? Math.max(refresh, MIN_REFRESH_SECONDS)
+            : 0,
     };
     if (this._built) this._renderTitle();
     this._restartTimer();
@@ -66,6 +74,7 @@ class HaBlockyCard extends HTMLElement {
     this._hass = hass;
     if (!this._built) this._build();
     this._requests.watchSensor();
+    this._dash.updateHass();
     if (!this._started) {
       this._started = true;
       this._start();
@@ -83,6 +92,16 @@ class HaBlockyCard extends HTMLElement {
   disconnectedCallback() {
     this._stopTimer();
     if (this._log) this._log.stop();
+    if (this._dash) this._dash.stop();
+  }
+
+  // Home Assistant sets this while the dashboard is being edited.
+  set editMode(value) {
+    this._editMode = Boolean(value);
+  }
+
+  get editMode() {
+    return this._editMode;
   }
 
   // What the tabs need from the card (their "host").
@@ -109,7 +128,7 @@ class HaBlockyCard extends HTMLElement {
 
   // Reload what is shown, e.g. after a name was saved.
   async refresh() {
-    await Promise.all([this._log.load(true), this._requests.load()]);
+    await Promise.all([this._log.load(true), this._requests.load(), this._dash.load()]);
   }
 
   _build() {
@@ -123,18 +142,27 @@ class HaBlockyCard extends HTMLElement {
     root.appendChild(this._card);
     this._renderTitle();
 
-    this._logTab = el("button", { text: this.t("tab_log"), className: "tab" });
-    this._reqTab = el("button", { text: this.t("tab_requests"), className: "tab" });
-    this._logTab.addEventListener("click", () => this._selectTab("log"));
-    this._reqTab.addEventListener("click", () => this._selectTab("requests"));
-    const tabs = el("div", { className: "tabs" }, [this._logTab, this._reqTab]);
-    this._logView = el("div");
-    this._reqView = el("div", { attrs: { hidden: "" } });
-    this._body.append(tabs, this._logView, this._reqView);
+    // A tab shows an icon and its title; a narrow card shows the icon only.
+    this._tabs = {};
+    this._views = {};
+    for (const id of TABS) {
+      const label = this.t(`tab_${id}`);
+      const button = el(
+        "button",
+        { className: "tab", attrs: { type: "button", role: "tab", title: label, "aria-label": label } },
+        [haIcon(UI_ICONS, `tab_${id}`, "tabicon"), el("span", { text: label, className: "tablabel" })]
+      );
+      button.addEventListener("click", () => this._selectTab(id));
+      this._tabs[id] = button;
+      this._views[id] = el("div", { attrs: { hidden: "" } });
+    }
+    const tabs = el("div", { className: "tabs", attrs: { role: "tablist" } }, Object.values(this._tabs));
+    this._body.append(tabs, ...Object.values(this._views));
 
-    this._log = new LogView(this, this._logView);
-    this._requests = new RequestsView(this, this._reqView);
-    this._selectTab("log");
+    this._dash = new DashboardView(this, this._views.dashboard);
+    this._log = new LogView(this, this._views.log);
+    this._requests = new RequestsView(this, this._views.requests);
+    this._selectTab(this._tab);
   }
 
   _renderTitle() {
@@ -146,6 +174,7 @@ class HaBlockyCard extends HTMLElement {
     if (!hass.user || !hass.user.is_admin) {
       this._log.showMessage("not_admin", true);
       this._log.hideTable();
+      this._dash.hideContent("not_admin", true);
       return;
     }
     try {
@@ -156,12 +185,16 @@ class HaBlockyCard extends HTMLElement {
         : entries.find((entry) => entry.has_query_log) || entries[0];
     } catch (err) {
       this._log.showMessage("error", true);
+      this._dash.hideContent("dash_error", true);
       return;
     }
     if (!this._entry) {
       this._log.showMessage("no_entry", true);
+      this._dash.hideContent("no_entry", true);
       return;
     }
+    this._dash.updateHass();
+    this._dash.setActive(this._tab === "dashboard");
     if (!this._entry.has_query_log) {
       this._log.showMessage("no_query_log", false);
       return;
@@ -174,11 +207,13 @@ class HaBlockyCard extends HTMLElement {
 
   _selectTab(tab) {
     this._tab = tab;
-    this._logView.hidden = tab !== "log";
-    this._reqView.hidden = tab !== "requests";
-    this._logTab.className = tab === "log" ? "tab active" : "tab";
-    this._reqTab.className = tab === "requests" ? "tab active" : "tab";
+    for (const id of TABS) {
+      this._views[id].hidden = id !== tab;
+      this._tabs[id].className = id === tab ? "tab active" : "tab";
+      this._tabs[id].setAttribute("aria-selected", String(id === tab));
+    }
     this._requests.setActive(tab === "requests");
+    this._dash.setActive(tab === "dashboard");
   }
 
   _stopTimer() {
@@ -188,6 +223,7 @@ class HaBlockyCard extends HTMLElement {
 
   _restartTimer() {
     this._stopTimer();
+    if (this._dash) this._dash.restartTimer();
     const seconds = this._config.auto_refresh;
     if (!seconds || !this.isConnected || !this._entry) return;
     this._timer = setInterval(() => {
@@ -212,7 +248,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === "ha-blocky-card")) {
   window.customCards.push({
     type: "ha-blocky-card",
-    name: "HA-Blocky query log",
-    description: "Blocky's DNS query log with search, filters and allow/block actions.",
+    name: "HA-Blocky",
+    description:
+      "Blocky dashboard, DNS query log with search, filters and allow/block actions, and requests.",
   });
 }
