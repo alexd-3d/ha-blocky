@@ -1,13 +1,14 @@
 /*
  * The "Requests" tab: requests for new domains waiting for a decision and the
- * phase of the clients of allowlist-only zones.
+ * phase of the clients of allowlist-only zones, then the known domains of
+ * every tracked client.
  * `host` offers: hass, entry, t(key), refresh(), isEditing().
  */
 
+import { ACTION_OF } from "./ha-blocky-actions.js";
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
+import { KnownView } from "./ha-blocky-known.js";
 
-// What the card may ask the server to do; "dismiss" is a rejection.
-const ACTION_OF = { approve: "approve", reject: "reject", block: "block", dismiss: "reject" };
 const PHASES = ["learning", "locked"];
 const SENSOR_FALLBACK = "sensor.ha_blocky_pending_domain_requests";
 
@@ -25,7 +26,8 @@ export class RequestsView {
 
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
     this._body = el("div");
-    container.append(this._message, this._body);
+    this._known = new KnownView(host);
+    container.append(this._message, this._body, this._known.element);
   }
 
   _t(key) {
@@ -84,6 +86,7 @@ export class RequestsView {
       if (token !== this._token) return;
       this._reqs = Array.isArray(result.requests) ? result.requests : [];
       this._phases = Array.isArray(result.clients) ? result.clients : [];
+      this._known.update(result.tracked);
       this._message.hidden = true;
     } catch (err) {
       if (token !== this._token) return;

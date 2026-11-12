@@ -2,7 +2,7 @@
 
 export const STYLE = `
   :host { display: block; }
-  .body { padding: 0 16px 16px; }
+  .body { padding: 0 16px 16px; container-type: inline-size; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .filters input, .filters select, .panel select {
     flex: 1 1 140px; min-width: 0; box-sizing: border-box; padding: 8px;
@@ -67,6 +67,54 @@ export const STYLE = `
     font: inherit; color: var(--primary-text-color);
     background: var(--card-background-color);
     border: 1px solid var(--primary-color); border-radius: 6px;
+  }
+  label.check {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    color: var(--primary-text-color); cursor: pointer;
+  }
+  span.count { margin-left: 6px; color: var(--secondary-text-color); font-size: 0.85em; }
+  .iconbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    color: var(--secondary-text-color); --mdc-icon-size: 20px;
+  }
+  .iconbtn:hover { background: var(--divider-color); color: var(--primary-text-color); }
+  .iconbtn:focus-visible { outline: 2px solid var(--primary-color); }
+  .iconbtn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+  td.actions, td.buttons { white-space: nowrap; }
+  ha-icon.statusicon { display: none; --mdc-icon-size: 18px; }
+  .lists {
+    display: grid; gap: 0 16px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .lists .section, .section { min-width: 0; }
+  .known { padding: 4px 0 8px; }
+  .knownrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .knownrow .domain {
+    word-break: break-all; font-family: var(--code-font-family, monospace);
+  }
+  /* Narrow card (a phone, or a narrow column): two lines per log entry.
+     Line 1: client and domain. Line 2: time, status icon, action icon. */
+  @container (max-width: 560px) {
+    table.log thead { display: none; }
+    table.log, table.log tbody { display: block; }
+    table.log tr {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas: "client domain domain" "time status actions";
+      align-items: center; gap: 2px 12px; padding: 6px 0;
+      border-bottom: 1px solid var(--divider-color);
+    }
+    table.log td { display: block; border: 0; padding: 0; white-space: normal; }
+    table.log td.client { grid-area: client; }
+    table.log td.domain { grid-area: domain; }
+    table.log td.time { grid-area: time; color: var(--secondary-text-color); }
+    table.log td.status { grid-area: status; }
+    table.log td.actions { grid-area: actions; text-align: right; }
+    table.log td.type, table.log td.ms { display: none; }
+    table.log td.client .sub { display: none; }
+    table.log td.status .statustext { display: none; }
+    table.log td.status ha-icon.statusicon { display: inline-flex; }
+    .scroll { overflow-x: visible; }
   }
   [hidden] { display: none !important; }
 `;

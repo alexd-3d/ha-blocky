@@ -489,6 +489,18 @@
     },
     "too_many_clients": {
       "message": "Уже відстежується забагато клієнтів."
+    },
+    "client_not_tracked": {
+      "message": "Клієнта не відстежують."
+    },
+    "client_not_in_learning_zone": {
+      "message": "Клієнт не в зоні навчання."
+    },
+    "invalid_domain": {
+      "message": "Домен не є дійсним іменем."
+    },
+    "domain_not_known": {
+      "message": "Домен не належить до відомих доменів клієнта."
     }
   }
 }

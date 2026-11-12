@@ -489,6 +489,18 @@
     },
     "too_many_clients": {
       "message": "Too many clients are tracked already."
+    },
+    "client_not_tracked": {
+      "message": "The client is not tracked."
+    },
+    "client_not_in_learning_zone": {
+      "message": "The client is not in a learning zone."
+    },
+    "invalid_domain": {
+      "message": "The domain is not a valid name."
+    },
+    "domain_not_known": {
+      "message": "The domain is not one of the known domains of the client."
     }
   }
 }

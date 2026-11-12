@@ -48,6 +48,7 @@ from .const import (
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
     MAX_BASELINE_CLIENTS_PER_ROUND,
+    MAX_KNOWN_DOMAINS_SHOWN,
     MAX_KNOWN_PAIRS_PER_CLIENT,
     MAX_LEAKS_PER_CLIENT,
     MAX_PENDING_REQUESTS,
@@ -115,6 +116,10 @@ ERROR_MESSAGES: Final = {
     "invalid_client": "The client is not a valid IP address.",
     "client_not_in_allowlist_zone": "The client is not in an allowlist-only zone.",
     "too_many_clients": "Too many clients are tracked already.",
+    "client_not_tracked": "The client is not tracked.",
+    "client_not_in_learning_zone": "The client is not in a learning zone.",
+    "invalid_domain": "The domain is not a valid name.",
+    "domain_not_known": "The domain is not one of the known domains of the client.",
 }
 
 
@@ -462,6 +467,48 @@ class RequestTracker:
             for address, state in self._clients.items()
             if state.mode == ZONE_MODE_ALLOWLIST_ONLY
         ]
+
+    def describe_tracked(self) -> list[dict[str, Any]]:
+        """Return every tracked client with its zone, mode and known count."""
+        names = self._client_names()
+        return [
+            {
+                "client": address,
+                "client_name": names.get(address),
+                "zone": state.zone,
+                "mode": state.mode,
+                "known": len(state.known),
+            }
+            for address, state in self._clients.items()
+        ]
+
+    def describe_known(self, client: object) -> dict[str, Any]:
+        """Return the known domains of one tracked client, newest first.
+
+        At most ``MAX_KNOWN_DOMAINS_SHOWN`` are listed; each is validated again.
+        """
+        address = normalize_client(client)
+        if address is None:
+            raise RequestError("invalid_client")
+        state = self._clients.get(address)
+        if state is None:
+            raise RequestError("client_not_tracked")
+        domains: list[str] = []
+        for known in reversed(state.known):
+            if len(domains) >= MAX_KNOWN_DOMAINS_SHOWN:
+                break
+            try:
+                domains.append(normalize_domain(known, allow_wildcard=False))
+            except InvalidDomainError:
+                continue
+        return {
+            "client": address,
+            "client_name": self._client_names().get(address),
+            "zone": state.zone,
+            "mode": state.mode,
+            "total": len(state.known),
+            "domains": domains,
+        }
 
     def diagnostics(self) -> dict[str, Any]:
         """Return counts only; no address, no name and no domain."""
@@ -944,6 +991,46 @@ class RequestTracker:
         self._drop_request(request)
         self._changed()
         return request
+
+    @callback
+    def async_block_known(
+        self, client: object, domain: object, context: Context | None = None
+    ) -> str:
+        """Block a known domain of a client of a learning zone.
+
+        The domain goes to the zone's first deny list, as when a request of a
+        learning zone is blocked. Clients of allowlist-only zones are refused:
+        their known domains are on an allow list, which this does not edit.
+        Returns the canonical domain.
+        """
+        address = normalize_client(client)
+        if address is None:
+            raise RequestError("invalid_client")
+        try:
+            name = normalize_domain(domain, allow_wildcard=False)
+        except InvalidDomainError as err:
+            raise RequestError("invalid_domain") from err
+        state = self._clients.get(address)
+        if state is None:
+            raise RequestError("client_not_tracked")
+        if state.mode != ZONE_MODE_LEARNING:
+            raise RequestError("client_not_in_learning_zone")
+        zone = self._zones.get(state.zone)
+        if (
+            zone is None
+            or zone.mode != ZONE_MODE_LEARNING
+            or zone_for_address(address, self._zones) != state.zone
+        ):
+            raise RequestError("zone_changed")
+        if name not in state.known:
+            raise RequestError("domain_not_known")
+        target = self._first_list(zone, LIST_TYPE_DENY)
+        if target is None:
+            raise RequestError("no_deny_list")
+        self._add_to_list(target, name, LIST_TYPE_DENY, context)
+        self._remember(state, name)
+        self._changed()
+        return name
 
     def _add_to_list(
         self, name: str, domain: str, list_type: str, context: Context | None

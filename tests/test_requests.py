@@ -2020,6 +2020,415 @@ async def test_request_commands_need_the_query_log(
     assert response["error"]["code"] == "no_query_log"
 
 
+# --- Known domains ------------------------------------------------------------------
+
+
+async def _learn(
+    hass: HomeAssistant, harness: Harness, client: str, *domains: str
+) -> None:
+    """Make a learning client know the domains (each dismissed once)."""
+    harness.add(*(row(domain, client) for domain in domains))
+    await harness_round(hass, harness)
+    for request in harness.tracker.describe_requests():
+        if request["client"] == client:
+            harness.tracker.async_resolve(request["id"], "reject")
+
+
+async def test_known_domains_come_newest_first_with_zone_and_mode(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make(client_names=lambda: {LAB: "Lab PC"})
+    await _learn(hass, harness, LAB, "a.example.com", "b.example.com", "c.example.com")
+
+    known = harness.tracker.describe_known(LAB)
+
+    assert known == {
+        "client": LAB,
+        "client_name": "Lab PC",
+        "zone": "lab",
+        "mode": "learning",
+        "total": 3,
+        "domains": ["c.example.com", "b.example.com", "a.example.com"],
+    }
+    # Another spelling of the address finds the same client.
+    assert harness.tracker.describe_known(f"::ffff:{LAB}") == known
+    assert harness.tracker.describe_tracked() == [
+        {
+            "client": LAB,
+            "client_name": "Lab PC",
+            "zone": "lab",
+            "mode": "learning",
+            "known": 3,
+        }
+    ]
+
+
+async def test_known_domains_are_capped_and_validated(
+    hass: HomeAssistant, make: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = await make()
+    await _learn(hass, harness, LAB, "a.example.com", "b.example.com", "c.example.com")
+    state = harness.tracker._clients[LAB]
+    # The store is validated on load, but the answer checks each name again.
+    state.known["<img src=x onerror=alert(1)>"] = None
+    state.known["bad name.example.com"] = None
+    monkeypatch.setattr(req, "MAX_KNOWN_DOMAINS_SHOWN", 3)
+
+    known = harness.tracker.describe_known(LAB)
+
+    assert known["domains"] == ["c.example.com", "b.example.com", "a.example.com"]
+    assert known["total"] == 5
+    monkeypatch.setattr(req, "MAX_KNOWN_DOMAINS_SHOWN", 2)
+    assert harness.tracker.describe_known(LAB)["domains"] == [
+        "c.example.com",
+        "b.example.com",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("client", "code"),
+    [
+        ("not-an-ip", "invalid_client"),
+        (None, "invalid_client"),
+        ("192.0.2.0/24", "invalid_client"),
+        (OTHER, "client_not_tracked"),
+        ("198.51.100.99", "client_not_tracked"),
+    ],
+)
+async def test_known_domains_of_an_untracked_client_is_refused(
+    make: Callable[..., Any], client: Any, code: str
+) -> None:
+    harness = await make()
+
+    with pytest.raises(RequestError) as err:
+        harness.tracker.describe_known(client)
+
+    assert err.value.code == code
+
+
+async def test_allowlist_clients_list_their_known_domains_read_only(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make()
+    harness.add(blocked("kid.example.com"))
+    await harness_round(hass, harness)
+    harness.tracker.async_resolve(only_request(harness)["id"], "approve")
+
+    known = harness.tracker.describe_known(KID)
+
+    assert known["mode"] == "allowlist_only"
+    assert known["domains"] == ["kid.example.com"]
+
+
+async def test_block_known_adds_to_the_first_deny_list(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make()
+    await _learn(hass, harness, LAB, "a.example.com", "b.example.com")
+    changed = async_capture_events(hass, EVENT_LIST_CHANGED)
+    context = Context()
+
+    name = harness.tracker.async_block_known(LAB, "A.Example.com.", context)
+    await hass.async_block_till_done()
+
+    assert name == "a.example.com"
+    assert harness.lists.entries("deny_a") == ["a.example.com"]
+    assert data_of(changed) == [
+        {
+            "config_entry_id": harness.entry.entry_id,
+            "action": "add",
+            "list": "deny_a",
+            "domain": "a.example.com",
+        }
+    ]
+    assert changed[0].context is context
+    # The domain stays known (and counts as just used).
+    assert harness.tracker.describe_known(LAB)["domains"] == [
+        "a.example.com",
+        "b.example.com",
+    ]
+    # Blocking it again adds nothing and fires nothing.
+    harness.tracker.async_block_known(LAB, "a.example.com")
+    await hass.async_block_till_done()
+    assert harness.lists.entries("deny_a") == ["a.example.com"]
+    assert len(changed) == 1
+
+
+async def test_block_known_refuses_what_is_not_a_known_domain_of_a_learning_client(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make()
+    await _learn(hass, harness, LAB, "a.example.com")
+    harness.add(blocked("kid.example.com"))
+    await harness_round(hass, harness)
+    harness.tracker.async_resolve(only_request(harness)["id"], "approve")
+
+    def refused(client: Any, domain: Any) -> str:
+        with pytest.raises(RequestError) as err:
+            harness.tracker.async_block_known(client, domain)
+        return err.value.code
+
+    assert refused("nope", "a.example.com") == "invalid_client"
+    assert refused(LAB, "bad name") == "invalid_domain"
+    assert refused(LAB, "*.example.com") == "invalid_domain"
+    assert refused(LAB, 5) == "invalid_domain"
+    assert refused(OTHER, "a.example.com") == "client_not_tracked"
+    assert refused(LAB, "other.example.com") == "domain_not_known"
+    # The allowlist client knows the domain, but Block is for learning zones.
+    assert refused(KID, "kid.example.com") == "client_not_in_learning_zone"
+    assert harness.lists.entries("deny_a") == []
+    assert harness.lists.entries("allow_a") == ["kid.example.com"]
+
+
+async def test_block_known_needs_a_deny_list_and_the_same_zone(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    zones = read_zones(OPTIONS, read_definitions(OPTIONS))
+    harness = await make(zones=zones)
+    await _learn(hass, harness, LAB2, "x.example.com")
+    await _learn(hass, harness, LAB, "a.example.com")
+
+    with pytest.raises(RequestError) as err:
+        harness.tracker.async_block_known(LAB2, "x.example.com")
+    assert err.value.code == "no_deny_list"
+
+    # The zone was removed after the client was tracked.
+    del zones["lab"]
+    with pytest.raises(RequestError) as err:
+        harness.tracker.async_block_known(LAB, "a.example.com")
+    assert err.value.code == "zone_changed"
+    assert harness.lists.entries("deny_a") == []
+
+
+async def test_block_known_reports_a_full_list(
+    hass: HomeAssistant, make: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from custom_components.ha_blocky.lists import ListError
+
+    harness = await make()
+    await _learn(hass, harness, LAB, "a.example.com")
+
+    def full(*args: Any) -> None:
+        raise ListError("list_full")
+
+    monkeypatch.setattr(harness.lists, "async_add", full)
+    with pytest.raises(RequestError) as err:
+        harness.tracker.async_block_known(LAB, "a.example.com")
+
+    assert err.value.code == "list_failed"
+
+
+async def _tracked_entry(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    log_url: URL,
+    freezer: FrozenDateTimeFactory,
+) -> MockConfigEntry:
+    entry, ids = await _with_requests(hass, aioclient_mock, log_url, freezer)
+    tracker = entry.runtime_data.requests
+    tracker.async_resolve(ids["learning"], "reject")
+    tracker.async_resolve(ids["approval"], "approve")
+    return entry
+
+
+async def test_known_domains_commands(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    log_url: URL,
+    freezer: FrozenDateTimeFactory,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    entry = await _tracked_entry(hass, aioclient_mock, log_url, freezer)
+    client = await hass_ws_client(hass)
+
+    tracked = (await _command(client, 1, type=f"{DOMAIN}/requests"))["result"][
+        "tracked"
+    ]
+    assert {(item["client"], item["mode"], item["known"]) for item in tracked} == {
+        (LAB, "learning", 1),
+        (KID, "allowlist_only", 1),
+    }
+
+    response = await _command(
+        client, 2, type=f"{DOMAIN}/known_domains", client=f"::ffff:{LAB}"
+    )
+    assert response["success"]
+    assert response["result"] == {
+        "client": LAB,
+        "client_name": None,
+        "zone": "lab",
+        "mode": "learning",
+        "total": 1,
+        "domains": ["learn.example.com"],
+    }
+
+    response = await _command(
+        client, 3, type=f"{DOMAIN}/block_known", client=LAB, domain="LEARN.example.com."
+    )
+    assert response["success"]
+    assert response["result"] == {"client": LAB, "domain": "learn.example.com"}
+    assert entry.runtime_data.lists.entries("deny_a") == ["learn.example.com"]
+
+    # An allowlist-only client's list can be read but not blocked from.
+    response = await _command(client, 4, type=f"{DOMAIN}/known_domains", client=KID)
+    assert response["result"]["domains"] == ["kid.example.com"]
+    response = await _command(
+        client, 5, type=f"{DOMAIN}/block_known", client=KID, domain="kid.example.com"
+    )
+    assert response["success"] is False
+    assert response["error"]["code"] == "client_not_in_learning_zone"
+    assert "example.com" not in response["error"]["message"]
+    assert entry.runtime_data.lists.entries("deny_a") == ["learn.example.com"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "message", "code"),
+    [
+        ("known_domains", {"client": "nope"}, "invalid_format"),
+        ("known_domains", {"client": 5}, "invalid_format"),
+        ("known_domains", {"client": "1" * 100}, "invalid_format"),
+        ("known_domains", {}, "invalid_format"),
+        ("known_domains", {"client": LAB, "extra": 1}, "invalid_format"),
+        ("known_domains", {"client": OTHER}, "client_not_tracked"),
+        ("known_domains", {"client": LAB, "entry_id": "nope"}, "entry_not_found"),
+        (
+            "block_known",
+            {"client": "nope", "domain": "a.example.com"},
+            "invalid_format",
+        ),
+        ("block_known", {"client": LAB, "domain": "bad name"}, "invalid_format"),
+        ("block_known", {"client": LAB, "domain": "*.example.com"}, "invalid_format"),
+        ("block_known", {"client": LAB, "domain": "x" * 300}, "invalid_format"),
+        ("block_known", {"client": LAB, "domain": ["a.example.com"]}, "invalid_format"),
+        ("block_known", {"client": LAB}, "invalid_format"),
+        ("block_known", {"domain": "a.example.com"}, "invalid_format"),
+        (
+            "block_known",
+            {"client": OTHER, "domain": "a.example.com"},
+            "client_not_tracked",
+        ),
+        (
+            "block_known",
+            {"client": LAB, "domain": "zzz.example.com"},
+            "domain_not_known",
+        ),
+        (
+            "block_known",
+            {"client": LAB, "domain": "learn.example.com", "entry_id": "nope"},
+            "entry_not_found",
+        ),
+    ],
+)
+async def test_known_domain_commands_fail_closed(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    log_url: URL,
+    freezer: FrozenDateTimeFactory,
+    hass_ws_client: WebSocketGenerator,
+    kind: str,
+    message: dict[str, Any],
+    code: str,
+) -> None:
+    entry = await _tracked_entry(hass, aioclient_mock, log_url, freezer)
+    client = await hass_ws_client(hass)
+
+    response = await _command(client, 1, type=f"{DOMAIN}/{kind}", **message)
+
+    assert response["success"] is False
+    assert response["error"]["code"] == code
+    assert entry.runtime_data.lists.entries("deny_a") == []
+
+
+NEW_COMMANDS = {
+    "known_domains": {"client": LAB},
+    "block_known": {"client": LAB, "domain": "a.example.com"},
+    "overview": {},
+}
+
+
+@pytest.mark.parametrize("kind", sorted(NEW_COMMANDS))
+async def test_known_domain_and_overview_commands_are_admin_only(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client: WebSocketGenerator,
+    hass_admin_user: MockUser,
+    kind: str,
+) -> None:
+    await _setup(hass, aioclient_mock, OPTIONS)
+    hass_admin_user.groups = []
+    client = await hass_ws_client(hass)
+
+    response = await _command(client, 1, type=f"{DOMAIN}/{kind}", **NEW_COMMANDS[kind])
+
+    assert response["success"] is False
+    assert response["error"]["code"] == "unauthorized"
+
+
+@pytest.mark.parametrize("kind", sorted(NEW_COMMANDS))
+async def test_known_domain_and_overview_commands_need_the_query_log(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client: WebSocketGenerator,
+    kind: str,
+) -> None:
+    await _setup(hass, aioclient_mock, LISTS)
+    client = await hass_ws_client(hass)
+
+    response = await _command(client, 1, type=f"{DOMAIN}/{kind}", **NEW_COMMANDS[kind])
+
+    assert response["success"] is False
+    assert response["error"]["code"] == "no_query_log"
+
+
+async def test_overview_command(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    log_url: URL,
+    freezer: FrozenDateTimeFactory,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    add_rows(
+        log_url,
+        [
+            log_row("busy.example.com", client=LAB),
+            log_row("busy.example.com", client=LAB),
+            log_row("busy.example.com", client=KID),
+            log_row("ads.example.com", client=KID, response_type="BLOCKED"),
+            log_row("ads.example.com", client=KID, response_type="BLOCKED"),
+        ],
+    )
+    entry = await _setup(hass, aioclient_mock, OPTIONS)
+    await _poll(hass, freezer, STATS_INTERVAL)
+    client = await hass_ws_client(hass)
+    await _command(client, 1, type=f"{DOMAIN}/set_client_name", ip=LAB, name="Lab PC")
+
+    response = await _command(client, 2, type=f"{DOMAIN}/overview")
+
+    assert response["success"]
+    result = response["result"]
+    assert result["entry_id"] == entry.entry_id
+    assert result["top_domains"][0] == {"name": "busy.example.com", "count": 3}
+    assert result["top_blocked_domains"] == [{"name": "ads.example.com", "count": 2}]
+    clients = {
+        item["name"]: (item["count"], item["client_name"])
+        for item in result["top_clients"]
+    }
+    assert clients == {LAB: (2, "Lab PC"), KID: (3, None)}
+    assert result["requests"] == entry.runtime_data.requests.describe_requests()
+    assert set(result) == {
+        "entry_id",
+        "top_domains",
+        "top_blocked_domains",
+        "top_clients",
+        "requests",
+    }
+    # An unknown entry and a bad message fail closed.
+    unknown = await _command(client, 3, type=f"{DOMAIN}/overview", entry_id="nope")
+    assert unknown["error"]["code"] == "entry_not_found"
+    bad = await _command(client, 4, type=f"{DOMAIN}/overview", entry_id=5)
+    assert bad["error"]["code"] == "invalid_format"
+
+
 # --- Source checks ------------------------------------------------------------------
 
 

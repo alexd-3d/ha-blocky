@@ -142,6 +142,8 @@ PHASES: Final = (PHASE_LEARNING, PHASE_LOCKED)
 # Hard caps; the state is kept in memory and in one store.
 MAX_REQUEST_CLIENTS: Final = 256
 MAX_KNOWN_PAIRS_PER_CLIENT: Final = 1000
+# How many of a client's known domains one answer lists (newest first).
+MAX_KNOWN_DOMAINS_SHOWN: Final = 200
 MAX_PENDING_REQUESTS: Final = 200
 MAX_REJECTED_PAIRS_PER_CLIENT: Final = 500
 MAX_LEAKS_PER_CLIENT: Final = 200

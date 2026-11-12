@@ -1,9 +1,11 @@
 /*
- * The "Query log" tab: filters, sorting, paging and the allow/block panel.
- * `host` offers: hass, entry, config, t(key), refresh().
+ * The "Query log" tab: filters, sorting, paging, grouping of repeats and the
+ * allow/block icons. `host` offers: hass, entry, config, t(key), refresh().
  */
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
+import { ListPicker, STATUS_ICONS, haIcon, iconButton } from "./ha-blocky-actions.js";
+import { groupRows } from "./ha-blocky-group.js";
 
 const HOURS = [1, 6, 24, 168, 720];
 const STATUSES = ["all", "blocked", "allowed"];
@@ -16,6 +18,34 @@ const COLUMNS = [
   { key: "duration_ms", label: "col_ms", sort: "duration_ms", numeric: true },
 ];
 
+// The category of a response type; it picks the status icon.
+const STATUS_CATEGORY = {
+  RESOLVED: "resolved",
+  CACHED: "cached",
+  CONDITIONAL: "local",
+  CUSTOMDNS: "local",
+  HOSTSFILE: "local",
+  SPECIAL: "local",
+  SYNTHESIZED: "local",
+};
+// A blocked row can be allowed; a row that was answered can be blocked.
+const BLOCKABLE = ["RESOLVED", "CACHED"];
+// The kind of list each action adds to.
+const LIST_TYPE_OF = { allow: "allow", block: "deny" };
+
+function statusOf(row) {
+  if (row.blocked === true) return "blocked";
+  return Object.prototype.hasOwnProperty.call(STATUS_CATEGORY, row.response_type)
+    ? STATUS_CATEGORY[row.response_type]
+    : "other";
+}
+
+// The one action a row offers, or "" for none.
+function actionOf(row) {
+  if (row.blocked === true) return "allow";
+  return BLOCKABLE.includes(row.response_type) ? "block" : "";
+}
+
 export class LogView {
   constructor(host, container) {
     this._host = host;
@@ -26,7 +56,7 @@ export class LogView {
     this._request = 0;
     this._filters = { domain: "", client: "", status: "all", hours: 24 };
     this._sort = { key: "id", direction: -1 };
-    this._pending = undefined;
+    this._group = true;
     this._debounce = undefined;
     this._build(container);
   }
@@ -58,7 +88,17 @@ export class LogView {
     );
     this._hoursSelect.value = "24";
     this._refreshButton = el("button", { text: this._t("refresh") });
+    this._groupBox = el("input", { attrs: { type: "checkbox" } });
+    this._groupBox.checked = this._group;
+    const groupLabel = el("label", { className: "check" }, [
+      this._groupBox,
+      el("span", { text: this._t("group_repeats") }),
+    ]);
 
+    this._groupBox.addEventListener("change", () => {
+      this._group = this._groupBox.checked;
+      this.render();
+    });
     this._domainInput.addEventListener("input", () => this._filterChanged(true));
     this._clientInput.addEventListener("input", () => this._filterChanged(true));
     this._statusSelect.addEventListener("change", () => this._filterChanged(false));
@@ -71,6 +111,7 @@ export class LogView {
         this._clientInput,
         this._statusSelect,
         this._hoursSelect,
+        groupLabel,
         this._refreshButton,
       ])
     );
@@ -80,10 +121,11 @@ export class LogView {
 
     this._panel = el("div", { className: "panel", attrs: { hidden: "" } });
     container.appendChild(this._panel);
+    this._picker = new ListPicker(this._host, this._panel);
 
     this._headRow = el("tr");
     this._tbody = el("tbody");
-    this._table = el("table", {}, [el("thead", {}, [this._headRow]), this._tbody]);
+    this._table = el("table", { className: "log" }, [el("thead", {}, [this._headRow]), this._tbody]);
     container.appendChild(el("div", { className: "scroll" }, [this._table]));
 
     this._count = el("span");
@@ -113,18 +155,12 @@ export class LogView {
 
   // True while the user works with the allow/block panel.
   get busy() {
-    return Boolean(this._pending);
+    return this._picker.busy;
   }
 
   // The timer may reload the first page only.
   get onFirstPage() {
     return this._rows.length <= this._host.config.page_size;
-  }
-
-  _lists(type) {
-    const entry = this._host.entry;
-    const lists = entry && Array.isArray(entry.lists) ? entry.lists : [];
-    return lists.filter((list) => list.type === type);
   }
 
   _filterChanged(debounce) {
@@ -198,7 +234,7 @@ export class LogView {
       });
       this._headRow.appendChild(cell);
     }
-    if (this._lists("allow").length || this._lists("deny").length) {
+    if (this._picker.lists("allow").length || this._picker.lists("deny").length) {
       this._headRow.appendChild(
         el("th", { text: this._t("col_actions"), className: "plain" })
       );
@@ -232,30 +268,40 @@ export class LogView {
   }
 
   render() {
-    const canAllow = this._lists("allow").length > 0;
-    const canBlock = this._lists("deny").length > 0;
+    const canAct = this._picker.lists("allow").length || this._picker.lists("deny").length;
     const fragment = document.createDocumentFragment();
 
-    for (const row of this._sortedRows()) {
+    for (const { row, count } of groupRows(this._sortedRows(), this._group)) {
+      const time = el("td", { text: this._formatTime(row.time), className: "time" });
+      if (count > 1) {
+        time.appendChild(el("span", { text: `×${count}`, className: "count" }));
+      }
+      const status = el(
+        "td",
+        { className: "status", attrs: { title: row.response_type || "" } },
+        [
+          haIcon(STATUS_ICONS, statusOf(row), "statusicon"),
+          el("span", { text: row.response_type || "", className: "statustext" }),
+        ]
+      );
       const cells = [
-        el("td", { text: this._formatTime(row.time) }),
+        time,
         clientCell(this._host, row.client, row.client_name, row.zone),
         el("td", { text: row.domain || "", className: "domain" }),
-        el("td", { text: row.query_type || "" }),
-        el("td", { text: row.response_type || "", className: "status" }),
-        el("td", { text: Number(row.duration_ms) || 0, className: "num" }),
+        el("td", { text: row.query_type || "", className: "type" }),
+        status,
+        el("td", { text: Number(row.duration_ms) || 0, className: "num ms" }),
       ];
-      if (canAllow || canBlock) {
+      if (canAct) {
         const actions = el("td", { className: "actions" });
-        if (canAllow) {
-          const button = el("button", { text: this._t("allow") });
-          button.addEventListener("click", () => this._openPanel("allow", row.domain));
-          actions.appendChild(button);
-        }
-        if (canBlock) {
-          const button = el("button", { text: this._t("block") });
-          button.addEventListener("click", () => this._openPanel("deny", row.domain));
-          actions.appendChild(button);
+        const action = actionOf(row);
+        const type = LIST_TYPE_OF[action];
+        if (action && row.domain && this._picker.lists(type).length) {
+          actions.appendChild(
+            iconButton(this._host, action, action, () =>
+              this._picker.open(type, row.domain)
+            )
+          );
         }
         cells.push(actions);
       }
@@ -275,54 +321,5 @@ export class LogView {
     this._moreButton.hidden = !this._hasMore;
     this._moreButton.disabled = this._loading;
     this._refreshButton.disabled = this._loading;
-  }
-
-  _openPanel(type, domain) {
-    const lists = this._lists(type);
-    if (!lists.length || typeof domain !== "string" || !domain) return;
-    this._pending = { type, domain };
-
-    const select = el(
-      "select",
-      { attrs: { "aria-label": this._t("choose_list") } },
-      lists.map((list) => el("option", { text: list.name, attrs: { value: list.name } }))
-    );
-    const confirm = el("button", { text: this._t("confirm"), className: "primary" });
-    const cancel = el("button", { text: this._t("cancel") });
-    const result = el("span");
-
-    cancel.addEventListener("click", () => this._closePanel());
-    confirm.addEventListener("click", async () => {
-      confirm.disabled = true;
-      try {
-        await this._host.hass.callService(
-          DOMAIN,
-          type === "allow" ? "allow_domain" : "block_domain",
-          { config_entry_id: this._host.entry.entry_id, list: select.value, domain }
-        );
-        result.textContent = this._t("done");
-        confirm.hidden = true;
-        cancel.textContent = "×";
-      } catch (err) {
-        result.textContent = (err && err.message) || this._t("error");
-        confirm.disabled = false;
-      }
-    });
-
-    this._panel.replaceChildren(
-      el("span", { text: this._t(type === "allow" ? "action_allow" : "action_block") }),
-      el("span", { text: domain, className: "name" }),
-      select,
-      confirm,
-      cancel,
-      result
-    );
-    this._panel.hidden = false;
-  }
-
-  _closePanel() {
-    this._pending = undefined;
-    this._panel.hidden = true;
-    this._panel.replaceChildren();
   }
 }
