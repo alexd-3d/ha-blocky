@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 from homeassistant.const import CONF_URL, Platform
 from homeassistant.core import HomeAssistant
@@ -14,6 +15,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from . import db
 from .api import BlockyClient, BlockyInvalidUrlError
+from .client_names import DATA_CLIENT_NAMES, ClientNames, client_name_map
 from .const import (
     CONF_DB_HOST,
     CONF_DB_NAME,
@@ -21,10 +23,16 @@ from .const import (
     CONF_DB_PORT,
     CONF_DB_USERNAME,
     CONF_REPORT_EXISTING_DOMAINS,
+    CONF_SHOW_IN_SIDEBAR,
     DOMAIN,
 )
 from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
-from .frontend import async_register_card
+from .frontend import (
+    async_register_card,
+    async_register_panel,
+    async_remove_panel,
+    wants_panel,
+)
 from .http import async_register_view
 from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
 from .lists import ListManager, read_definitions, storage_key
@@ -51,6 +59,9 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up actions, the list endpoint, the card and its commands."""
+    names = ClientNames(hass)
+    await names.async_load()
+    hass.data[DATA_CLIENT_NAMES] = names
     async_setup_services(hass)
     async_register_view(hass)
     async_register_commands(hass)
@@ -106,6 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
             zones,
             lists,
             report_existing=entry.options.get(CONF_REPORT_EXISTING_DOMAINS) is True,
+            client_names=partial(client_name_map, hass),
         )
         await tracker.async_load()
         stats.requests = tracker
@@ -120,6 +132,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
         requests=tracker,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    if entry.options.get(CONF_SHOW_IN_SIDEBAR, True) is True:
+        await async_register_panel(hass)
     return True
 
 
@@ -130,6 +144,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> b
         await entry.runtime_data.lists.async_close()
         if entry.runtime_data.stats is not None:
             await entry.runtime_data.stats.async_close()
+        # The panel goes with the last entry that wants it.
+        if not wants_panel(hass, excluding=entry.entry_id):
+            async_remove_panel(hass)
     return unloaded
 
 

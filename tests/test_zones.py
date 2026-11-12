@@ -39,7 +39,7 @@ from custom_components.ha_blocky.const import (
     STATS_INTERVAL,
 )
 from custom_components.ha_blocky.diagnostics import async_get_config_entry_diagnostics
-from custom_components.ha_blocky.frontend import CARD_PATH
+from custom_components.ha_blocky.frontend import FRONTEND_DIR
 from custom_components.ha_blocky.lists import ListDefinition
 from custom_components.ha_blocky.validation import (
     InvalidNetworkError,
@@ -72,7 +72,9 @@ from .test_stats import (
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 BASE_URL = "http://blocky.example:4000"
-CARD_SOURCE = CARD_PATH.read_text(encoding="utf-8")
+CARD_SOURCE = "\n".join(
+    path.read_text(encoding="utf-8") for path in sorted(FRONTEND_DIR.glob("*.js"))
+)
 
 DEFINITIONS = {
     "allow_default": ListDefinition("allow_default", "allow", False),
@@ -1154,6 +1156,7 @@ async def test_diagnostics_never_show_a_zone_network(
 def test_card_still_writes_no_markup_and_shows_zones_as_text() -> None:
     assert "innerHTML" not in CARD_SOURCE
     assert "textContent" in CARD_SOURCE or "text:" in CARD_SOURCE
-    assert ".zone" in CARD_SOURCE
+    # The zone sits dimmed under the name or the address of a client.
+    assert ".sub" in CARD_SOURCE
     assert "row.zone" in CARD_SOURCE
-    assert 'className: "zone"' in CARD_SOURCE
+    assert 'className: "sub"' in CARD_SOURCE

@@ -16,10 +16,16 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
+from .client_names import (
+    ClientNameError,
+    client_name_map,
+    get_client_names,
+)
 from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS, REQUEST_ACTIONS
 from .coordinator import BlockyConfigEntry
 from .db import BlockyDbError
-from .requests import RequestError, RequestTracker
+from .requests import RequestError, RequestTracker, normalize_client
+from .validation import InvalidClientNameError, validate_client_name
 from .zones import zone_for_address
 
 STATUS_ALL = "all"
@@ -152,8 +158,11 @@ async def ws_query_log(
         return
 
     zones = entries[0].runtime_data.zones
+    names = client_name_map(hass)
     for row in rows:
         row["zone"] = zone_for_address(row.get("client"), zones)
+        address = normalize_client(row.get("client"))
+        row["client_name"] = names.get(address) if address else None
 
     connection.send_result(
         msg["id"],
@@ -241,6 +250,51 @@ def ws_resolve_request(
     connection.send_result(msg["id"], {"requests": tracker.describe_requests()})
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_client_name",
+        vol.Required("ip"): str,
+        vol.Optional("name"): vol.Any(str, None),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_client_name(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Name a client address by hand; an empty or missing name clears it."""
+    address = normalize_client(msg["ip"])
+    if address is None:
+        connection.send_error(msg["id"], "invalid_ip", "Not a valid IP address")
+        return
+    names = get_client_names(hass)
+    if names is None:
+        connection.send_error(msg["id"], "not_ready", "Client names are not available")
+        return
+    raw = msg.get("name")
+    name: str | None = None
+    if raw is not None and raw != "":
+        try:
+            name = validate_client_name(raw)
+        except InvalidClientNameError:
+            connection.send_error(
+                msg["id"],
+                "invalid_name",
+                "The name must be 1 to 64 characters without control characters",
+            )
+            return
+    try:
+        stored = await names.async_set(address, name)
+    except ClientNameError as err:
+        connection.send_error(
+            msg["id"], err.code, "Too many client names are stored already"
+        )
+        return
+    connection.send_result(msg["id"], {"ip": address, "name": stored})
+
+
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Register the WebSocket commands."""
@@ -248,3 +302,4 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_query_log)
     websocket_api.async_register_command(hass, ws_requests)
     websocket_api.async_register_command(hass, ws_resolve_request)
+    websocket_api.async_register_command(hass, ws_set_client_name)

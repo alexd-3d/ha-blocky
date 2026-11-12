@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **Client names** (BLO-011): a client is shown by name. Order: a name you typed
+  (click the client in the card; Enter saves, Escape cancels, empty clears;
+  stored by Home Assistant, up to 512, keyed by IP address), then the friendly
+  name of a `device_tracker` whose `ip` attribute is the address, then none.
+  `client_name` is added next to the client in the query log and requests
+  answers, in the `get_requests` action answer and in the events
+  `ha_blocky_new_domain`, `ha_blocky_unexpected_domain`, `ha_blocky_zone_leak`
+  and `ha_blocky_new_domains_summary`.
+- **Sidebar panel**: an administrator-only HA-Blocky panel with the card full
+  width. Option "Show in sidebar" (on by default).
+- WebSocket command `ha_blocky/set_client_name` (administrators only), used by
+  the card. It is internal to the card.
+- Diagnostics show how long the last new-domain baseline query took.
+
+### Changed
+
+- The card no longer looks at device trackers in the browser; names come from
+  the server. The card is split into several JavaScript files served from
+  `/ha_blocky/` (the card address `/ha_blocky/ha-blocky-card.js` is unchanged).
+- The client cell shows the name (or the address) first, and the zone and the
+  address smaller below.
+
+### Security
+
+- Names, from a person or from a device tracker, are checked: stripped, 1 to 64
+  characters, no control, format, private-use or unassigned characters, no line
+  or paragraph separators. A bad name is refused (typed) or ignored (tracker).
+  Names are shown with `textContent` only and are never written to diagnostics
+  or logs.
+
 ## 0.7.0
 
 ### Added

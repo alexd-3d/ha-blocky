@@ -19,6 +19,7 @@ import logging
 import math
 import re
 import secrets
+import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import asdict, dataclass, field
@@ -244,6 +245,7 @@ class RequestTracker:
         lists: ListManager,
         *,
         report_existing: bool = False,
+        client_names: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
         """Initialize empty; state is loaded later."""
         self._hass = hass
@@ -252,6 +254,10 @@ class RequestTracker:
         self._zones = zones
         self._lists = lists
         self._report_existing = report_existing
+        self._client_names = client_names or dict
+        # Address -> name, rebuilt once per round and per answer.
+        self._names: Mapping[str, str] = {}
+        self.baseline_seconds: float | None = None
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, storage_key(entry.entry_id)
         )
@@ -425,11 +431,13 @@ class RequestTracker:
 
     def describe_requests(self) -> list[dict[str, Any]]:
         """Return the pending requests as plain data, oldest first."""
+        names = self._client_names()
         return [
             {
                 "id": request.id,
                 "zone": request.zone,
                 "client": request.client,
+                "client_name": names.get(request.client),
                 "domain": request.domain,
                 "kind": request.kind,
                 "actions": list(_ACTIONS_OF_KIND[request.kind]),
@@ -441,17 +449,28 @@ class RequestTracker:
             for request in self._requests.values()
         ]
 
-    def describe_clients(self) -> list[dict[str, str]]:
+    def describe_clients(self) -> list[dict[str, str | None]]:
         """Return the clients of allowlist-only zones with their phase."""
+        names = self._client_names()
         return [
-            {"client": address, "zone": state.zone, "phase": state.phase}
+            {
+                "client": address,
+                "client_name": names.get(address),
+                "zone": state.zone,
+                "phase": state.phase,
+            }
             for address, state in self._clients.items()
             if state.mode == ZONE_MODE_ALLOWLIST_ONLY
         ]
 
     def diagnostics(self) -> dict[str, Any]:
-        """Return counts only; no address and no domain."""
+        """Return counts only; no address, no name and no domain."""
         return {
+            "baseline_last_duration_ms": (
+                None
+                if self.baseline_seconds is None
+                else round(self.baseline_seconds * 1000, 1)
+            ),
             "clients": len(self._clients),
             "pending_requests": len(self._requests),
             "known_pairs": sum(len(state.known) for state in self._clients.values()),
@@ -517,14 +536,17 @@ class RequestTracker:
         if not waiting:
             return
         since = (dt_util.utcnow() - BASELINE_WINDOW).replace(tzinfo=None)
+        started = time.monotonic()
         try:
             found = await self._hass.async_add_executor_job(
                 self._read_baselines, waiting, since
             )
         except BlockyDbError as err:
+            self.baseline_seconds = time.monotonic() - started
             self.counters.failures += 1
             _LOGGER.warning("New-domain baseline could not read the log: %s", err)
             return
+        self.baseline_seconds = time.monotonic() - started
         for address, names in found.items():
             state = self._clients.get(address)
             if state is None or state.baselined:
@@ -549,6 +571,7 @@ class RequestTracker:
         }
 
     def _process(self, rows: list[LogRow], now: float) -> None:
+        self._names = self._client_names()
         for row in rows:
             self.counters.rows_read += 1
             client = normalize_client(row.client)
@@ -765,6 +788,7 @@ class RequestTracker:
                         ATTR_CONFIG_ENTRY_ID: self._entry_id,
                         "zone": state.zone,
                         "client": address,
+                        "client_name": self._names.get(address),
                         "suppressed": state.suppressed,
                     },
                 )
@@ -806,6 +830,7 @@ class RequestTracker:
                 ATTR_CONFIG_ENTRY_ID: self._entry_id,
                 "zone": state.zone,
                 "client": client,
+                "client_name": self._names.get(client),
                 ATTR_DOMAIN: domain,
                 "request_id": request.id if request else None,
                 "actions": list(_ACTIONS_OF_KIND[request.kind]) if request else [],
