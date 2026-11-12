@@ -19,6 +19,27 @@ export function el(tag, options = {}, children = []) {
   return node;
 }
 
+// The namespace of SVG elements: an identifier, nothing is loaded from it.
+export const SVG_NS = "http://www.w3.org/2000/svg";
+
+// An SVG element. The attribute values are numbers computed by the card or
+// fixed strings of the card, never text from the log.
+export function svg(tag, attrs = {}, children = []) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) {
+    node.setAttribute(name, String(value));
+  }
+  for (const child of children) node.appendChild(child);
+  return node;
+}
+
+// Put an absolutely positioned element at pixel offsets. This is the only
+// inline style of the card: two numbers, never a text from the log.
+export function place(node, left, top) {
+  node.style.left = `${Math.round(Number(left) || 0)}px`;
+  node.style.top = `${Math.round(Number(top) || 0)}px`;
+}
+
 // A server-side name, or "" when the value is anything but a text.
 export function nameOf(value) {
   return typeof value === "string" ? value : "";

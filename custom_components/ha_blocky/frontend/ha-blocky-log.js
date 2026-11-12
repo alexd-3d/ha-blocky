@@ -4,7 +4,7 @@
  */
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
-import { ListPicker, STATUS_ICONS, haIcon, iconButton } from "./ha-blocky-actions.js";
+import { ListPicker, STATUS_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
 import { groupRows } from "./ha-blocky-group.js";
 
 const HOURS = [1, 6, 24, 168, 720];
@@ -121,7 +121,11 @@ export class LogView {
 
     this._panel = el("div", { className: "panel", attrs: { hidden: "" } });
     container.appendChild(this._panel);
-    this._picker = new ListPicker(this._host, this._panel);
+    this._picker = new ListPicker(this._host, this._panel, (context) => {
+      // The row of the action is highlighted for a second.
+      if (context) flasher.mark(context.key, context.action);
+      this.render();
+    });
 
     this._headRow = el("tr");
     this._tbody = el("tbody");
@@ -299,16 +303,16 @@ export class LogView {
         if (action && row.domain && this._picker.lists(type).length) {
           actions.appendChild(
             iconButton(this._host, action, action, () =>
-              this._picker.open(type, row.domain)
+              this._picker.open(type, row.domain, { key: `log:${row.id}`, action })
             )
           );
         }
         cells.push(actions);
       }
       const title = row.reason ? { title: row.reason } : {};
-      fragment.appendChild(
-        el("tr", { className: row.blocked ? "blocked" : "", attrs: title }, cells)
-      );
+      const line = el("tr", { className: row.blocked ? "blocked" : "", attrs: title }, cells);
+      flasher.apply(`log:${row.id}`, line);
+      fragment.appendChild(line);
     }
     this._tbody.replaceChildren(fragment);
     this._renderFooter();

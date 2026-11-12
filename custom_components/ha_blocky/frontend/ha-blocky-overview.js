@@ -8,7 +8,7 @@
  * textContent only and loads nothing from outside Home Assistant.
  */
 
-import { ACTION_OF, ListPicker, iconButton, setDisabled } from "./ha-blocky-actions.js";
+import { ACTION_OF, ListPicker, flashPause, flasher, iconButton, setDisabled } from "./ha-blocky-actions.js";
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
 import { translate } from "./ha-blocky-i18n.js";
 import { STYLE } from "./ha-blocky-style.js";
@@ -115,7 +115,11 @@ class HaBlockyOverviewCard extends HTMLElement {
       el("div", { className: "body" }, [this._message, this._panel, this._content])
     );
     root.appendChild(this._card);
-    this._picker = new ListPicker(this, this._panel, () => this.load());
+    this._picker = new ListPicker(this, this._panel, (context) => {
+      // Highlight the row of the action while the lists are reloaded.
+      if (context) flasher.mark(context.key, context.action);
+      this.load();
+    });
     this._renderTitle();
   }
 
@@ -194,11 +198,15 @@ class HaBlockyOverviewCard extends HTMLElement {
         request_id: request.id,
         action,
       });
+      flasher.mark(`req:${request.id}`, name);
     } catch (err) {
       this._errors.set(request.id, (err && (err.message || err.code)) || this.t("error"));
     } finally {
       this._busy.delete(request.id);
     }
+    // Show the highlighted row for a moment before the list is reloaded.
+    this._render();
+    if (!this._errors.has(request.id)) await flashPause();
     await this.load();
   }
 
@@ -213,14 +221,19 @@ class HaBlockyOverviewCard extends HTMLElement {
         el("td", { text: item.name, className: "domain" }),
         el("td", { text: Number(item.count) || 0, className: "num" }),
       ];
+      const key = `ov:${action}:${item.name}`;
       if (canAct) {
         cells.push(
           el("td", { className: "actions" }, [
-            iconButton(this, action, action, () => this._picker.open(type, item.name)),
+            iconButton(this, action, action, () =>
+              this._picker.open(type, item.name, { key, action })
+            ),
           ])
         );
       }
-      body.appendChild(el("tr", {}, cells));
+      const line = el("tr", {}, cells);
+      flasher.apply(key, line);
+      body.appendChild(line);
     }
     return this._section(titleKey, body);
   }
@@ -253,13 +266,13 @@ class HaBlockyOverviewCard extends HTMLElement {
       }
       const error = this._errors.get(request.id);
       if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
-      body.appendChild(
-        el("tr", {}, [
-          clientCell(this, request.client, request.client_name, request.zone),
-          el("td", { text: request.domain || "", className: "domain" }),
-          actions,
-        ])
-      );
+      const line = el("tr", {}, [
+        clientCell(this, request.client, request.client_name, request.zone),
+        el("td", { text: request.domain || "", className: "domain" }),
+        actions,
+      ]);
+      flasher.apply(`req:${request.id}`, line);
+      body.appendChild(line);
     }
     return this._section("ov_requests", body, "req_none");
   }

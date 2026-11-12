@@ -35,6 +35,72 @@ export const STATUS_ICONS = {
   other: "mdi:help-circle-outline",
 };
 
+// The icons of the card's own chrome: the tabs and the dashboard tiles.
+export const UI_ICONS = {
+  tab_dashboard: "mdi:view-dashboard",
+  tab_log: "mdi:format-list-bulleted",
+  tab_requests: "mdi:inbox-arrow-down",
+  tile_total: "mdi:dns",
+  tile_blocked: "mdi:cancel",
+  tile_cached: "mdi:cached",
+  tile_latency: "mdi:timer-outline",
+};
+
+// The effect of each action: "good" actions let something through, "bad" ones
+// keep it out or remove it. The icon takes the colour of its effect; an
+// unknown action stays neutral.
+export const EFFECT_OF = {
+  allow: "good",
+  approve: "good",
+  block: "bad",
+  reject: "bad",
+  dismiss: "bad",
+};
+
+export function effectOf(action) {
+  return Object.prototype.hasOwnProperty.call(EFFECT_OF, action) ? EFFECT_OF[action] : "";
+}
+
+const FLASH_MS = 1000;
+
+// Highlights the row an action was done on for about a second: the row gets
+// the class `flash-good` or `flash-bad`, the style sheet fades it out. A
+// refresh that rebuilds the row picks the highlight up again by its key.
+class Flasher {
+  constructor() {
+    this._marks = new Map();
+  }
+
+  // Remember the action; `node` (if given) is highlighted at once.
+  mark(key, action, node) {
+    const effect = effectOf(action);
+    if (!effect) return;
+    this._marks.set(key, { effect, until: Date.now() + FLASH_MS });
+    if (node) this.apply(key, node);
+  }
+
+  // Highlight `node` for what is left of the second, if `key` was marked.
+  apply(key, node) {
+    const mark = this._marks.get(key);
+    if (!mark) return;
+    const left = mark.until - Date.now();
+    if (left <= 0) {
+      this._marks.delete(key);
+      return;
+    }
+    const name = `flash-${mark.effect}`;
+    node.classList.add(name);
+    setTimeout(() => node.classList.remove(name), left);
+  }
+}
+
+export const flasher = new Flasher();
+
+// Wait while a highlighted row is still worth seeing (it is about to go).
+export function flashPause() {
+  return new Promise((resolve) => setTimeout(resolve, FLASH_MS * 0.8));
+}
+
 // An icon from one of the tables above (no icon for an unknown key).
 export function haIcon(table, key, className) {
   const icon = document.createElement("ha-icon");
@@ -57,8 +123,9 @@ export function setDisabled(button, disabled) {
 // texts; the label is never taken from data.
 export function iconButton(host, action, labelKey, onClick) {
   const label = host.t(labelKey);
+  const effect = effectOf(action);
   const button = el("span", {
-    className: "iconbtn",
+    className: effect ? `iconbtn fx-${effect}` : "iconbtn",
     attrs: { role: "button", tabindex: "0", title: label, "aria-label": label },
   });
   button.appendChild(haIcon(ICONS, action));
@@ -97,7 +164,8 @@ export class ListPicker {
     return lists.filter((list) => list.type === type);
   }
 
-  open(type, domain) {
+  // `context` is handed back to the done callback, so that it knows the row.
+  open(type, domain, context) {
     const lists = this.lists(type);
     if (!lists.length || typeof domain !== "string" || !domain) return;
     const t = (key) => this._host.t(key);
@@ -124,7 +192,7 @@ export class ListPicker {
         result.textContent = t("done");
         confirm.hidden = true;
         cancel.textContent = "×";
-        if (this._onDone) this._onDone();
+        if (this._onDone) this._onDone(context);
       } catch (err) {
         result.textContent = (err && err.message) || t("error");
         confirm.disabled = false;

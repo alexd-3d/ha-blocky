@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+
+- **Dashboard tab** (BLO-014): the card (and the sidebar panel) opens on a new
+  first tab, "Dashboard", before Query log and Requests. It has:
+  - a large blocking switch with a status pill ("Blocking active" / "Blocking
+    paused"); it turns the integration's blocking switch on or off, which pauses
+    blocking for the usual few minutes (no new pause buttons);
+  - a joined button group for the period (Today, 24 h, 7 d, 30 d), remembered by
+    the browser;
+  - tiles for total queries (with unique domains), blocked (share of all),
+    cached (cache rate: cached divided by cached plus resolved) and average
+    latency;
+  - a stacked bar chart of queries over time (hourly for Today and 24 h, daily
+    for 7 d and 30 d, in local time) with a legend and a popover per bar;
+  - top clients, top domains and top blocked domains (5, 10 or 20 rows, also
+    remembered) with a thin bar split by category and a popover with the counts
+    and shares per category, the time last seen and, for blocked domains, the most
+    frequent block reason;
+  - a short hint and a "?" info panel for every section, and a footer with the
+    integration version and the time of the last update;
+  - reloading every 60 seconds (`auto_refresh` sets it, 0 turns it off) while the
+    tab is shown, the page is visible and the dashboard is not being edited.
+- WebSocket command `ha_blocky/dashboard` (administrators only, read-only):
+  `period` (`today`, `24h`, `7d`, `30d`) and `rows` (5, 10, 20). The database
+  does the counting (GROUP BY within the time window; no log rows are read). One
+  answer per entry, period and rows is reused for 30 seconds, so several open
+  cards cost one database round. Without a database it answers with the state
+  `no_database`. The command is internal to the card.
+- The answer of `ha_blocky/config` names the blocking switch entity of each entry
+  (`blocking_entity`).
+- Colours of the query kinds are the custom properties `--hb-color-resolved`,
+  `--hb-color-cached`, `--hb-color-local`, `--hb-color-blocked` and
+  `--hb-color-other`; every tile, bar, legend and badge uses them.
+
+### Changed
+
+- The tabs show an icon and a title; a narrow card shows the icons only.
+- Allow, Approve, Block, Reject and Dismiss are coloured by what they do (green
+  lets something through, red keeps it out or removes it), in the query log, the
+  Requests tab, the known domains and the overview card.
+- The row an action was done on lights up for about a second and fades out (no
+  animation with "reduce motion").
+- On a phone (360 px) nothing overflows sideways on any tab: the requests and the
+  known domains take several lines per entry in a narrow card.
+- The card is listed as "HA-Blocky" in the card picker.
+
+### Security
+
+- The dashboard command is administrators only and takes only enumerated values.
+  All statements are SQLAlchemy Core with bound parameters; every text read from
+  the log (names, block reasons) is cleaned and cut before it leaves the server and
+  is shown with `textContent` only. The card builds charts with SVG elements and
+  numeric attributes; the only inline style is the position of the popover (two
+  numbers).
+
 ## 0.9.0
 
 ### Added

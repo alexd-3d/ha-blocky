@@ -14,6 +14,8 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .client_names import (
@@ -21,8 +23,16 @@ from .client_names import (
     client_name_map,
     get_client_names,
 )
-from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS, REQUEST_ACTIONS
+from .const import (
+    DASHBOARD_PERIODS,
+    DASHBOARD_ROWS,
+    DOMAIN,
+    MAX_LOG_HOURS,
+    MAX_LOG_ROWS,
+    REQUEST_ACTIONS,
+)
 from .coordinator import BlockyConfigEntry
+from .dashboard import async_dashboard
 from .db import BlockyDbError, TopItem
 from .requests import RequestError, RequestTracker, normalize_client
 from .validation import (
@@ -81,6 +91,7 @@ def ws_config(
     msg: dict[str, Any],
 ) -> None:
     """Describe the configured Blocky instances and their manual lists."""
+    registry = er.async_get(hass)
     connection.send_result(
         msg["id"],
         {
@@ -89,6 +100,10 @@ def ws_config(
                     "entry_id": entry.entry_id,
                     "title": entry.title,
                     "has_query_log": entry.runtime_data.stats is not None,
+                    # The blocking switch the dashboard drives (None if removed).
+                    "blocking_entity": registry.async_get_entity_id(
+                        "switch", DOMAIN, f"{entry.entry_id}_blocking"
+                    ),
                     "lists": [
                         {
                             "name": definition.name,
@@ -290,6 +305,75 @@ def ws_overview(
 
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): f"{DOMAIN}/dashboard",
+        vol.Optional("entry_id"): str,
+        vol.Optional("period", default="24h"): vol.In(DASHBOARD_PERIODS),
+        vol.Optional("rows", default=10): vol.All(int, vol.In(DASHBOARD_ROWS)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_dashboard(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the aggregates of the dashboard tab for one period (read only)."""
+    entries = _loaded_entries(hass)
+    entry_id = msg.get("entry_id")
+    if entry_id is not None:
+        entries = [entry for entry in entries if entry.entry_id == entry_id]
+    if len(entries) != 1:
+        connection.send_error(msg["id"], "entry_not_found", "Blocky entry not found")
+        return
+    entry = entries[0]
+    integration = await async_get_integration(hass, DOMAIN)
+    meta: dict[str, Any] = {
+        "version": str(integration.version or ""),
+        # Blocky's API client does not read the server version.
+        "blocky_version": None,
+        "generated_at": dt_util.utcnow().isoformat(timespec="seconds"),
+    }
+    stats = entry.runtime_data.stats
+    if stats is None:
+        connection.send_result(
+            msg["id"],
+            {
+                "state": "no_database",
+                "period": msg["period"],
+                "rows": msg["rows"],
+                "meta": meta,
+            },
+        )
+        return
+
+    try:
+        shared = await async_dashboard(
+            hass, entry.runtime_data, stats.database, msg["period"], msg["rows"]
+        )
+    except BlockyDbError:
+        connection.send_error(
+            msg["id"], "database_error", "The query log database did not answer"
+        )
+        return
+
+    names = client_name_map(hass)
+    result = dict(shared)
+    result["top_clients"] = [
+        {
+            "address": item["name"],
+            "client_name": names.get(normalize_client(item["name"]) or ""),
+            **{key: value for key, value in item.items() if key != "name"},
+        }
+        for item in shared["top_clients"]
+    ]
+    meta["generated_at"] = result.pop("generated_at")
+    result["meta"] = meta
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): f"{DOMAIN}/known_domains",
         vol.Optional("entry_id"): str,
         vol.Required("client"): _client_address,
@@ -428,6 +512,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_query_log)
     websocket_api.async_register_command(hass, ws_requests)
     websocket_api.async_register_command(hass, ws_overview)
+    websocket_api.async_register_command(hass, ws_dashboard)
     websocket_api.async_register_command(hass, ws_known_domains)
     websocket_api.async_register_command(hass, ws_block_known)
     websocket_api.async_register_command(hass, ws_resolve_request)

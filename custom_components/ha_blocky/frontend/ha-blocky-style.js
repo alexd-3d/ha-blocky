@@ -1,7 +1,21 @@
 /* Styles of the HA-Blocky card (plain text, no data is ever added to them). */
 
+import { DASHBOARD_STYLE } from "./ha-blocky-style-dashboard.js";
+
 export const STYLE = `
-  :host { display: block; }
+  :host {
+    display: block;
+    /* The colour of each kind of query; change them to restyle every bar,
+       tile, legend and badge at once. */
+    --hb-color-resolved: #26a69a;
+    --hb-color-cached: #42a5f5;
+    --hb-color-local: #ab47bc;
+    --hb-color-blocked: #ef5350;
+    --hb-color-other: #9e9e9e;
+    /* The colour of the effect of an action: lets through / keeps out. */
+    --hb-good: var(--success-color, #43a047);
+    --hb-bad: var(--error-color, #db4437);
+  }
   .body { padding: 0 16px 16px; container-type: inline-size; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .filters input, .filters select, .panel select {
@@ -51,6 +65,11 @@ export const STYLE = `
     gap: 8px; margin-top: 12px; color: var(--secondary-text-color);
   }
   .tabs { display: flex; gap: 8px; margin: 0 0 12px; }
+  button.tab {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 40px;
+  }
+  ha-icon.tabicon { display: inline-flex; --mdc-icon-size: 20px; }
   button.tab.active {
     color: var(--text-primary-color); background: var(--primary-color);
     border-color: var(--primary-color);
@@ -80,6 +99,26 @@ export const STYLE = `
   }
   .iconbtn:hover { background: var(--divider-color); color: var(--primary-text-color); }
   .iconbtn:focus-visible { outline: 2px solid var(--primary-color); }
+  /* Icons and buttons take the colour of what they do. */
+  .iconbtn.fx-good, .iconbtn.fx-good:hover { color: var(--hb-good); }
+  .iconbtn.fx-bad, .iconbtn.fx-bad:hover { color: var(--hb-bad); }
+  .iconbtn.fx-good:hover { background: color-mix(in srgb, var(--hb-good) 18%, transparent); }
+  .iconbtn.fx-bad:hover { background: color-mix(in srgb, var(--hb-bad) 18%, transparent); }
+  button.fx-good { color: var(--hb-good); border-color: var(--hb-good); }
+  button.fx-bad { color: var(--hb-bad); border-color: var(--hb-bad); }
+  button.fx-good:hover { background: color-mix(in srgb, var(--hb-good) 15%, transparent); }
+  button.fx-bad:hover { background: color-mix(in srgb, var(--hb-bad) 15%, transparent); }
+  /* The row an action was done on lights up and fades out. */
+  tr, .knownrow { transition: background-color 0.9s ease-out; }
+  tr.flash-good, .knownrow.flash-good {
+    background-color: color-mix(in srgb, var(--hb-good) 28%, transparent);
+  }
+  tr.flash-bad, .knownrow.flash-bad {
+    background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    tr, .knownrow { transition: none; }
+  }
   .iconbtn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
   td.actions, td.buttons { white-space: nowrap; }
   ha-icon.statusicon { display: none; --mdc-icon-size: 18px; }
@@ -115,6 +154,31 @@ export const STYLE = `
     table.log td.status .statustext { display: none; }
     table.log td.status ha-icon.statusicon { display: inline-flex; }
     .scroll { overflow-x: visible; }
+    /* The requests: client, domain, then zone and age, then the buttons. */
+    table.req thead { display: none; }
+    table.req, table.req tbody { display: block; }
+    table.req tr {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "client client" "domain domain" "zone age" "buttons buttons";
+      align-items: center; gap: 2px 12px; padding: 8px 0;
+      border-bottom: 1px solid var(--divider-color);
+    }
+    table.req td { display: block; border: 0; padding: 0; white-space: normal; }
+    table.req td.client { grid-area: client; }
+    table.req td.domain { grid-area: domain; }
+    table.req td.zone { grid-area: zone; color: var(--secondary-text-color); }
+    table.req td.age { grid-area: age; color: var(--secondary-text-color); }
+    table.req td.buttons { grid-area: buttons; padding-top: 4px; }
+    table.req td.buttons button { min-height: 36px; }
+    /* The known domains: the client above its button, the list below. */
+    table.kn, table.kn tbody { display: block; }
+    table.kn tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 6px 0; }
+    table.kn td { display: block; border: 0; padding: 0; white-space: normal; }
+  }
+  ${DASHBOARD_STYLE}
+  @container (max-width: 560px) {
+    .tablabel { display: none; }
+    button.tab { flex: 1 1 0; }
   }
   [hidden] { display: none !important; }
 `;

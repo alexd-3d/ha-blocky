@@ -26,6 +26,7 @@ from sqlalchemy import (
     case,
     create_engine,
     distinct,
+    extract,
     func,
     inspect,
     not_,
@@ -122,6 +123,11 @@ WRITE_PRIVILEGES: Final = frozenset(
 
 MAX_TEXT_LENGTH: Final = 253
 MAX_TOP_ITEMS: Final = 10
+# Bounds of the dashboard queries (a hostile table cannot make them larger).
+MAX_DASHBOARD_ROWS: Final = 20
+MAX_REASON_LENGTH: Final = 120
+MAX_DASHBOARD_HOURS: Final = 24 * 31 * len(CATEGORIES) * 4
+MAX_REASON_GROUPS_PER_ITEM: Final = 20
 STATEMENT_TIMEOUT_SECONDS: Final = 10
 CONNECT_TIMEOUT_SECONDS: Final = 5
 
@@ -608,3 +614,158 @@ class QueryLogDatabase:
                 }
             )
         return rows
+
+    def dashboard_totals(
+        self, since: datetime, until: datetime
+    ) -> tuple[dict[str, int], int, float | None]:
+        """Return the counts per category, the distinct domains and the mean time.
+
+        The window is ``since`` (inclusive) to ``until`` (exclusive), naive UTC.
+        """
+        table = LOG_TABLE.c
+        in_range = (table.request_ts >= since, table.request_ts < until)
+        categories = dict.fromkeys(CATEGORIES, 0)
+        for response_type, hits in self._run(
+            select(table.response_type, func.count())
+            .where(*in_range)
+            .group_by(table.response_type),
+            one=False,
+        ):
+            categories[response_category(response_type)] += int(hits or 0)
+        row = self._run(
+            select(
+                func.count(distinct(table.question_name)), func.avg(table.duration_ms)
+            )
+            .where(*in_range)
+            .where(table.question_name.is_not(None))
+        )
+        average = float(row[1]) if row[1] is not None else None
+        return categories, int(row[0] or 0), average
+
+    def dashboard_hours(
+        self, since: datetime, until: datetime
+    ) -> list[tuple[datetime, str, int]]:
+        """Return (hour start, category, queries) for every hour with queries.
+
+        Hour starts are naive UTC. The caller folds them into longer buckets.
+        """
+        table = LOG_TABLE.c
+        year = extract("year", table.request_ts)
+        month = extract("month", table.request_ts)
+        day = extract("day", table.request_ts)
+        hour = extract("hour", table.request_ts)
+        statement = (
+            select(year, month, day, hour, table.response_type, func.count())
+            .where(table.request_ts >= since, table.request_ts < until)
+            .group_by(year, month, day, hour, table.response_type)
+            .limit(MAX_DASHBOARD_HOURS)
+        )
+        result: list[tuple[datetime, str, int]] = []
+        for y, mo, d, h, response_type, hits in self._run(statement, one=False):
+            try:
+                start = datetime(int(y), int(mo), int(d), int(h))
+            except (TypeError, ValueError):
+                continue
+            result.append((start, response_category(response_type), int(hits or 0)))
+        return result
+
+    def dashboard_top(
+        self,
+        kind: str,
+        since: datetime,
+        until: datetime,
+        rows: int,
+        *,
+        blocked_only: bool = False,
+        with_reason: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return the busiest clients (``kind`` "client") or domains ("domain").
+
+        Each item has the cleaned name, the number of queries, the queries per
+        category, the newest request time and, if asked, the most frequent block
+        reason. With ``blocked_only`` only blocked queries are ranked and counted.
+        """
+        table = LOG_TABLE.c
+        columns = {"client": table.client_ip, "domain": table.question_name}
+        if kind not in columns:
+            raise ValueError(kind)
+        column = columns[kind]
+        limit = max(1, min(int(rows), MAX_DASHBOARD_ROWS))
+        in_range = [
+            table.request_ts >= since,
+            table.request_ts < until,
+            column.is_not(None),
+            column != "",
+        ]
+        if blocked_only:
+            in_range.append(table.response_type.in_(BLOCKED_RESPONSE_TYPES))
+
+        hits = func.count().label("hits")
+        newest = func.max(table.request_ts).label("newest")
+        ranked = self._run(
+            select(column, hits, newest)
+            .where(*in_range)
+            .group_by(column)
+            .order_by(hits.desc(), column)
+            .limit(limit),
+            one=False,
+        )
+        names = [name for name, _hits, _newest in ranked if isinstance(name, str)]
+        if not names:
+            return []
+
+        per_name: dict[str, dict[str, int]] = {}
+        for name, response_type, count in self._run(
+            select(column, table.response_type, func.count())
+            .where(*in_range, column.in_(names))
+            .group_by(column, table.response_type),
+            one=False,
+        ):
+            counts = per_name.setdefault(name, dict.fromkeys(CATEGORIES, 0))
+            counts[response_category(response_type)] += int(count or 0)
+
+        reasons: dict[str, str] = {}
+        if with_reason:
+            reason_hits = func.count().label("reason_hits")
+            for name, reason, _count in self._run(
+                select(column, table.reason, reason_hits)
+                .where(*in_range, column.in_(names), table.reason.is_not(None))
+                .group_by(column, table.reason)
+                .order_by(reason_hits.desc())
+                .limit(limit * MAX_REASON_GROUPS_PER_ITEM),
+                one=False,
+            ):
+                cleaned_reason = clean_text(reason)[:MAX_REASON_LENGTH]
+                # Most frequent first: keep the first non-empty one of a name.
+                if cleaned_reason and name not in reasons:
+                    reasons[name] = cleaned_reason
+
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for name, count, last in ranked:
+            cleaned = clean_text(name)
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            item: dict[str, Any] = {
+                "name": cleaned,
+                "count": int(count or 0),
+                "categories": dict(per_name.get(name, dict.fromkeys(CATEGORIES, 0))),
+                "last_seen": _utc_iso(last),
+            }
+            if with_reason:
+                item["reason"] = reasons.get(name, "")
+            items.append(item)
+        return items
+
+
+def _utc_iso(value: object) -> str | None:
+    """Return a naive UTC database time as an ISO text with an offset."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return f"{value.replace(tzinfo=None).isoformat(timespec='seconds')}+00:00"

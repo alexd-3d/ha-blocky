@@ -7,7 +7,7 @@
  */
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
-import { iconButton } from "./ha-blocky-actions.js";
+import { flasher, iconButton } from "./ha-blocky-actions.js";
 
 const LEARNING = "learning";
 
@@ -88,6 +88,7 @@ export class KnownView {
         domain,
       });
       state.blocked.add(domain);
+      flasher.mark(`known:${address}:${domain}`, "block");
     } catch (err) {
       state.error = (err && err.message) || this._t("error");
     }
@@ -118,6 +119,7 @@ export class KnownView {
           );
         }
       }
+      flasher.apply(`known:${address}:${domain}`, line);
       box.appendChild(line);
     }
     return box;
@@ -152,7 +154,7 @@ export class KnownView {
     }
     this.element.replaceChildren(
       el("h3", { text: this._t("known_title") }),
-      el("div", { className: "scroll" }, [el("table", {}, [body])])
+      el("div", { className: "scroll" }, [el("table", { className: "kn" }, [body])])
     );
   }
 }

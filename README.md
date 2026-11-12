@@ -6,7 +6,7 @@ DNS proxy and ad-blocker.
 > **Status: early development.** The integration can pause and resume blocking,
 > refresh lists, flush the cache, report whether Blocky is reachable, show
 > statistics from Blocky's query log database, manage manual allow and deny
-> lists, browse the query log in a dashboard card or a sidebar panel, name clients
+> lists, see a dashboard and browse the query log in a card or a sidebar panel, name clients
 > and handle requests for new domains.
 
 ## Goals
@@ -221,7 +221,31 @@ also still available for dashboards as before.
 
 ## Dashboard cards
 
-The query log card is `custom:ha-blocky-card`. The overview card is
+The card is `custom:ha-blocky-card` (it is also the sidebar panel). It has three tabs; on a
+narrow card they show their icons only.
+
+**Dashboard** (the first tab). A large switch turns blocking off or on (it drives the
+integration's blocking switch entity, so turning it off pauses blocking for the usual few
+minutes). The period group (Today, 24 h, 7 d, 30 d) and the number of rows of the top
+lists (5, 10, 20) are remembered by the browser. Tiles show the queries, blocked, cached
+(cache rate = cached divided by cached plus resolved) and the average answer time. The chart
+shows queries per hour (Today, 24 h) or per local day (7 d, 30 d), stacked by how Blocky
+answered: resolved, cached, local, blocked, other. The top clients, top domains and top
+blocked domains have a thin bar split by the same categories; hover or tap a bar or a row for
+the exact counts, the time last seen and, for a blocked domain, the most frequent block
+reason. The tab reloads every 60 seconds (`auto_refresh` in the card options sets another
+time in seconds, at least 10; 0 turns it off) while it is shown, the page is visible and the
+dashboard is not being edited. It needs the query log database; without it only the switch
+is shown. The WebSocket command `ha_blocky/dashboard` that it uses reads only aggregates
+(counts per category, hour or day, client and domain within the chosen period) from the
+database and is internal to the card. The server reuses one answer per entry, period and
+rows for 30 seconds.
+
+The colours of the query kinds are the custom properties `--hb-color-resolved`,
+`--hb-color-cached`, `--hb-color-local`, `--hb-color-blocked` and `--hb-color-other` of the
+card (for example set with a card theme or `card-mod`).
+
+The other tabs are the query log and the requests, described below. The overview card is
 `custom:ha-blocky-overview-card`; it needs the query log database and an administrator.
 
 ```yaml

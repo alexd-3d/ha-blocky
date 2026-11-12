@@ -42,6 +42,12 @@ TOPS_INTERVAL: Final = timedelta(minutes=5)
 MAX_LOG_ROWS: Final = 200
 MAX_LOG_HOURS: Final = 24 * 30
 
+# The dashboard tab of the card: the periods and the top-list lengths it may ask
+# for, and how long one answer is reused for every open card.
+DASHBOARD_PERIODS: Final = ("today", "24h", "7d", "30d")
+DASHBOARD_ROWS: Final = (5, 10, 20)
+DASHBOARD_CACHE: Final = timedelta(seconds=30)
+
 # Manual lists served to Blocky.
 CONF_LISTS: Final = "lists"
 CONF_LIST_NETWORKS: Final = "list_networks"
