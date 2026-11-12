@@ -111,6 +111,16 @@ def ws_config(
                     "blocking_entity": registry.async_get_entity_id(
                         "switch", DOMAIN, f"{entry.entry_id}_blocking"
                     ),
+                    # The entities the dashboard toolbar uses (None if removed).
+                    "pause_entity": registry.async_get_entity_id(
+                        "select", DOMAIN, f"{entry.entry_id}_pause_blocking"
+                    ),
+                    "refresh_lists_entity": registry.async_get_entity_id(
+                        "button", DOMAIN, f"{entry.entry_id}_refresh_lists"
+                    ),
+                    "flush_cache_entity": registry.async_get_entity_id(
+                        "button", DOMAIN, f"{entry.entry_id}_flush_cache"
+                    ),
                     "lists": [
                         {
                             "name": definition.name,

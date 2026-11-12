@@ -46,17 +46,15 @@ export function nameOf(value) {
 }
 
 // The lines of a client: the name (or the address) first; below it, dimmed,
-// the zone and the address.
-function clientLines(address, name, zone) {
+// the zone and the address. A long value is cut by the style sheet; the whole
+// text stays available as the title of the line.
+export function clientLines(address, name, zone) {
+  const line = (text, className) => el("div", { text, className, attrs: { title: text } });
   if (name) {
-    const detail = zone ? `${zone} · ${address}` : address;
-    return [
-      el("div", { text: name, className: "main" }),
-      el("div", { text: detail, className: "sub" }),
-    ];
+    return [line(name, "main"), line(zone ? `${zone} · ${address}` : address, "sub")];
   }
-  const lines = [el("div", { text: address, className: "main" })];
-  if (zone) lines.push(el("div", { text: zone, className: "sub" }));
+  const lines = [line(address, "main")];
+  if (zone) lines.push(line(zone, "sub"));
   return lines;
 }
 

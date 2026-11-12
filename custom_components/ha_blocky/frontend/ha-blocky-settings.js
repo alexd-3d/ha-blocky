@@ -64,9 +64,10 @@ export class SettingsView {
     return label ? `${label}: ${text}` : text;
   }
 
+  // A card of the Settings tab: a heading, a short description, then the fields.
   _section(titleKey, hintKey) {
     const message = el("div", { className: "message", attrs: { hidden: "" } });
-    const root = el("section", { className: "part" }, [
+    const root = el("section", { className: "scard" }, [
       el("h3", { text: this._t(titleKey) }),
       el("div", { className: "hint", text: this._t(hintKey) }),
     ]);
@@ -93,8 +94,7 @@ export class SettingsView {
       grid.appendChild(
         el("label", { className: "crow" }, [
           input,
-          el("span", { className: `sw c-${category}` }),
-          el("span", { text: this._t(`cat_${category}`) }),
+          el("span", { text: this._t(`cat_${category}`), className: "cname" }),
         ])
       );
     }
@@ -131,13 +131,18 @@ export class SettingsView {
     save.addEventListener("click", () => this._saveDisplay());
     reset.addEventListener("click", () => this._resetDisplay());
     display.root.append(
-      el("div", { className: "flabel", text: this._t("set_colors") }),
-      grid,
-      el("div", { className: "flabel", text: this._t("set_preview") }),
-      bar,
-      el("div", { className: "flabel", text: this._t("set_rows_default") }),
-      this._rowsGroup,
-      el("div", { className: "hint", text: this._t("set_rows_hint") }),
+      el("div", { className: "group" }, [
+        el("h4", { className: "gtitle", text: this._t("set_colors") }),
+        grid,
+        el("div", { className: "flabel", text: this._t("set_preview") }),
+        bar,
+      ]),
+      el("div", { className: "group" }, [
+        el("h4", { className: "gtitle", text: this._t("set_group_defaults") }),
+        el("div", { className: "flabel", text: this._t("set_rows_default") }),
+        this._rowsGroup,
+        el("div", { className: "hint", text: this._t("set_rows_hint") }),
+      ]),
       el("div", { className: "btnrow" }, [save, reset]),
       display.message
     );

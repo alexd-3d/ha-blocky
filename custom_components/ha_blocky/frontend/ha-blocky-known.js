@@ -1,13 +1,14 @@
 /*
- * The "Known domains" part of the Requests tab: one collapsible list per
- * tracked client, loaded on demand. Clients of learning zones get a Block icon
+ * The "Known domains" part of the Requests tab: one native <details> per
+ * tracked client (the summary shows the client and the number of known
+ * domains), loaded on the first opening. Clients of learning zones get a Block icon
  * per domain; the list of a client of an allowlist-only zone is read-only
  * (its known domains are on an allow list, which this card does not edit).
  * `host` offers: hass, entry, t(key), refresh().
  */
 
-import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
-import { flasher, iconButton } from "./ha-blocky-actions.js";
+import { DOMAIN, clientLines, el } from "./ha-blocky-dom.js";
+import { UI_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
 
 const LEARNING = "learning";
 
@@ -15,7 +16,7 @@ export class KnownView {
   constructor(host) {
     this._host = host;
     this._clients = [];
-    // Address -> { open, loaded, domains, total, mode, error, blocked }.
+    // Address -> { open, loaded, loading, domains, total, mode, error, blocked, body }.
     this._state = new Map();
     this.element = el("div");
   }
@@ -39,26 +40,38 @@ export class KnownView {
   _stateOf(address) {
     let state = this._state.get(address);
     if (!state) {
-      state = { open: false, loaded: false, domains: [], total: 0, mode: "", blocked: new Set() };
+      state = {
+        open: false,
+        loaded: false,
+        loading: false,
+        domains: [],
+        total: 0,
+        mode: "",
+        blocked: new Set(),
+        body: undefined,
+      };
       this._state.set(address, state);
     }
     return state;
   }
 
-  async _toggle(address) {
+  // The <details> of a client opened or closed; the list loads on the first opening.
+  _onToggle(address, details) {
     const state = this._stateOf(address);
-    state.open = !state.open;
-    if (state.open && !state.loaded) {
-      this._render();
-      await this._load(address);
-    } else {
-      this._render();
-    }
+    state.open = details.open;
+    if (state.open && !state.loaded && !state.loading) this._load(address);
+  }
+
+  // Draw the list of one client into its body (the rest stays as it is).
+  _fill(address) {
+    const state = this._stateOf(address);
+    if (state.body) state.body.replaceChildren(this._domainList(address, state));
   }
 
   async _load(address) {
     const state = this._stateOf(address);
     state.error = "";
+    state.loading = true;
     try {
       const result = await this._host.hass.callWS({
         type: `${DOMAIN}/known_domains`,
@@ -74,7 +87,8 @@ export class KnownView {
     } catch (err) {
       state.error = this._t("known_error");
     }
-    this._render();
+    state.loading = false;
+    this._fill(address);
   }
 
   async _block(address, domain) {
@@ -92,12 +106,15 @@ export class KnownView {
     } catch (err) {
       state.error = (err && err.message) || this._t("error");
     }
-    this._render();
+    this._fill(address);
   }
 
   _domainList(address, state) {
     const box = el("div", { className: "known" });
     if (state.error) box.appendChild(el("div", { text: state.error, className: "rowerror" }));
+    if (state.loading && !state.loaded) {
+      box.appendChild(el("div", { text: this._t("loading"), className: "sub" }));
+    }
     if (!state.loaded) return box;
     const canBlock = state.mode === LEARNING;
     if (!canBlock) {
@@ -108,7 +125,7 @@ export class KnownView {
     }
     for (const domain of state.domains) {
       const line = el("div", { className: "knownrow" }, [
-        el("span", { text: domain, className: "domain" }),
+        el("span", { text: domain, className: "domain", attrs: { title: domain } }),
       ]);
       if (canBlock) {
         if (state.blocked.has(domain)) {
@@ -130,31 +147,27 @@ export class KnownView {
       this.element.replaceChildren();
       return;
     }
-    const body = el("tbody");
+    const list = el("div", { className: "kn" });
     for (const item of this._clients) {
-      const state = this._stateOf(item.client);
-      const toggle = el("button", {
-        text: `${this._t("known_title")} (${Number(item.known) || 0})`,
-        attrs: { "aria-expanded": state.open ? "true" : "false" },
-      });
-      toggle.addEventListener("click", () => this._toggle(item.client));
-      body.appendChild(
-        el("tr", {}, [
-          clientCell(this._host, item.client, item.client_name, item.zone),
-          el("td", {}, [toggle]),
-        ])
-      );
-      if (state.open) {
-        body.appendChild(
-          el("tr", {}, [
-            el("td", { attrs: { colspan: "2" } }, [this._domainList(item.client, state)]),
-          ])
-        );
-      }
+      const address = item.client;
+      const state = this._stateOf(address);
+      const known = Number(item.known) || 0;
+      const summary = el("summary", { className: "ksum" }, [
+        haIcon(UI_ICONS, "chevron", "karrow"),
+        el("div", { className: "kname" }, clientLines(address, item.client_name, item.zone)),
+        el("span", {
+          text: String(known),
+          className: "kcount",
+          attrs: { title: `${this._t("known_title")}: ${known}` },
+        }),
+      ]);
+      state.body = el("div", { className: "kbody" });
+      const details = el("details", { className: "kitem" }, [summary, state.body]);
+      if (state.open) details.setAttribute("open", "");
+      details.addEventListener("toggle", () => this._onToggle(address, details));
+      this._fill(address);
+      list.appendChild(details);
     }
-    this.element.replaceChildren(
-      el("h3", { text: this._t("known_title") }),
-      el("div", { className: "scroll" }, [el("table", { className: "kn" }, [body])])
-    );
+    this.element.replaceChildren(el("h3", { text: this._t("known_title") }), list);
   }
 }

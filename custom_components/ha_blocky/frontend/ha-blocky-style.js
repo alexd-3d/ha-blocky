@@ -3,6 +3,7 @@
 import { DASHBOARD_STYLE } from "./ha-blocky-style-dashboard.js";
 import { CATEGORIES, DEFAULT_COLORS } from "./ha-blocky-format.js";
 import { MORE_STYLE } from "./ha-blocky-style-more.js";
+import { TABS_STYLE } from "./ha-blocky-style-tabs.js";
 
 // The defaults of the category colours; a saved colour overrides them.
 const DEFAULT_VARS = CATEGORIES.map((kind) => `--hb-color-${kind}: ${DEFAULT_COLORS[kind]};`).join(" ");
@@ -43,10 +44,16 @@ export const STYLE = `
   }
   th { cursor: pointer; user-select: none; color: var(--secondary-text-color); }
   th.plain { cursor: default; }
+  /* Long values (a domain, a zone, a client) are cut with an ellipsis; the
+     whole text is the title of the cell. */
   td.domain {
-    white-space: normal; word-break: break-all;
+    width: 40%; max-width: 0; overflow: hidden; text-overflow: ellipsis;
     font-family: var(--code-font-family, monospace);
   }
+  td.zone { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
+  td.client { max-width: 14rem; }
+  .main, .sub { min-width: 0; }
+  td.client .main, td.client .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td.num, th.num { text-align: right; }
   tr.blocked td.status { color: var(--error-color); font-weight: 500; }
   td.actions button { padding: 2px 8px; margin-right: 4px; font-size: 0.9em; }
@@ -62,7 +69,7 @@ export const STYLE = `
   .message { margin: 12px 0; color: var(--secondary-text-color); }
   .message.error { color: var(--error-color); }
   .footer {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
     gap: 8px; margin-top: 12px; color: var(--secondary-text-color);
   }
   .tabs { display: flex; gap: 8px; margin: 0 0 12px; }
@@ -130,8 +137,10 @@ export const STYLE = `
   .lists .section, .section { min-width: 0; }
   .known { padding: 4px 0 8px; }
   .knownrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .knownrow { min-width: 0; }
   .knownrow .domain {
-    word-break: break-all; font-family: var(--code-font-family, monospace);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--code-font-family, monospace);
   }
   /* Narrow card (a phone, or a narrow column): two lines per log entry.
      Line 1: client and domain. Line 2: time, status icon, action icon. */
@@ -145,8 +154,10 @@ export const STYLE = `
       border-bottom: 1px solid var(--divider-color);
     }
     table.log td { display: block; border: 0; padding: 0; white-space: normal; }
-    table.log td.client { grid-area: client; }
-    table.log td.domain { grid-area: domain; }
+    table.log td.client { grid-area: client; max-width: 11rem; }
+    table.log td.domain {
+      grid-area: domain; width: auto; max-width: none; white-space: nowrap;
+    }
     table.log td.time { grid-area: time; color: var(--secondary-text-color); }
     table.log td.status { grid-area: status; }
     table.log td.actions { grid-area: actions; text-align: right; }
@@ -165,22 +176,26 @@ export const STYLE = `
       border-bottom: 1px solid var(--divider-color);
     }
     table.req td { display: block; border: 0; padding: 0; white-space: normal; }
-    table.req td.client { grid-area: client; }
-    table.req td.domain { grid-area: domain; }
-    table.req td.zone { grid-area: zone; color: var(--secondary-text-color); }
+    table.req td.client { grid-area: client; max-width: none; }
+    table.req td.domain {
+      grid-area: domain; width: auto; max-width: none; white-space: nowrap;
+    }
+    table.req td.zone {
+      grid-area: zone; max-width: none; color: var(--secondary-text-color);
+      white-space: nowrap;
+    }
     table.req td.age { grid-area: age; color: var(--secondary-text-color); }
     table.req td.buttons { grid-area: buttons; padding-top: 4px; }
     table.req td.buttons button { min-height: 36px; }
-    /* The known domains: the client above its button, the list below. */
-    table.kn, table.kn tbody { display: block; }
-    table.kn tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 6px 0; }
-    table.kn td { display: block; border: 0; padding: 0; white-space: normal; }
   }
   ${DASHBOARD_STYLE}
   ${MORE_STYLE}
+  ${TABS_STYLE}
   @container (max-width: 560px) {
     .tablabel { display: none; }
     button.tab { flex: 1 1 0; }
+    .toolbar > .btngroup { width: 100%; margin-left: 0; }
+    .toolbar .btngroup button { flex: 1 1 0; }
   }
   [hidden] { display: none !important; }
 `;

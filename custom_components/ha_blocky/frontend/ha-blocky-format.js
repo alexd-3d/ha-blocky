@@ -117,26 +117,63 @@ export function stackBars(items) {
   return { peak, bars };
 }
 
-// The date and time formats of the dashboard, in the language of the user.
-// Times are shown in the time zone of the browser.
-export function timeFormats(language) {
-  const make = (options) => {
+// The language for dates and times from the profile of Home Assistant
+// (`hass.locale`): "system" lets the browser decide (undefined), anything else
+// uses the language of the profile. Never throws; `locale` may be undefined.
+export function timeLanguage(locale, fallback) {
+  const object = locale && typeof locale === "object" ? locale : {};
+  if (object.time_format === "system") return undefined;
+  return (typeof object.language === "string" && object.language) || fallback || undefined;
+}
+
+// The Intl.DateTimeFormat options for the time format of the profile:
+// "24" -> 24-hour clock, "12" -> 12-hour clock, "language" and "system" ->
+// the default of the language or the browser (no option).
+export function timeOptions(locale) {
+  const setting = locale && typeof locale === "object" ? locale.time_format : undefined;
+  if (setting === "24") return { hourCycle: "h23" };
+  if (setting === "12") return { hour12: true };
+  return {};
+}
+
+// The date and time formats of the card, following the profile of Home
+// Assistant (`locale`: { language, time_format }). Times are shown in the time
+// zone of the browser. This is the only place that formats a date or a time.
+export function timeFormats(locale, fallbackLanguage) {
+  const language = timeLanguage(locale, fallbackLanguage);
+  const clockOptions = timeOptions(locale);
+  const make = (options, withClock = true) => {
+    const all = withClock ? { ...options, ...clockOptions } : options;
     try {
-      return new Intl.DateTimeFormat(language, options);
+      return new Intl.DateTimeFormat(language, all);
     } catch (err) {
-      return new Intl.DateTimeFormat(undefined, options);
+      return new Intl.DateTimeFormat(undefined, all);
     }
   };
   const clock = { hour: "2-digit", minute: "2-digit" };
   const day = { day: "numeric", month: "short" };
+  let hourAxis = make({ hour: "numeric" });
+  // A 24-hour clock reads better as "22:00" than as a bare "22".
+  if (["h23", "h24"].includes(hourAxis.resolvedOptions().hourCycle)) {
+    hourAxis = make(clock);
+  }
   return {
-    hourAxis: make({ hour: "numeric" }),
-    dayAxis: make(day),
+    hourAxis,
+    dayAxis: make(day, false),
     hourFull: make({ weekday: "short", ...day, ...clock }),
-    dayFull: make({ weekday: "short", ...day }),
+    dayFull: make({ weekday: "short", ...day }, false),
     dateTime: make({ ...day, ...clock }),
     clock: make({ ...clock, second: "2-digit" }),
+    log: make({ year: "numeric", month: "2-digit", day: "2-digit", ...clock, second: "2-digit" }),
   };
+}
+
+// The text of a date (a Date, a timestamp or a date string) in a format from
+// timeFormats, or "" when it is not a date.
+export function formatWhen(format, value) {
+  if (value === null || value === undefined) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : format.format(date);
 }
 
 // The member of `allowed` whose text equals `value`, else `fallback`.

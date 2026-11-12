@@ -1,8 +1,11 @@
 /*
- * The blocking switch of the Dashboard tab: one large button with a status
- * pill. It drives the integration's own switch entity through the switch
- * service; the entity id comes from the server (`ha_blocky/config`) and is
- * checked against the shape of a switch entity id before it is used.
+ * The blocking switch of the Dashboard tab: a button with a status pill. It
+ * drives the integration's own switch entity through the switch service; the
+ * entity id comes from the server (`ha_blocky/config`) and is checked against
+ * the shape of a switch entity id before it is used. Turning it off pauses for
+ * the length `pause()` gives ({ id, minutes } of the integration's pause
+ * select, which pauses right away when an option is selected); without one the
+ * switch itself is turned off and pauses for its default.
  * `host` offers: hass, entry, t(key).
  */
 
@@ -12,9 +15,10 @@ const SWITCH_ID = /^switch\.[a-z0-9_]+$/;
 
 export class BlockingSwitch {
   // `onError(key)` is told when the service call failed ("" when it went well).
-  constructor(host, onError) {
+  constructor(host, onError, pause) {
     this._host = host;
     this._onError = onError;
+    this._pause = pause || (() => undefined);
     this._busy = false;
     this._pill = el("span", { className: "pill" });
     this.element = el(
@@ -64,9 +68,12 @@ export class BlockingSwitch {
     this._busy = true;
     this.update();
     try {
-      await this._host.hass.callService("switch", state === "on" ? "turn_off" : "turn_on", {
-        entity_id: id,
-      });
+      const pause = state === "on" ? this._pause() : undefined;
+      await this._host.hass.callService(
+        ...(pause
+          ? ["select", "select_option", { entity_id: pause.id, option: String(pause.minutes) }]
+          : ["switch", state === "on" ? "turn_off" : "turn_on", { entity_id: id }])
+      );
       this._onError("");
     } catch (err) {
       this._onError("dash_switch_error");

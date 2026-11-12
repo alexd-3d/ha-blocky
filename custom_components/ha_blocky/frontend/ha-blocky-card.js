@@ -1,285 +1,153 @@
 /*
- * HA-Blocky card.
+ * HA-Blocky card: the entry module Home Assistant loads on its own.
  *
- * Five tabs. The Dashboard shows the blocking switch, the totals of a period,
- * a chart of queries over time and the top clients and domains. The Query log
- * has search, filters, sorting and paging, and lets an administrator add a
- * domain to a manual allow or deny list. Requests lists the requests for new
- * domains and the phase of the clients of allowlist-only zones, with the known
- * domains of every client. A click on a client names it (the name is kept by
- * the server, keyed by the client's address). Settings holds the colours of the
- * query kinds, the default rows and the integration's operational options.
- * Help is a short quick start with a few well-known blocklist sources.
- *
- * The card is split into plain ES modules next to this file; the browser
- * loads them by relative path. Every value from the log or the server is
- * written with textContent. A DNS name or a device name can be chosen by any
- * device on the network, so nothing from them is ever interpreted as markup.
- * The card loads nothing from outside Home Assistant. The overview card
- * (ha-blocky-overview.js) is imported here: this is the only file Home
- * Assistant loads on its own.
+ * This file has no imports on purpose. It defines the two card elements the
+ * moment it runs, so a dashboard never meets an undefined element (Home
+ * Assistant shows an error card when a custom element is not defined within
+ * about two seconds, and the whole module graph of the views can take longer
+ * on a slow link). Each element is a thin shell: it keeps the configuration
+ * and `hass` it is given, shows a short loading note, loads the real view
+ * module (ha-blocky-card-view.js, ha-blocky-overview.js) once, and hands
+ * everything over. `setConfig`, `hass`, `editMode`, `getCardSize` and
+ * `connectedCallback` never raise an error, whatever the order of the calls.
  */
 
-import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
-import { DashboardView } from "./ha-blocky-dashboard.js";
-import { DOMAIN, el } from "./ha-blocky-dom.js";
-import { HelpView } from "./ha-blocky-help.js";
-import { translate } from "./ha-blocky-i18n.js";
-import { LogView } from "./ha-blocky-log.js";
-import { RequestsView } from "./ha-blocky-requests.js";
-import { SettingsView } from "./ha-blocky-settings.js";
-import "./ha-blocky-overview.js";
-import { ColorStyle, loadPrefs, offPrefs, onPrefs } from "./ha-blocky-prefs.js";
-import { STYLE } from "./ha-blocky-style.js";
+const NOTES = {
+  loading: { en: "Loading…", uk: "Завантаження…" },
+  failed: {
+    en: "The card could not be loaded. Reload the page.",
+    uk: "Не вдалося завантажити картку. Оновіть сторінку.",
+  },
+};
 
-const MIN_REFRESH_SECONDS = 10;
-const TABS = ["dashboard", "log", "requests", "settings", "help"];
+const STYLE = `
+  :host { display: block; }
+  .note { padding: 16px; color: var(--secondary-text-color); }
+  .note.error { color: var(--error-color); }
+`;
 
-class HaBlockyCard extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._config = {};
-    this._hass = undefined;
-    this._built = false;
-    this._started = false;
-    this._entry = undefined;
-    this._tab = "dashboard";
-    this._editMode = false;
-    this._timer = undefined;
-  }
+function noteText(hass, key) {
+  const language = (hass && hass.locale && hass.locale.language) || (hass && hass.language) || "en";
+  return NOTES[key][language.split("-")[0] === "uk" ? "uk" : "en"];
+}
 
-  static getStubConfig() {
-    return {};
-  }
-
-  setConfig(config) {
-    const pageSize = Number(config && config.page_size);
-    const refresh = Number(config && config.auto_refresh);
-    this._config = {
-      title: config && typeof config.title === "string" ? config.title : undefined,
-      entry_id:
-        config && typeof config.entry_id === "string" ? config.entry_id : undefined,
-      page_size: Number.isInteger(pageSize)
-        ? Math.min(Math.max(pageSize, 10), 200)
-        : 50,
-      // Not set: the dashboard reloads by itself, the query log does not.
-      auto_refresh:
-        config && config.auto_refresh === undefined
-          ? undefined
-          : Number.isFinite(refresh) && refresh > 0
-            ? Math.max(refresh, MIN_REFRESH_SECONDS)
-            : 0,
-    };
-    if (this._built) this._renderTitle();
-    this._restartTimer();
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    if (!this._built) this._build();
-    this._requests.watchSensor();
-    this._dash.updateHass();
-    if (!this._started) {
-      this._started = true;
-      this._start();
+// Define `tag` as a shell for the view element `viewTag`, which `load()` (a
+// dynamic import of a module that defines it) makes available.
+function defineShell(tag, load, viewTag, size) {
+  if (customElements.get(tag)) return;
+  class Shell extends HTMLElement {
+    constructor() {
+      super();
+      this._config = undefined;
+      this._hass = undefined;
+      this._editMode = false;
+      this._view = undefined;
+      this._state = "idle";
+      this._sent = {};
+      const root = this.attachShadow({ mode: "open" });
+      const style = document.createElement("style");
+      style.textContent = STYLE;
+      this._note = document.createElement("div");
+      this._note.className = "note";
+      root.append(style, this._note);
+      this._say("loading");
     }
-  }
 
-  getCardSize() {
-    return 10;
-  }
-
-  connectedCallback() {
-    this._restartTimer();
-    if (this._colors) this._colors.start();
-    if (this._dash) onPrefs(this._onPrefs);
-  }
-
-  disconnectedCallback() {
-    this._stopTimer();
-    if (this._log) this._log.stop();
-    if (this._dash) this._dash.stop();
-    if (this._colors) this._colors.stop();
-    offPrefs(this._onPrefs);
-  }
-
-  // Home Assistant sets this while the dashboard is being edited.
-  set editMode(value) {
-    this._editMode = Boolean(value);
-  }
-
-  get editMode() {
-    return this._editMode;
-  }
-
-  // What the tabs need from the card (their "host").
-  get hass() {
-    return this._hass;
-  }
-
-  get entry() {
-    return this._entry;
-  }
-
-  get config() {
-    return this._config;
-  }
-
-  t(key) {
-    return translate(this._hass, key);
-  }
-
-  // True while a client name is being typed: reloads would throw it away.
-  isEditing() {
-    return Boolean(this.shadowRoot.querySelector("input.nameedit"));
-  }
-
-  // Show these colours instead of the saved ones (undefined: the saved ones).
-  previewColors(colors) {
-    this._colors.preview(colors);
-  }
-
-  // Read the instance again, e.g. after its options were saved and it reloaded.
-  async reloadEntry() {
-    try {
-      const config = await this._hass.callWS({ type: `${DOMAIN}/config` });
-      const entries = Array.isArray(config.entries) ? config.entries : [];
-      const id = this._entry && this._entry.entry_id;
-      this._entry = entries.find((entry) => entry.entry_id === id) || this._entry;
-    } catch (err) {
-      return;
+    static getStubConfig() {
+      return {};
     }
-    this._dash.updateHass();
-    if (this._tab === "settings") this._settings.load();
-  }
 
-  // Reload what is shown, e.g. after a name was saved.
-  async refresh() {
-    await Promise.all([this._log.load(true), this._requests.load(), this._dash.load()]);
-  }
-
-  _build() {
-    this._built = true;
-    const root = this.shadowRoot;
-    root.appendChild(el("style", { text: STYLE }));
-    this._colors = new ColorStyle(root);
-    this._colors.start();
-    this._onPrefs = () => this._dash.applyPrefs();
-    onPrefs(this._onPrefs);
-
-    this._card = document.createElement("ha-card");
-    this._body = el("div", { className: "body" });
-    this._card.appendChild(this._body);
-    root.appendChild(this._card);
-    this._renderTitle();
-
-    // A tab shows an icon and its title; a narrow card shows the icon only.
-    this._tabs = {};
-    this._views = {};
-    for (const id of TABS) {
-      const label = this.t(`tab_${id}`);
-      const button = el(
-        "button",
-        { className: "tab", attrs: { type: "button", role: "tab", title: label, "aria-label": label } },
-        [haIcon(UI_ICONS, `tab_${id}`, "tabicon"), el("span", { text: label, className: "tablabel" })]
-      );
-      button.addEventListener("click", () => this._selectTab(id));
-      this._tabs[id] = button;
-      this._views[id] = el("div", { attrs: { hidden: "" } });
+    setConfig(config) {
+      this._config = config;
+      this._pass();
     }
-    const tabs = el("div", { className: "tabs", attrs: { role: "tablist" } }, Object.values(this._tabs));
-    this._body.append(tabs, ...Object.values(this._views));
 
-    this._dash = new DashboardView(this, this._views.dashboard);
-    this._log = new LogView(this, this._views.log);
-    this._requests = new RequestsView(this, this._views.requests);
-    this._settings = new SettingsView(this, this._views.settings);
-    this._help = new HelpView(this, this._views.help);
-    this._selectTab(this._tab);
-  }
-
-  _renderTitle() {
-    this._card.setAttribute("header", this._config.title || this.t("title"));
-  }
-
-  async _start() {
-    const hass = this._hass;
-    if (!hass.user || !hass.user.is_admin) {
-      this._log.showMessage("not_admin", true);
-      this._log.hideTable();
-      this._dash.hideContent("not_admin", true);
-      return;
+    set hass(hass) {
+      this._hass = hass;
+      if (!this._view) this._say(this._state === "failed" ? "failed" : "loading");
+      this._load();
+      this._pass();
     }
-    try {
-      const config = await hass.callWS({ type: `${DOMAIN}/config` });
-      const entries = Array.isArray(config.entries) ? config.entries : [];
-      this._entry = this._config.entry_id
-        ? entries.find((entry) => entry.entry_id === this._config.entry_id)
-        : entries.find((entry) => entry.has_query_log) || entries[0];
-    } catch (err) {
-      this._log.showMessage("error", true);
-      this._dash.hideContent("dash_error", true);
-      return;
-    }
-    if (!this._entry) {
-      this._log.showMessage("no_entry", true);
-      this._dash.hideContent("no_entry", true);
-      return;
-    }
-    await loadPrefs(hass);
-    this._dash.updateHass();
-    this._dash.setActive(this._tab === "dashboard");
-    if (!this._entry.has_query_log) {
-      this._log.showMessage("no_query_log", false);
-      return;
-    }
-    this._log.renderHead();
-    await this._log.load(true);
-    if (this._tab === "requests") this._requests.load();
-    this._restartTimer();
-  }
 
-  _selectTab(tab) {
-    this._tab = tab;
-    for (const id of TABS) {
-      this._views[id].hidden = id !== tab;
-      this._tabs[id].className = id === tab ? "tab active" : "tab";
-      this._tabs[id].setAttribute("aria-selected", String(id === tab));
+    get hass() {
+      return this._hass;
     }
-    this._requests.setActive(tab === "requests");
-    this._dash.setActive(tab === "dashboard");
-    this._log.setActive(tab === "log");
-    this._settings.setActive(tab === "settings");
-  }
 
-  _stopTimer() {
-    clearInterval(this._timer);
-    this._timer = undefined;
-  }
+    set editMode(value) {
+      this._editMode = Boolean(value);
+      this._pass();
+    }
 
-  _restartTimer() {
-    this._stopTimer();
-    if (this._dash) this._dash.restartTimer();
-    const seconds = this._config.auto_refresh;
-    if (!seconds || !this.isConnected || !this._entry) return;
-    this._timer = setInterval(() => {
-      // Only refresh the first page, and only while the user is not acting.
-      if (
-        document.visibilityState === "visible" &&
-        this._log.onFirstPage &&
-        !this._log.busy &&
-        !this.isEditing()
-      ) {
-        this._log.load(true);
+    get editMode() {
+      return this._editMode;
+    }
+
+    getCardSize() {
+      return size;
+    }
+
+    connectedCallback() {
+      this._load();
+    }
+
+    _say(key) {
+      this._note.textContent = noteText(this._hass, key);
+      this._note.className = key === "failed" ? "note error" : "note";
+    }
+
+    // Load the view module once; a failure is shown and logged, never thrown.
+    _load() {
+      if (this._state !== "idle") return;
+      this._state = "loading";
+      let pending;
+      try {
+        pending = load();
+      } catch (err) {
+        pending = Promise.reject(err);
       }
-    }, seconds * 1000);
+      Promise.resolve(pending)
+        .then(() => customElements.whenDefined(viewTag))
+        .then(() => this._attach())
+        .catch((err) => {
+          this._state = "failed";
+          this._say("failed");
+          console.error("HA-Blocky: could not load the card", err);
+        });
+    }
+
+    _attach() {
+      this._view = document.createElement(viewTag);
+      this._state = "ready";
+      this._note.remove();
+      this.shadowRoot.appendChild(this._view);
+      this._pass();
+    }
+
+    // Hand the configuration, the edit mode and `hass` to the view; only what
+    // changed, and never an exception back to Home Assistant.
+    _pass() {
+      const view = this._view;
+      if (!view) return;
+      try {
+        if (this._config !== undefined && this._sent.config !== this._config) {
+          this._sent.config = this._config;
+          view.setConfig(this._config);
+        }
+        if (this._sent.editMode !== this._editMode) {
+          this._sent.editMode = this._editMode;
+          view.editMode = this._editMode;
+        }
+        if (this._hass !== undefined && this._hass !== null) view.hass = this._hass;
+      } catch (err) {
+        console.error("HA-Blocky: the card failed", err);
+      }
+    }
   }
+  customElements.define(tag, Shell);
 }
 
-if (!customElements.get("ha-blocky-card")) {
-  customElements.define("ha-blocky-card", HaBlockyCard);
-}
+defineShell("ha-blocky-card", () => import("./ha-blocky-card-view.js"), "ha-blocky-card-view", 10);
+defineShell("ha-blocky-overview-card", () => import("./ha-blocky-overview.js"), "ha-blocky-overview-view", 8);
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === "ha-blocky-card")) {
@@ -288,5 +156,12 @@ if (!window.customCards.some((card) => card.type === "ha-blocky-card")) {
     name: "HA-Blocky",
     description:
       "Blocky dashboard, DNS query log with search, filters and allow/block actions, and requests.",
+  });
+}
+if (!window.customCards.some((card) => card.type === "ha-blocky-overview-card")) {
+  window.customCards.push({
+    type: "ha-blocky-overview-card",
+    name: "HA-Blocky overview",
+    description: "Top domains, blocked domains and clients of the last 24 hours, and pending requests.",
   });
 }

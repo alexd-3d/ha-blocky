@@ -51,7 +51,9 @@ export class OptionsForm {
     const intervals =
       source.intervals && typeof source.intervals === "object" ? source.intervals : {};
     this._loaded = { intervals: {}, booleans: {}, lists: {} };
-    const boxes = [];
+    const intervalBoxes = [];
+    const generalBoxes = [];
+    const listBoxes = [];
 
     for (const [key, label] of INTERVALS) {
       const spec = intervals[key] || {};
@@ -65,9 +67,9 @@ export class OptionsForm {
       const hint = `${range}, ${t("set_default")} ${whole(spec.default)}`;
       this._inputs[key] = input;
       this._fields[key] = field(t(label), input, hint);
-      boxes.push(this._fields[key]);
+      intervalBoxes.push(this._fields[key]);
     }
-    boxes.push(el("div", { className: "hint", text: t("set_interval_note") }));
+    intervalBoxes.push(el("div", { className: "hint", text: t("set_interval_note") }));
 
     for (const [key, label, hint] of BOOLEANS) {
       const on = source[key] === true;
@@ -78,7 +80,7 @@ export class OptionsForm {
       const box = field(t(label), input, hint ? t(hint) : "");
       box.classList.add("check");
       this._fields[key] = box;
-      boxes.push(box);
+      generalBoxes.push(box);
     }
 
     for (const [key, label] of LISTS) {
@@ -90,10 +92,20 @@ export class OptionsForm {
       input.value = current.join(", ");
       this._inputs[key] = input;
       this._fields[key] = field(t(label), input, "");
-      boxes.push(this._fields[key]);
+      listBoxes.push(this._fields[key]);
     }
-    boxes.push(el("div", { className: "hint", text: t("set_lists_hint") }));
-    this.element.replaceChildren(...boxes);
+    listBoxes.push(el("div", { className: "hint", text: t("set_lists_hint") }));
+    // One titled group per kind of option; they are saved together.
+    const group = (titleKey, children) =>
+      el("div", { className: "group" }, [
+        el("h4", { className: "gtitle", text: t(titleKey) }),
+        ...children,
+      ]);
+    this.element.replaceChildren(
+      group("set_group_intervals", intervalBoxes),
+      group("set_group_general", generalBoxes),
+      group("set_group_lists", listBoxes)
+    );
   }
 
   // The values that differ from what was loaded, as the command takes them.

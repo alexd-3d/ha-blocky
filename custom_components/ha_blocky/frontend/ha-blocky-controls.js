@@ -3,7 +3,21 @@
  * Texts are the card's own (looked up by key), never from the server.
  */
 
+import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
 import { el } from "./ha-blocky-dom.js";
+
+// A button that shows only an icon (a key of UI_ICONS), named for the mouse
+// and for screen readers by `label` (a text of the card).
+export function glyphButton(label, icon, className = "") {
+  return el(
+    "button",
+    {
+      className: `ibtn ${className}`.trim(),
+      attrs: { type: "button", title: label, "aria-label": label },
+    },
+    [haIcon(UI_ICONS, icon)]
+  );
+}
 
 // A joined group of buttons, one of them pressed. `options` are
 // [{ value, label }]; `onPick` gets the chosen value. The element offers

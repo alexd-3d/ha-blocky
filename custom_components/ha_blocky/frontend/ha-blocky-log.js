@@ -5,6 +5,8 @@
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
 import { ListPicker, STATUS_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
+import { glyphButton } from "./ha-blocky-controls.js";
+import { formatWhen, timeFormats } from "./ha-blocky-format.js";
 import { groupRows } from "./ha-blocky-group.js";
 
 const HOURS = [1, 6, 24, 168, 720];
@@ -94,7 +96,7 @@ export class LogView {
       )
     );
     this._hoursSelect.value = "24";
-    this._refreshButton = el("button", { text: this._t("refresh") });
+    this._refreshButton = glyphButton(this._t("refresh"), "log_refresh");
     this._groupBox = el("input", { attrs: { type: "checkbox" } });
     this._groupBox.checked = this._group;
     const groupLabel = el("label", { className: "check" }, [
@@ -102,11 +104,8 @@ export class LogView {
       el("span", { text: this._t("group_repeats") }),
     ]);
 
-    this._liveButton = el(
-      "button",
-      { className: "live", attrs: { type: "button", "aria-pressed": "false" } },
-      [el("span", { className: "livedot" }), el("span", { text: this._t("live_button") })]
-    );
+    this._liveButton = glyphButton(this._t("live_button"), "log_live", "live");
+    this._liveButton.setAttribute("aria-pressed", "false");
     this._liveButton.addEventListener("click", () => this.setLive(!this._live));
     this._groupBox.addEventListener("change", () => {
       this._group = this._groupBox.checked;
@@ -175,7 +174,7 @@ export class LogView {
     this._live = on;
     clearInterval(this._liveTimer);
     this._liveTimer = undefined;
-    this._liveButton.className = on ? "live on" : "live";
+    this._liveButton.className = on ? "ibtn live on" : "ibtn live";
     this._liveButton.setAttribute("aria-pressed", String(on));
     if (!on) return;
     this._liveUntil = Date.now() + LIVE_MAX_MS;
@@ -318,17 +317,16 @@ export class LogView {
     });
   }
 
+  // The time of a row, in the language and the time format of the profile.
   _formatTime(value) {
     if (typeof value !== "string") return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
     const hass = this._host.hass;
-    const language = (hass && hass.locale && hass.locale.language) || undefined;
-    try {
-      return date.toLocaleString(language);
-    } catch (err) {
-      return date.toLocaleString();
+    const language = hass && hass.language;
+    if (!this._formats || this._formatsFor !== (hass && hass.locale)) {
+      this._formatsFor = hass && hass.locale;
+      this._formats = timeFormats(this._formatsFor, language);
     }
+    return formatWhen(this._formats.log, value);
   }
 
   render() {
@@ -340,18 +338,23 @@ export class LogView {
       if (count > 1) {
         time.appendChild(el("span", { text: `×${count}`, className: "count" }));
       }
+      const kind = statusOf(row);
       const status = el(
         "td",
         { className: "status", attrs: { title: row.response_type || "" } },
         [
-          haIcon(STATUS_ICONS, statusOf(row), "statusicon"),
-          el("span", { text: row.response_type || "", className: "statustext" }),
+          haIcon(STATUS_ICONS, kind, `statusicon c-${kind}`),
+          el("span", { text: row.response_type || "", className: `statustext badge c-${kind}` }),
         ]
       );
       const cells = [
         time,
         clientCell(this._host, row.client, row.client_name, row.zone),
-        el("td", { text: row.domain || "", className: "domain" }),
+        el("td", {
+          text: row.domain || "",
+          className: "domain",
+          attrs: { title: row.domain || "" },
+        }),
         el("td", { text: row.query_type || "", className: "type" }),
         status,
         el("td", { text: Number(row.duration_ms) || 0, className: "num ms" }),

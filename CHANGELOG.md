@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.12.0
+
+### Added
+
+- **Dashboard toolbar** (BLO-016): the blocking switch, a "Pause for" select (the
+  integration's pause options), two icon buttons that press the existing "Refresh
+  lists" and "Flush cache" button entities, and the period buttons are one compact
+  toolbar that wraps on narrow screens. Turning the switch off pauses for the chosen
+  length (through the existing pause select entity) and the hint under it follows the
+  choice. A control whose entity is missing or unavailable is hidden or disabled.
+- Legend entries of the chart explain their kind (Resolved, Cached, Local, Blocked,
+  Other) on hover and on keyboard focus.
+- The read-only command `ha_blocky/config` also names the pause select and the two
+  button entities of each instance. No new service, command or endpoint.
+
+### Fixed
+
+- The card sometimes showed a "Configuration error" after a page reload. Home
+  Assistant shows an error card when a custom element is not defined within about two
+  seconds, and the card was defined only after its whole module graph had loaded.
+  `ha-blocky-card.js` is now a small entry file without imports that defines the
+  card and the overview card at once and loads the views on demand (with a loading
+  note); `setConfig`, `hass`, `getCardSize` and `connectedCallback` no longer throw,
+  whatever the order of the calls.
+- Times follow the time format and language of the Home Assistant profile (12-hour,
+  24-hour, language or system) in the chart axis, the query log, the popovers and the
+  tooltips, through one helper; an unusual profile no longer breaks the dashboard.
+
+### Changed
+
+- Query log: "Group repeats" is now "Grouping"; the status is a badge in the colour
+  of its kind; Live and Refresh are icon buttons.
+- Requests: the known domains of each client are a native collapsible row (arrow,
+  name, zone and address, count) instead of a button on the right.
+- Settings: the groups are cards in a two-column grid (one column on a phone), inputs
+  have a sensible width, and the colour pickers are one clean swatch each. What is
+  saved and how is unchanged.
+- The "?" buttons of the dashboard sections are a help icon.
+- Long domains, client names, zones and addresses are cut with an ellipsis in all tabs
+  and keep their full text as the tooltip; toolbars wrap instead of squeezing.
+
 ## 0.11.0
 
 ### Added
