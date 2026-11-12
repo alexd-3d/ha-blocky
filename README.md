@@ -219,6 +219,137 @@ reloads when you save). The panel is removed when the last HA-Blocky entry is un
 It needs the `frontend` component (a normal Home Assistant installation has it). The card is
 also still available for dashboards as before.
 
+## Dashboard cards
+
+The query log card is `custom:ha-blocky-card`. The overview card is
+`custom:ha-blocky-overview-card`; it needs the query log database and an administrator.
+
+```yaml
+type: custom:ha-blocky-overview-card
+# Optional: title, entry_id, auto_refresh (seconds; default 60, at least 10, 0 = off).
+```
+
+It shows the top domains, top blocked domains and top clients of the last 24 hours with
+their counts, and the requests waiting for a decision. A top domain has a Block icon and a
+top blocked domain an Allow icon (both open the same list picker as the query log). A
+request has Approve and Reject icons (allowlist-only zones) or Block and Dismiss icons
+(learning zones). A click on a client names it, as in the query log. It replaces the
+markdown tables that read the `items` attribute of the three top-list sensors. The
+WebSocket command `ha_blocky/overview` that it uses is internal to the card.
+
+In the query log, repeated rows (same client, domain, type and status) are shown as one
+line with `×N` and the latest time while "Group repeats" is ticked (it is ticked by
+default and not remembered). In a narrow card, such as on a phone, each entry takes two
+lines: client and domain, then time, status icon and the action icon.
+
+The Requests tab also lists the known domains of every tracked client (loaded when you
+expand a client). For a client of a learning zone each domain has a Block icon that adds it
+to the zone's first deny list. For a client of an allowlist-only zone the list is read-only:
+its known domains are on an allow list, and removing entries from there is not done by the
+card.
+
+### Chart period switcher
+
+A statistics chart with a period switch needs a helper and four cards. Create an
+`input_select` helper named "HA-Blocky chart period" (entity id
+`input_select.ha_blocky_chart_period`) with the options `24 h`, `Week` and `Month`, then
+put this in a dashboard (a vertical stack or a section). The three sensor entity ids are the
+integration's resolved, cached and blocked query counters; check them in your installation.
+
+```yaml
+type: vertical-stack
+cards:
+  - type: tile
+    entity: input_select.ha_blocky_chart_period
+    features:
+      - type: select-options
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: input_select.ha_blocky_chart_period
+        state: "24 h"
+    card:
+      type: statistics-graph
+      title: Queries
+      chart_type: bar-stack
+      period: hour
+      days_to_show: 1
+      stat_types: [change]
+      entities:
+        - sensor.ha_blocky_resolved_queries
+        - sensor.ha_blocky_cached_queries
+        - sensor.ha_blocky_blocked_queries
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: input_select.ha_blocky_chart_period
+        state: "Week"
+    card:
+      type: statistics-graph
+      title: Queries
+      chart_type: bar-stack
+      period: day
+      days_to_show: 7
+      stat_types: [change]
+      entities:
+        - sensor.ha_blocky_resolved_queries
+        - sensor.ha_blocky_cached_queries
+        - sensor.ha_blocky_blocked_queries
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: input_select.ha_blocky_chart_period
+        state: "Month"
+    card:
+      type: statistics-graph
+      title: Queries
+      chart_type: bar-stack
+      period: day
+      days_to_show: 30
+      stat_types: [change]
+      entities:
+        - sensor.ha_blocky_resolved_queries
+        - sensor.ha_blocky_cached_queries
+        - sensor.ha_blocky_blocked_queries
+```
+
+**Not verified on Home Assistant 2026.10.4:** that the `tile` card offers the
+`select-options` feature for an `input_select` there. If it does not, replace the tile with
+three `button` cards that set the helper (the key is `perform_action` in current Home
+Assistant; older versions call it `service`):
+
+```yaml
+type: horizontal-stack
+cards:
+  - type: button
+    name: 24 h
+    tap_action:
+      action: perform-action
+      perform_action: input_select.select_option
+      target:
+        entity_id: input_select.ha_blocky_chart_period
+      data:
+        option: "24 h"
+  - type: button
+    name: Week
+    tap_action:
+      action: perform-action
+      perform_action: input_select.select_option
+      target:
+        entity_id: input_select.ha_blocky_chart_period
+      data:
+        option: "Week"
+  - type: button
+    name: Month
+    tap_action:
+      action: perform-action
+      perform_action: input_select.select_option
+      target:
+        entity_id: input_select.ha_blocky_chart_period
+      data:
+        option: "Month"
+```
+
 ## Requirements
 
 - Home Assistant 2026.10 or newer.

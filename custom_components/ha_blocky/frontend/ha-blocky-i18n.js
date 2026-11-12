@@ -60,7 +60,20 @@ export const TEXT_EN = {
   "unit_min": "min",
   "unit_h": "h",
   "client_edit": "Click to name this client",
-  "client_name_placeholder": "Name (empty clears)"
+  "client_name_placeholder": "Name (empty clears)",
+  "group_repeats": "Group repeats",
+  "ov_title": "Blocky overview",
+  "ov_top_domains": "Top domains (24 h)",
+  "ov_top_blocked": "Top blocked domains (24 h)",
+  "ov_top_clients": "Top clients (24 h)",
+  "ov_requests": "Requests waiting",
+  "ov_none": "Nothing to show yet.",
+  "ov_error": "Could not load the overview.",
+  "known_title": "Known domains",
+  "known_error": "Could not load the known domains.",
+  "known_none": "No known domains.",
+  "known_readonly": "Read-only: the known domains of this zone are on its allow lists.",
+  "known_blocked": "Blocked"
 };
 /* i18n:end */
 
@@ -121,7 +134,20 @@ export const TEXT_UK = {
   "unit_min": "хв",
   "unit_h": "год",
   "client_edit": "Натисніть, щоб назвати цього клієнта",
-  "client_name_placeholder": "Назва (порожня очищає)"
+  "client_name_placeholder": "Назва (порожня очищає)",
+  "group_repeats": "Групувати повтори",
+  "ov_title": "Огляд Blocky",
+  "ov_top_domains": "Топ доменів (24 год)",
+  "ov_top_blocked": "Топ заблокованих доменів (24 год)",
+  "ov_top_clients": "Топ клієнтів (24 год)",
+  "ov_requests": "Запити, що очікують",
+  "ov_none": "Поки нічого показувати.",
+  "ov_error": "Не вдалося завантажити огляд.",
+  "known_title": "Відомі домени",
+  "known_error": "Не вдалося завантажити відомі домени.",
+  "known_none": "Немає відомих доменів.",
+  "known_readonly": "Лише перегляд: відомі домени цієї зони є в її списках дозволених.",
+  "known_blocked": "Заблоковано"
 };
 /* i18n:end */
 

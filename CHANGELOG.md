@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+- **Overview card** (BLO-012): `custom:ha-blocky-overview-card` shows the top
+  domains, top blocked domains and top clients of the last 24 hours with their
+  counts, and the requests waiting for a decision, with icon actions (Block on a
+  top domain, Allow on a top blocked domain, Approve/Reject or Block/Dismiss on a
+  request). Clients are named and renamed as in the query log. It replaces the
+  markdown tables over the top-list sensors. It reloads every 60 seconds
+  (`auto_refresh`, 0 turns it off) and after each action.
+- **Known domains** in the Requests tab: every tracked client has a collapsible
+  list of its known domains, loaded when expanded, newest first (up to 200). A
+  client of a learning zone gets a Block icon per domain (first deny list of its
+  zone). The list of a client of an allowlist-only zone is read-only.
+- Query log: "Group repeats" (on by default, not remembered) merges rows of the
+  loaded pages with the same client, domain, type and status into one line with
+  `×N` and the latest time.
+- WebSocket commands `ha_blocky/overview`, `ha_blocky/known_domains` and
+  `ha_blocky/block_known` (administrators only). They are internal to the cards.
+  The answer of `ha_blocky/requests` has a new `tracked` list.
+- README: dashboard snippets for the overview card and for a chart period
+  switcher (the `select-options` tile feature is not verified on 2026.10.4; a
+  button-card fallback is given).
+
+### Changed
+
+- Allow and Block in the query log are icon buttons (`ha-icon`, keyboard
+  focusable, with a hover text) and a row offers one action: Block on an answered
+  or cached row, Allow on a blocked row.
+- In a narrow card (about 560 px or less) a log entry takes two lines: client and
+  domain, then time, status icon and the action icon; Type and ms are hidden.
+
+### Security
+
+- The new commands check their input strictly: a client must be an IP address,
+  a domain one exact name (no wildcard), both in canonical form, and
+  `block_known` only acts on a tracked client of a learning zone and a domain
+  that client already knows. Answers name no log data in errors.
+- Icon names come from two fixed tables in the card; no icon, label or hover text
+  is taken from data. Values from the server are still shown with `textContent`.
+
 ## 0.8.0
 
 ### Added

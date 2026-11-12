@@ -4,20 +4,24 @@
  * Shows Blocky's query log with search, filters, sorting and paging, and lets
  * an administrator add a domain to a manual allow or deny list. A second tab
  * lists the requests for new domains and the phase of the clients of
- * allowlist-only zones. A click on a client names it (the name is kept by the
+ * allowlist-only zones, with the known domains of every client. A click on a
+ * client names it (the name is kept by the
  * server, keyed by the client's address).
  *
  * The card is split into plain ES modules next to this file; the browser
  * loads them by relative path. Every value from the log or the server is
  * written with textContent. A DNS name or a device name can be chosen by any
  * device on the network, so nothing from them is ever interpreted as markup.
- * The card loads nothing from outside Home Assistant.
+ * The card loads nothing from outside Home Assistant. The overview card
+ * (ha-blocky-overview.js) is imported here: this is the only file Home
+ * Assistant loads on its own.
  */
 
 import { DOMAIN, el } from "./ha-blocky-dom.js";
 import { translate } from "./ha-blocky-i18n.js";
 import { LogView } from "./ha-blocky-log.js";
 import { RequestsView } from "./ha-blocky-requests.js";
+import "./ha-blocky-overview.js";
 import { STYLE } from "./ha-blocky-style.js";
 
 const MIN_REFRESH_SECONDS = 10;

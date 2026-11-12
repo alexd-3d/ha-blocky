@@ -23,9 +23,14 @@ from .client_names import (
 )
 from .const import DOMAIN, MAX_LOG_HOURS, MAX_LOG_ROWS, REQUEST_ACTIONS
 from .coordinator import BlockyConfigEntry
-from .db import BlockyDbError
+from .db import BlockyDbError, TopItem
 from .requests import RequestError, RequestTracker, normalize_client
-from .validation import InvalidClientNameError, validate_client_name
+from .validation import (
+    InvalidClientNameError,
+    InvalidDomainError,
+    normalize_domain,
+    validate_client_name,
+)
 from .zones import zone_for_address
 
 STATUS_ALL = "all"
@@ -41,6 +46,22 @@ def _printable(value: Any) -> str:
     if any(not char.isprintable() for char in text):
         raise vol.Invalid("control characters are not allowed")
     return text
+
+
+def _client_address(value: Any) -> str:
+    """Accept an IP address only and return its canonical text."""
+    address = normalize_client(value)
+    if address is None:
+        raise vol.Invalid("not an IP address")
+    return address
+
+
+def _plain_domain(value: Any) -> str:
+    """Accept one exact domain name (no wildcard) and return its canonical form."""
+    try:
+        return normalize_domain(value, allow_wildcard=False)
+    except InvalidDomainError as err:
+        raise vol.Invalid("not a valid domain name") from err
 
 
 def _loaded_entries(hass: HomeAssistant) -> list[BlockyConfigEntry]:
@@ -215,8 +236,113 @@ def ws_requests(
             "entry_id": entry.entry_id,
             "requests": tracker.describe_requests(),
             "clients": tracker.describe_clients(),
+            "tracked": tracker.describe_tracked(),
         },
     )
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/overview", vol.Optional("entry_id"): str}
+)
+@websocket_api.require_admin
+@callback
+def ws_overview(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the 24 hour top lists and the pending requests for the overview."""
+    found = _tracker_of(hass, connection, msg)
+    if found is None:
+        return
+    entry, tracker = found
+    stats = entry.runtime_data.stats
+    data = stats.data if stats is not None else None
+    names = client_name_map(hass)
+
+    def client_item(item: TopItem) -> dict[str, Any]:
+        address = normalize_client(item.name)
+        return {
+            "name": item.name,
+            "count": item.count,
+            "client_name": names.get(address) if address else None,
+        }
+
+    connection.send_result(
+        msg["id"],
+        {
+            "entry_id": entry.entry_id,
+            "top_domains": [
+                {"name": item.name, "count": item.count}
+                for item in (data.top_domains if data else ())
+            ],
+            "top_blocked_domains": [
+                {"name": item.name, "count": item.count}
+                for item in (data.top_blocked_domains if data else ())
+            ],
+            "top_clients": [
+                client_item(item) for item in (data.top_clients if data else ())
+            ],
+            "requests": tracker.describe_requests(),
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/known_domains",
+        vol.Optional("entry_id"): str,
+        vol.Required("client"): _client_address,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_known_domains(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List the known domains of one tracked client, newest first."""
+    found = _tracker_of(hass, connection, msg)
+    if found is None:
+        return
+    _entry, tracker = found
+    try:
+        result = tracker.describe_known(msg["client"])
+    except RequestError as err:
+        connection.send_error(msg["id"], err.code, err.message)
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/block_known",
+        vol.Optional("entry_id"): str,
+        vol.Required("client"): _client_address,
+        vol.Required("domain"): _plain_domain,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_block_known(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Block a known domain of a learning-zone client (first deny list)."""
+    found = _tracker_of(hass, connection, msg)
+    if found is None:
+        return
+    _entry, tracker = found
+    try:
+        domain = tracker.async_block_known(
+            msg["client"], msg["domain"], connection.context(msg)
+        )
+    except RequestError as err:
+        connection.send_error(msg["id"], err.code, err.message)
+        return
+    connection.send_result(msg["id"], {"client": msg["client"], "domain": domain})
 
 
 @websocket_api.websocket_command(
@@ -301,5 +427,8 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_config)
     websocket_api.async_register_command(hass, ws_query_log)
     websocket_api.async_register_command(hass, ws_requests)
+    websocket_api.async_register_command(hass, ws_overview)
+    websocket_api.async_register_command(hass, ws_known_domains)
+    websocket_api.async_register_command(hass, ws_block_known)
     websocket_api.async_register_command(hass, ws_resolve_request)
     websocket_api.async_register_command(hass, ws_set_client_name)
