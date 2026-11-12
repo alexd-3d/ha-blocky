@@ -49,6 +49,7 @@ from .const import (
     CONF_LIST_NETWORKS,
     CONF_LISTS,
     CONF_REPORT_EXISTING_DOMAINS,
+    CONF_SHOW_IN_SIDEBAR,
     CONF_ZONES,
     DEFAULT_DB_PORT,
     DEFAULT_LIST_NETWORKS,
@@ -136,6 +137,10 @@ LIST_KEYS = (CONF_LISTS, CONF_LIST_NETWORKS)
 
 STEP_NEW_DOMAINS_SCHEMA = vol.Schema(
     {vol.Required(CONF_REPORT_EXISTING_DOMAINS, default=False): BooleanSelector()}
+)
+
+STEP_SIDEBAR_SCHEMA = vol.Schema(
+    {vol.Required(CONF_SHOW_IN_SIDEBAR, default=True): BooleanSelector()}
 )
 
 # Fields of the zone forms.
@@ -264,6 +269,7 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
                 "zones",
                 "zone_config",
                 "new_domains",
+                "sidebar",
             ],
         )
 
@@ -493,6 +499,30 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             step_id="new_domains",
             data_schema=self.add_suggested_values_to_schema(
                 STEP_NEW_DOMAINS_SCHEMA, current
+            ),
+        )
+
+    async def async_step_sidebar(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask whether the query log panel appears in the sidebar."""
+        if user_input is not None:
+            show = user_input.get(CONF_SHOW_IN_SIDEBAR) is True
+            return self.async_create_entry(
+                data={
+                    **self._options_without((CONF_SHOW_IN_SIDEBAR,)),
+                    CONF_SHOW_IN_SIDEBAR: show,
+                }
+            )
+        current = {
+            CONF_SHOW_IN_SIDEBAR: (
+                self.config_entry.options.get(CONF_SHOW_IN_SIDEBAR, True) is True
+            )
+        }
+        return self.async_show_form(
+            step_id="sidebar",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_SIDEBAR_SCHEMA, current
             ),
         )
 

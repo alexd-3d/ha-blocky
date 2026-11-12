@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -152,6 +152,7 @@ def make(
         report_existing: bool = True,
         entry: MockConfigEntry | None = None,
         ready: bool = True,
+        client_names: Callable[[], Mapping[str, str]] | None = None,
     ) -> Harness:
         options = OPTIONS if options is None else options
         if entry is None:
@@ -166,7 +167,13 @@ def make(
         if zones is None:
             zones = read_zones(options, read_definitions(options))
         tracker = RequestTracker(
-            hass, entry, database, zones, lists, report_existing=report_existing
+            hass,
+            entry,
+            database,
+            zones,
+            lists,
+            report_existing=report_existing,
+            client_names=client_names,
         )
         await tracker.async_load()
         harness = Harness(entry, lists, tracker, database, log_url)
@@ -376,6 +383,7 @@ async def test_learning_new_pair_fires_once_and_creates_a_request(
             "config_entry_id": harness.entry.entry_id,
             "zone": "lab",
             "client": LAB,
+            "client_name": None,
             "domain": "new.example.com",
             "request_id": request["id"],
             "actions": ["block", "dismiss"],
@@ -667,13 +675,14 @@ async def test_learning_phase_blocked_pair_becomes_an_approval_request(
             "config_entry_id": harness.entry.entry_id,
             "zone": "kids",
             "client": KID,
+            "client_name": None,
             "domain": "wanted.example.com",
             "request_id": request["id"],
             "actions": ["approve", "reject"],
         }
     ]
     assert harness.tracker.describe_clients() == [
-        {"client": KID, "zone": "kids", "phase": "learning"}
+        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
     ]
     # Asking again while the request is pending changes nothing.
     harness.add(blocked("wanted.example.com"))
@@ -763,6 +772,7 @@ async def test_locked_clients_raise_no_request_only_one_event_per_pair(
             "config_entry_id": harness.entry.entry_id,
             "zone": "kids",
             "client": KID,
+            "client_name": None,
             "domain": "odd.example.com",
             "request_id": None,
             "actions": [],
@@ -1070,6 +1080,7 @@ async def test_events_are_limited_per_client_and_summarised_once(
             "config_entry_id": harness.entry.entry_id,
             "zone": "lab",
             "client": LAB,
+            "client_name": None,
             "suppressed": 3,
         }
     ]
@@ -1141,6 +1152,7 @@ async def test_a_resolved_domain_outside_the_allow_lists_is_a_leak(
         "config_entry_id": harness.entry.entry_id,
         "zone": "kids",
         "client": KID,
+        "client_name": None,
         "domain": "badok.example.com",
         "request_id": None,
         "actions": [],
@@ -1306,7 +1318,8 @@ async def test_state_survives_a_restart(
     assert again.tracker.describe_requests() == harness.tracker.describe_requests()
     assert again.tracker.describe_clients() == harness.tracker.describe_clients()
     assert again.tracker.diagnostics() == harness.tracker.diagnostics() | {
-        "counters": again.tracker.diagnostics()["counters"]
+        "counters": again.tracker.diagnostics()["counters"],
+        "baseline_last_duration_ms": None,
     }
     assert again.tracker._cursor == harness.tracker._cursor
     # Known pairs came back: no new request, no new event.
@@ -1555,7 +1568,10 @@ async def test_diagnostics_show_counts_only(
     assert requests["leaks_last_hour"] == 1
     assert requests["counters"]["invalid_domains"] == 1
     assert requests["has_cursor"] is True
-    assert all(isinstance(value, (int, bool, dict)) for value in requests.values())
+    assert all(
+        isinstance(value, (int, float, bool, dict, type(None)))
+        for value in requests.values()
+    )
 
 
 async def test_removing_the_entry_deletes_the_saved_requests(
@@ -1639,7 +1655,9 @@ async def test_services_resolve_requests(
         "learn.example.com",
         "kid.example.com",
     }
-    assert response["clients"] == [{"client": KID, "zone": "kids", "phase": "learning"}]
+    assert response["clients"] == [
+        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
+    ]
 
     await hass.services.async_call(
         DOMAIN,
@@ -1761,7 +1779,7 @@ async def test_set_client_phase_service(
 
     await _call(hass, "set_client_phase", client=KID, phase="locked")
     assert (await _call(hass, "get_requests"))["clients"] == [
-        {"client": KID, "zone": "kids", "phase": "locked"}
+        {"client": KID, "client_name": None, "zone": "kids", "phase": "locked"}
     ]
     await _call(hass, "set_client_phase", client=KID, phase="learning")
     assert entry.runtime_data.requests.describe_clients()[0]["phase"] == "learning"
@@ -1867,11 +1885,14 @@ async def test_commands_list_and_resolve_requests(
     result = response["result"]
     assert result["entry_id"] == entry.entry_id
     assert {r["id"] for r in result["requests"]} == set(ids.values())
-    assert result["clients"] == [{"client": KID, "zone": "kids", "phase": "learning"}]
+    assert result["clients"] == [
+        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
+    ]
     assert set(result["requests"][0]) == {
         "id",
         "zone",
         "client",
+        "client_name",
         "domain",
         "kind",
         "actions",
@@ -2011,3 +2032,94 @@ def test_the_tracker_builds_no_sql_and_adds_no_dependencies() -> None:
         assert forbidden not in source, forbidden
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["requirements"] == []
+
+
+# --- Client names ----------------------------------------------------------------
+
+
+async def test_events_and_descriptions_carry_the_client_name(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    calls: list[int] = []
+
+    def names() -> dict[str, str]:
+        calls.append(1)
+        return {LAB: "Lab PC", KID: "Kid Tablet"}
+
+    harness = await make(client_names=names)
+    harness.tracker.async_set_client_phase(KID_B, "locked")
+    new = async_capture_events(hass, EVENT_NEW_DOMAIN)
+    unexpected = async_capture_events(hass, EVENT_UNEXPECTED_DOMAIN)
+    harness.add(
+        row("one.example.com"),
+        row("two.example.com", LAB_B),
+        blocked("three.example.com"),
+        blocked("four.example.com", KID_B),
+    )
+    calls.clear()
+
+    await harness_round(hass, harness)
+
+    # One map per round, however many events it raised.
+    assert len(calls) == 1
+    assert {(e["client"], e["client_name"]) for e in data_of(new)} == {
+        (LAB, "Lab PC"),
+        (LAB_B, None),
+        (KID, "Kid Tablet"),
+    }
+    assert [(e["client"], e["client_name"]) for e in data_of(unexpected)] == [
+        (KID_B, None)
+    ]
+    described = {
+        r["client"]: r["client_name"] for r in harness.tracker.describe_requests()
+    }
+    assert described == {LAB: "Lab PC", LAB_B: None, KID: "Kid Tablet"}
+    phases = {c["client"]: c["client_name"] for c in harness.tracker.describe_clients()}
+    assert phases[KID] == "Kid Tablet"
+    assert phases[KID_B] is None
+
+
+async def test_leak_and_summary_events_carry_the_client_name(
+    hass: HomeAssistant, make: Callable[..., Any], freezer: FrozenDateTimeFactory
+) -> None:
+    harness = await make(client_names=lambda: {LAB: "Lab PC", KID: "Kid Tablet"})
+    harness.lists.async_add("allow_a", "ok.example.com", "allow")
+    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    summaries = async_capture_events(hass, EVENT_NEW_DOMAINS_SUMMARY)
+    harness.add(row("leak.example.com", KID, "CACHED"))
+    harness.add(*(row(f"d{i}.example.com") for i in range(8)))
+
+    await harness_round(hass, harness)
+    freezer.tick(timedelta(minutes=11))
+    await harness_round(hass, harness)
+    await harness_round(hass, harness)
+
+    assert [e["client_name"] for e in data_of(leaks)] == ["Kid Tablet"]
+    assert [e["client_name"] for e in data_of(summaries)] == ["Lab PC"]
+
+
+async def test_without_a_name_source_the_name_is_none(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make()
+    events = async_capture_events(hass, EVENT_NEW_DOMAIN)
+    harness.add(row("one.example.com"))
+
+    await harness_round(hass, harness)
+
+    assert data_of(events)[0]["client_name"] is None
+
+
+async def test_the_baseline_query_is_timed_for_diagnostics(
+    hass: HomeAssistant, make: Callable[..., Any]
+) -> None:
+    harness = await make(report_existing=False)
+    assert harness.tracker.diagnostics()["baseline_last_duration_ms"] is None
+    harness.add(row("everyday.example.com"))
+
+    await harness_round(hass, harness)
+
+    assert harness.tracker._clients[LAB].baselined
+    duration = harness.tracker.diagnostics()["baseline_last_duration_ms"]
+    assert isinstance(duration, float)
+    assert duration >= 0

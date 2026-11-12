@@ -6,8 +6,8 @@ DNS proxy and ad-blocker.
 > **Status: early development.** The integration can pause and resume blocking,
 > refresh lists, flush the cache, report whether Blocky is reachable, show
 > statistics from Blocky's query log database, manage manual allow and deny
-> lists, browse the query log in a dashboard card and handle requests for new
-> domains.
+> lists, browse the query log in a dashboard card or a sidebar panel, name clients
+> and handle requests for new domains.
 
 ## Goals
 
@@ -19,6 +19,53 @@ DNS proxy and ad-blocker.
 - Support allowlist-only client groups with an approval workflow, so a new
   device can only reach domains that were explicitly approved.
 - Expose events and actions so approvals can be driven from automations.
+
+## Comparison
+
+How Blocky with HA-Blocky compares with two well-known DNS filters. The Blocky column
+describes Blocky v0.35 itself plus what this integration adds on top of it. Cells marked
+"not documented" mean the feature is not mentioned in Blocky's documentation; check the
+current documentation of each project before relying on this table.
+
+| Feature | AdGuard Home | Pi-hole | Blocky + HA-Blocky |
+|---|---|---|---|
+| Blocking ads and trackers | ✅ | ✅ | 🟡 Through lists that you add to Blocky's configuration |
+| Customizing blocklists | ✅ | ✅ | ✅ Blocky list groups, plus manual allow and deny lists managed from Home Assistant |
+| Built-in DHCP server | ✅ | ✅ | ❌ |
+| HTTPS for the admin interface | ✅ | ✅ | ➖ No admin interface of its own: the card lives inside Home Assistant (administrators only). Blocky's HTTP API has no authentication |
+| Encrypted DNS upstream servers | ✅ DoH, DoT, DNSCrypt | ❌ Requires additional software | ✅ DoH and DoT (DNSCrypt not documented) |
+| Cross-platform | ✅ | ❌ Not natively, only via Docker | ✅ Single Go binary or container; the integration needs Home Assistant 2026.10 or newer |
+| Running as a DoH or DoT server | ✅ | ❌ Requires additional software | ✅ |
+| Blocking phishing and malware domains | ✅ | 🟡 Requires non-default blocklists | 🟡 Add a malware or phishing list, same as for ads |
+| Parental control (blocking adult domains) | ✅ | 🟡 Requires non-default blocklists | 🟡 Add an adult-content list to the client group that needs it |
+| Force safe search on search engines | ✅ | ❌ | Not documented |
+| Per-client (device) configuration | ✅ | ✅ | ✅ Client groups in Blocky; zones with `filter`, `learning` and `allowlist_only` modes |
+| Access settings (who can use the DNS) | ✅ | ❌ | Not documented |
+| Approval workflow for new domains | ❌ | ❌ | ✅ Requests with Approve, Reject and Block |
+| Allowlist-only zones with leak detection | ❌ | ❌ | ✅ |
+| Events and actions for automations | ❌ | ❌ | ✅ Home Assistant events and actions |
+
+The AdGuard Home and Pi-hole columns are based on the table in the AdGuard Home
+documentation and have not been re-checked against current Pi-hole releases.
+
+## Recommended network setup
+
+A DNS filter only helps while clients actually use it. HA-Blocky does not configure your
+router or Blocky, and it does not detect clients that bypass the filter. It works best
+with this setup, which you build yourself:
+
+1. **Send all home DNS through Blocky.** Hand out Blocky as the DNS server by DHCP, and
+   redirect port 53 (UDP and TCP) from clients to Blocky on your router, so devices with
+   a built-in DNS server still end up at the filter.
+2. **Encrypt the way out.** Configure Blocky's upstream resolvers as DNS-over-HTTPS or
+   DNS-over-TLS, so queries are not readable on the path to the resolver.
+3. **Block or log bypasses.** Drop or at least log outbound DNS-over-TLS (port 853) from
+   clients to the internet. DNS-over-HTTPS shares port 443 with normal web traffic and
+   direct connections to an IP address never ask DNS at all; both can only be limited
+   with a list of known DoH servers or an allowlist on the router, not by Blocky.
+
+Zone leak detection (see above) is related but different: it reports answers Blocky gave
+for domains outside an `allowlist_only` zone's allow lists.
 
 ## Design principles
 
@@ -118,9 +165,8 @@ processed per round, and rows of the others are taken as known silently meanwhil
 `allowlist_only` zones.
 
 **Card.** The query log card has a Requests tab: the pending requests with the buttons
-each allows, and the phase of the clients of allowlist-only zones with a switch. A
-device name is shown when a `device_tracker` entity has the client's address in its
-`ip` attribute.
+each allows, and the phase of the clients of allowlist-only zones with a switch. Clients
+are shown with their name (see "Client names" below).
 
 **Entities.** One sensor with the number of pending requests and one problem sensor for
 leaks. Diagnostics contain counts only.
@@ -143,6 +189,35 @@ contains the request id); trigger on the response (for the mobile app, the
 request id is well formed; then call `ha_blocky.approve_request`,
 `ha_blocky.reject_request` or `ha_blocky.block_request` with that request id. Treat the
 domain and client as untrusted text and never render them as markup.
+
+## Client names
+
+A client is shown by name in the card (the query log and the Requests tab) and its events
+carry a `client_name` field next to `client` (`null` when there is no name). The name of
+an address is, in this order:
+
+1. A name you typed: click a client in the card, type a name (up to 64 characters, no
+   control characters), press Enter to save, Escape to cancel; saving an empty name clears
+   it. Only administrators can do this. Up to 512 names are kept, in Home Assistant's own
+   storage.
+2. The friendly name of a `device_tracker` entity whose `ip` attribute is the address (if
+   several match, the entity with the lowest entity id is used).
+3. None: the card shows the address.
+
+Every name goes through the same check, so an unusable name from a device tracker counts as
+no name. Names are keyed by IP address: if a device gets another address from DHCP, the name
+you typed stays with the old address and the device appears unnamed until you name it again
+(a reserved address avoids this). Names never appear in diagnostics or logs. The WebSocket
+command `ha_blocky/set_client_name` that the card uses to save a name is internal to the
+card, not an interface to build on.
+
+## Sidebar panel
+
+Administrators get an HA-Blocky entry in the sidebar that shows the same card full width.
+It is on by default; turn it off in the options under "Show in sidebar" (the integration
+reloads when you save). The panel is removed when the last HA-Blocky entry is unloaded.
+It needs the `frontend` component (a normal Home Assistant installation has it). The card is
+also still available for dashboards as before.
 
 ## Requirements
 

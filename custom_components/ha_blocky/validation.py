@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import unicodedata
 from collections.abc import Iterable
 from typing import Final
 
-from .const import MAX_ZONE_NETWORKS
+from .const import MAX_CLIENT_NAME_LENGTH, MAX_ZONE_NETWORKS
 
 MAX_DOMAIN_LENGTH: Final = 253
 MAX_LIST_NAME_LENGTH: Final = 32
@@ -36,6 +37,10 @@ class InvalidListNameError(ValueError):
 
 class InvalidZoneNameError(ValueError):
     """The value is not an acceptable zone name."""
+
+
+class InvalidClientNameError(ValueError):
+    """The value is not an acceptable client name."""
 
 
 class InvalidNetworkError(ValueError):
@@ -105,6 +110,26 @@ def validate_zone_name(value: object) -> str:
     if not isinstance(value, str) or _LIST_NAME_RE.fullmatch(value) is None:
         raise InvalidZoneNameError("zone name")
     return value
+
+
+def validate_client_name(value: object) -> str:
+    """Return a clean display name for a client or raise InvalidClientNameError.
+
+    The name is stripped, 1 to 64 characters long and free of control,
+    format, surrogate, private-use and unassigned characters (every Unicode
+    category starting with "C") and of line or paragraph separators. Bad input
+    is refused, never repaired.
+    """
+    if not isinstance(value, str):
+        raise InvalidClientNameError("not a string")
+    text = value.strip()
+    if not 1 <= len(text) <= MAX_CLIENT_NAME_LENGTH:
+        raise InvalidClientNameError("empty or too long")
+    for char in text:
+        category = unicodedata.category(char)
+        if category.startswith("C") or category in ("Zl", "Zp"):
+            raise InvalidClientNameError("control character")
+    return text
 
 
 def parse_networks(values: object) -> tuple[IPNetwork, ...]:

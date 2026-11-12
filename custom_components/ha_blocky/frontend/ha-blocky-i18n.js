@@ -1,0 +1,136 @@
+/*
+ * Texts of the HA-Blocky card. English is the default; the Ukrainian table
+ * mirrors it key for key.
+ */
+
+/* i18n:en */
+export const TEXT_EN = {
+  "title": "Blocky query log",
+  "search_domain": "Domain contains",
+  "search_client": "Client address",
+  "status": "Status",
+  "status_all": "All",
+  "status_blocked": "Blocked",
+  "status_allowed": "Not blocked",
+  "period": "Period",
+  "hours_1": "Last hour",
+  "hours_6": "Last 6 hours",
+  "hours_24": "Last 24 hours",
+  "hours_168": "Last 7 days",
+  "hours_720": "Last 30 days",
+  "refresh": "Refresh",
+  "col_time": "Time",
+  "col_client": "Client",
+  "col_domain": "Domain",
+  "col_type": "Type",
+  "col_status": "Status",
+  "col_ms": "ms",
+  "col_actions": "Actions",
+  "allow": "Allow",
+  "block": "Block",
+  "confirm": "Confirm",
+  "cancel": "Cancel",
+  "choose_list": "List",
+  "action_allow": "Allow this domain:",
+  "action_block": "Block this domain:",
+  "done": "Done. Blocky reloads its lists in a few seconds.",
+  "load_more": "Load more",
+  "loading": "Loading…",
+  "rows_shown": "rows shown",
+  "no_rows": "No queries match these filters.",
+  "no_query_log": "No query log database is configured for this integration.",
+  "no_entry": "The HA-Blocky integration is not set up or not loaded.",
+  "not_admin": "Only administrators can view the query log.",
+  "error": "Could not load the query log.",
+  "tab_log": "Query log",
+  "tab_requests": "Requests",
+  "req_none": "No requests are waiting.",
+  "req_error": "Could not load the requests.",
+  "req_client": "Client",
+  "req_zone": "Zone",
+  "req_domain": "Domain",
+  "req_age": "Age",
+  "req_phases": "Clients of allowlist-only zones",
+  "act_approve": "Approve",
+  "act_reject": "Reject",
+  "act_block": "Block",
+  "act_dismiss": "Dismiss",
+  "phase_learning": "Learning",
+  "phase_locked": "Locked",
+  "unit_min": "min",
+  "unit_h": "h",
+  "client_edit": "Click to name this client",
+  "client_name_placeholder": "Name (empty clears)"
+};
+/* i18n:end */
+
+/* i18n:uk */
+export const TEXT_UK = {
+  "title": "Журнал запитів Blocky",
+  "search_domain": "Домен містить",
+  "search_client": "Адреса клієнта",
+  "status": "Статус",
+  "status_all": "Усі",
+  "status_blocked": "Заблоковані",
+  "status_allowed": "Не заблоковані",
+  "period": "Період",
+  "hours_1": "Остання година",
+  "hours_6": "Останні 6 годин",
+  "hours_24": "Останні 24 години",
+  "hours_168": "Останні 7 днів",
+  "hours_720": "Останні 30 днів",
+  "refresh": "Оновити",
+  "col_time": "Час",
+  "col_client": "Клієнт",
+  "col_domain": "Домен",
+  "col_type": "Тип",
+  "col_status": "Статус",
+  "col_ms": "мс",
+  "col_actions": "Дії",
+  "allow": "Дозволити",
+  "block": "Заблокувати",
+  "confirm": "Підтвердити",
+  "cancel": "Скасувати",
+  "choose_list": "Список",
+  "action_allow": "Дозволити цей домен:",
+  "action_block": "Заблокувати цей домен:",
+  "done": "Готово. Blocky перечитає списки за кілька секунд.",
+  "load_more": "Завантажити ще",
+  "loading": "Завантаження…",
+  "rows_shown": "рядків показано",
+  "no_rows": "Немає запитів за цими фільтрами.",
+  "no_query_log": "Для цієї інтеграції не налаштовано базу журналу запитів.",
+  "no_entry": "Інтеграцію HA-Blocky не налаштовано або не завантажено.",
+  "not_admin": "Журнал запитів доступний лише адміністраторам.",
+  "error": "Не вдалося завантажити журнал запитів.",
+  "tab_log": "Журнал запитів",
+  "tab_requests": "Запити",
+  "req_none": "Немає запитів, що очікують.",
+  "req_error": "Не вдалося завантажити запити.",
+  "req_client": "Клієнт",
+  "req_zone": "Зона",
+  "req_domain": "Домен",
+  "req_age": "Вік",
+  "req_phases": "Клієнти зон «лише дозволені»",
+  "act_approve": "Схвалити",
+  "act_reject": "Відхилити",
+  "act_block": "Заблокувати",
+  "act_dismiss": "Закрити",
+  "phase_learning": "Навчання",
+  "phase_locked": "Заблоковано",
+  "unit_min": "хв",
+  "unit_h": "год",
+  "client_edit": "Натисніть, щоб назвати цього клієнта",
+  "client_name_placeholder": "Назва (порожня очищає)"
+};
+/* i18n:end */
+
+const TEXTS = { en: TEXT_EN, uk: TEXT_UK };
+
+// The text for a key in the language of Home Assistant, else in English.
+export function translate(hass, key) {
+  const language =
+    (hass && hass.locale && hass.locale.language) || (hass && hass.language) || "en";
+  const table = TEXTS[language] || TEXTS[language.split("-")[0]] || TEXT_EN;
+  return table[key] || TEXT_EN[key] || key;
+}

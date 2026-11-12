@@ -308,7 +308,8 @@
           "list_urls": "List addresses for Blocky",
           "zones": "Zones",
           "zone_config": "Zone configuration for Blocky",
-          "new_domains": "New domain requests"
+          "new_domains": "New domain requests",
+          "sidebar": "Sidebar panel"
         }
       },
       "database": {
@@ -400,6 +401,16 @@
         },
         "data_description": {
           "report_existing_domains": "Off (default): domains already in the query log when tracking starts are taken as known, in learning zones, and raise no request. On: they raise requests like new domains."
+        }
+      },
+      "sidebar": {
+        "title": "Sidebar panel",
+        "description": "Show the query log and the requests in a sidebar panel for administrators. The panel hosts the same card a dashboard does. A change takes effect when the integration reloads, which saving does.",
+        "data": {
+          "show_in_sidebar": "Show in sidebar"
+        },
+        "data_description": {
+          "show_in_sidebar": "On (default): a full-width HA-Blocky panel appears in the sidebar, for administrators only. Off: no panel; the card stays available for dashboards."
         }
       }
     },

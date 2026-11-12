@@ -146,6 +146,7 @@ async def open_options_step(
         "zones",
         "zone_config",
         "new_domains",
+        "sidebar",
     ]
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}

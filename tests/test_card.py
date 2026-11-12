@@ -25,7 +25,12 @@ from sqlalchemy.engine import URL
 
 from custom_components.ha_blocky import db
 from custom_components.ha_blocky.const import DOMAIN, MAX_LOG_ROWS
-from custom_components.ha_blocky.frontend import CARD_PATH, CARD_URL
+from custom_components.ha_blocky.frontend import (
+    CARD_PATH,
+    CARD_URL,
+    FRONTEND_DIR,
+    PANEL_URL,
+)
 
 from .test_db import add_rows
 from .test_lists import LIST_OPTIONS
@@ -35,7 +40,13 @@ BASE_URL = "http://blocky.example:4000"
 STATUS_URL = f"{BASE_URL}/api/blocking/status"
 ENABLED = {"enabled": True, "disabledGroups": [], "autoEnableInSec": 0}
 
-SOURCE = CARD_PATH.read_text(encoding="utf-8")
+MODULES = sorted(FRONTEND_DIR.glob("*.js"))
+SOURCES = {path.name: path.read_text(encoding="utf-8") for path in MODULES}
+# Everything the browser runs, as one text.
+SOURCE = "\n".join(SOURCES.values())
+# The same without the style sheet text.
+CODE = SOURCE.replace(SOURCES["ha-blocky-style.js"], "")
+I18N = SOURCES["ha-blocky-i18n.js"]
 
 
 async def _setup(
@@ -64,8 +75,24 @@ async def _command(ws: Any, message_id: int, /, **message: Any) -> dict[str, Any
 # --- The file ---------------------------------------------------------------
 
 
-def test_card_never_interprets_data_as_markup() -> None:
-    """Log values are attacker-controlled; only text sinks are allowed."""
+def test_frontend_directory_holds_only_the_intended_modules() -> None:
+    """The whole directory is served: nothing else may sit in it."""
+    assert sorted(path.name for path in FRONTEND_DIR.iterdir()) == [
+        "ha-blocky-card.js",
+        "ha-blocky-dom.js",
+        "ha-blocky-i18n.js",
+        "ha-blocky-log.js",
+        "ha-blocky-panel.js",
+        "ha-blocky-requests.js",
+        "ha-blocky-style.js",
+    ]
+    assert CARD_PATH in MODULES
+
+
+@pytest.mark.parametrize("name", sorted(SOURCES))
+def test_module_never_interprets_data_as_markup(name: str) -> None:
+    """Log values and device names are attacker-controlled; only text sinks."""
+    source = SOURCES[name]
     for sink in (
         "innerHTML",
         "outerHTML",
@@ -77,25 +104,46 @@ def test_card_never_interprets_data_as_markup() -> None:
         "srcdoc",
         "javascript:",
     ):
-        assert sink not in SOURCE, sink
-    assert "textContent" in SOURCE
+        assert sink not in source, (name, sink)
 
 
-def test_card_loads_nothing_from_outside() -> None:
-    assert not re.search(r"https?://", SOURCE)
+def test_modules_use_text_content() -> None:
+    assert "textContent" in SOURCES["ha-blocky-dom.js"]
+
+
+@pytest.mark.parametrize("name", sorted(SOURCES))
+def test_module_loads_nothing_from_outside(name: str) -> None:
+    source = SOURCES[name]
+    assert not re.search(r"https?://", source)
     for loader in ("import(", "importScripts", "fetch(", "XMLHttpRequest", "<script"):
-        assert loader not in SOURCE, loader
-    assert not re.search(r"^\s*import\s", SOURCE, flags=re.MULTILINE)
+        assert loader not in source, (name, loader)
 
 
-def test_card_stays_small() -> None:
-    assert len(SOURCE.splitlines()) <= 1000
+def test_imports_are_relative_and_resolve_to_existing_modules() -> None:
+    found = 0
+    for name, source in SOURCES.items():
+        for statement in re.findall(r"^\s*import\b[^;]*;", source, flags=re.MULTILINE):
+            match = re.search(r"""["']([^"']+)["']\s*;""", statement)
+            assert match is not None, (name, statement)
+            target = match.group(1)
+            assert re.fullmatch(r"\./[\w-]+\.js", target), (name, target)
+            assert (FRONTEND_DIR / target).is_file(), (name, target)
+            found += 1
+    assert found >= 8
+    # Nothing is imported with a path that leaves the directory.
+    assert "../" not in SOURCE
+
+
+def test_card_modules_stay_small() -> None:
+    assert len(SOURCES["ha-blocky-card.js"].splitlines()) <= 300
+    assert all(len(source.splitlines()) <= 400 for source in SOURCES.values())
 
 
 def _texts(language: str) -> dict[str, str]:
     match = re.search(
-        rf"/\* i18n:{language} \*/\s*const \w+ = (\{{.*?\}});\s*/\* i18n:end \*/",
-        SOURCE,
+        rf"/\* i18n:{language} \*/\s*export const \w+ = (\{{.*?\}});\s*"
+        r"/\* i18n:end \*/",
+        I18N,
         flags=re.DOTALL,
     )
     assert match is not None, language
@@ -110,60 +158,85 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     assert set(ukrainian) == set(english)
     assert all(text.strip() for text in ukrainian.values())
     # Every key the code asks for exists in English.
-    used = set(re.findall(r'_t\("(\w+)"\)', SOURCE))
+    used = set(re.findall(r'\b_?t\("(\w+)"\)', CODE))
     used |= {f"status_{status}" for status in ("all", "blocked", "allowed")}
     used |= {f"hours_{hours}" for hours in (1, 6, 24, 168, 720)}
-    used |= set(re.findall(r'label: "(\w+)"', SOURCE))
+    used |= set(re.findall(r'label: "(\w+)"', CODE))
     assert used <= set(english)
-    assert "TEXT_EN[key]" in SOURCE
+    assert "TEXT_EN[key]" in I18N
 
 
 def test_requests_tab_uses_the_commands_and_only_known_actions() -> None:
-    assert "`${DOMAIN}/requests`" in SOURCE
-    assert "`${DOMAIN}/resolve_request`" in SOURCE
-    assert '"set_client_phase"' in SOURCE
-    assert "callService(DOMAIN" in SOURCE
+    requests_js = SOURCES["ha-blocky-requests.js"]
+    assert "`${DOMAIN}/requests`" in requests_js
+    assert "`${DOMAIN}/resolve_request`" in requests_js
+    assert '"set_client_phase"' in requests_js
+    assert "callService(DOMAIN" in requests_js
     # Dismiss is a rejection; the card sends nothing but these three actions.
-    assert re.search(r"ACTION_OF = \{[^}]*dismiss: \"reject\"", SOURCE)
-    actions = re.search(r"ACTION_OF = \{([^}]*)\}", SOURCE)
+    assert re.search(r"ACTION_OF = \{[^}]*dismiss: \"reject\"", requests_js)
+    actions = re.search(r"ACTION_OF = \{([^}]*)\}", requests_js)
     assert actions is not None
     assert set(re.findall(r'"(\w+)"', actions.group(1))) == {
         "approve",
         "reject",
         "block",
     }
-    assert 'PHASES = ["learning", "locked"]' in SOURCE
-    # The device name comes from the "ip" attribute of device trackers.
-    assert 'startsWith("device_tracker.")' in SOURCE
-    assert "attributes.ip" in SOURCE
+    assert 'PHASES = ["learning", "locked"]' in requests_js
     # Buttons of a request in flight are disabled.
-    assert "button.disabled = busy" in SOURCE
+    assert "button.disabled = busy" in requests_js
 
 
-def test_requests_tab_never_builds_style_or_links_from_data() -> None:
+def test_names_come_from_the_server_only() -> None:
+    """The browser no longer looks at device trackers."""
+    assert "device_tracker" not in SOURCE
+    assert "attributes.ip" not in SOURCE
+    assert "client_name" in SOURCES["ha-blocky-log.js"]
+    assert "client_name" in SOURCES["ha-blocky-requests.js"]
+    dom = SOURCES["ha-blocky-dom.js"]
+    assert "`${DOMAIN}/set_client_name`" in dom
+    assert "maxlength: MAX_NAME_LENGTH" in dom
+    assert "MAX_NAME_LENGTH = 64" in dom
+    assert '"Escape"' in dom
+    assert '"Enter"' in dom
+
+
+def test_cards_never_build_style_or_links_from_data() -> None:
     for sink in (".style", 'setAttribute("style"', "href", "src=", "location"):
-        assert sink not in SOURCE.split("const STYLE")[0] + SOURCE.split("`;", 1)[1], (
-            sink
-        )
+        assert sink not in CODE, sink
 
 
-def test_requests_tab_texts_exist_in_both_languages() -> None:
+def test_texts_exist_in_both_languages() -> None:
     english = _texts("en")
     ukrainian = _texts("uk")
     keys = {f"act_{name}" for name in ("approve", "reject", "block", "dismiss")}
     keys |= {f"phase_{phase}" for phase in ("learning", "locked")}
     keys |= {"tab_log", "tab_requests", "req_none", "req_error", "req_phases"}
     keys |= {"req_client", "req_zone", "req_domain", "req_age", "unit_min", "unit_h"}
+    keys |= {"client_edit", "client_name_placeholder"}
     assert keys <= set(english)
     assert keys <= set(ukrainian)
 
 
-def test_card_javascript_is_valid() -> None:
+def test_panel_hosts_the_card() -> None:
+    panel = SOURCES["ha-blocky-panel.js"]
+    assert 'import "./ha-blocky-card.js";' in panel
+    assert 'customElements.define("ha-blocky-panel"' in panel
+    assert 'document.createElement("ha-blocky-card")' in panel
+    assert "this._card.hass = hass" in panel
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda path: path.name)
+def test_card_javascript_is_valid(path: Any) -> None:
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
+    # The modules are ES modules; they are checked as such, through stdin.
     result = subprocess.run(
-        [node, "--check", str(CARD_PATH)], capture_output=True, text=True, check=False
+        [node, "--input-type=module", "--check"],
+        input=path.read_text(encoding="utf-8"),
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
@@ -185,6 +258,36 @@ async def test_card_file_is_served(
     assert response.status == 200
     assert "javascript" in response.content_type
     assert "ha-blocky-card" in await response.text()
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_every_module_is_served_and_nothing_else(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    hass_client_no_auth: ClientSessionGenerator,
+) -> None:
+    await _setup(hass, aioclient_mock, {})
+    client = await hass_client_no_auth()
+
+    for path in MODULES:
+        response = await client.get(f"/{DOMAIN}/{path.name}")
+        assert response.status == 200, path.name
+        assert "javascript" in response.content_type
+        assert await response.text() == SOURCES[path.name]
+    assert (await client.get(PANEL_URL)).status == 200
+    # No directory listing, no other files, no way out of the directory.
+    for url in (
+        f"/{DOMAIN}",
+        f"/{DOMAIN}/",
+        f"/{DOMAIN}/missing.js",
+        f"/{DOMAIN}/ha-blocky-card.js.map",
+        f"/{DOMAIN}/../const.py",
+        f"/{DOMAIN}/%2e%2e/const.py",
+        f"/{DOMAIN}/..%2fconst.py",
+    ):
+        response = await client.get(url)
+        assert response.status in (400, 403, 404), url
+        assert "DOMAIN" not in await response.text(), url
 
 
 # --- Commands ---------------------------------------------------------------

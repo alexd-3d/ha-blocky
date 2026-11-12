@@ -157,3 +157,12 @@ EVENT_RATE_LIMIT: Final = 5
 EVENT_RATE_WINDOW: Final = timedelta(minutes=10)
 # A leak keeps the problem sensor on, and is not reported again, this long.
 LEAK_WINDOW: Final = timedelta(hours=1)
+
+# The sidebar panel that hosts the query log card full width.
+CONF_SHOW_IN_SIDEBAR: Final = "show_in_sidebar"
+PANEL_URL_PATH: Final = "ha-blocky"
+PANEL_ELEMENT: Final = "ha-blocky-panel"
+
+# Names for client addresses, kept by hand in one store per Home Assistant.
+MAX_CLIENT_NAMES: Final = 512
+MAX_CLIENT_NAME_LENGTH: Final = 64
