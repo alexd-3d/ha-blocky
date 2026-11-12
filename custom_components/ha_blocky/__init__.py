@@ -27,6 +27,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import BlockyConfigEntry, BlockyCoordinator, BlockyData
+from .display import DATA_DISPLAY, DisplaySettings
 from .frontend import (
     async_register_card,
     async_register_panel,
@@ -62,6 +63,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     names = ClientNames(hass)
     await names.async_load()
     hass.data[DATA_CLIENT_NAMES] = names
+    display = DisplaySettings(hass)
+    await display.async_load()
+    hass.data[DATA_DISPLAY] = display
     async_setup_services(hass)
     async_register_view(hass)
     async_register_commands(hass)

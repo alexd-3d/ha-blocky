@@ -47,8 +47,20 @@ SOURCES = {path.name: path.read_text(encoding="utf-8") for path in MODULES}
 # Everything the browser runs, as one text.
 SOURCE = "\n".join(SOURCES.values())
 # The same without the style sheet texts.
-CODE = SOURCE.replace(SOURCES["ha-blocky-style.js"], "").replace(
-    SOURCES["ha-blocky-style-dashboard.js"], ""
+CODE = SOURCE
+for _style in (
+    "ha-blocky-style.js",
+    "ha-blocky-style-dashboard.js",
+    "ha-blocky-style-more.js",
+):
+    CODE = CODE.replace(SOURCES[_style], "")
+I18N_HELP = SOURCES["ha-blocky-i18n-help.js"]
+# The only addresses in the code: the three blocklist sources of the Help tab,
+# shown as text, never loaded.
+BLOCKLIST_URLS = (
+    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro.txt",
+    "https://big.oisd.nl/domainswild",
 )
 I18N = SOURCES["ha-blocky-i18n.js"]
 
@@ -85,19 +97,26 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-actions.js",
         "ha-blocky-card.js",
         "ha-blocky-chart.js",
+        "ha-blocky-controls.js",
         "ha-blocky-dashboard-data.js",
         "ha-blocky-dashboard.js",
         "ha-blocky-dom.js",
         "ha-blocky-format.js",
         "ha-blocky-group.js",
+        "ha-blocky-help.js",
+        "ha-blocky-i18n-help.js",
         "ha-blocky-i18n.js",
         "ha-blocky-known.js",
         "ha-blocky-log.js",
         "ha-blocky-overview.js",
         "ha-blocky-panel.js",
         "ha-blocky-popover.js",
+        "ha-blocky-prefs.js",
         "ha-blocky-requests.js",
+        "ha-blocky-settings-options.js",
+        "ha-blocky-settings.js",
         "ha-blocky-style-dashboard.js",
+        "ha-blocky-style-more.js",
         "ha-blocky-style.js",
         "ha-blocky-switch.js",
         "ha-blocky-toplist.js",
@@ -132,6 +151,11 @@ def test_module_loads_nothing_from_outside(name: str) -> None:
     # The one address in the code is the SVG namespace: an identifier that
     # createElementNS needs, never a place anything is loaded from.
     source = SOURCES[name].replace("http://www.w3.org/2000/svg", "")
+    if name == "ha-blocky-i18n-help.js":
+        # Exactly the three blocklist sources, and nothing else with an address.
+        for url in BLOCKLIST_URLS:
+            assert source.count(url) == 1, url
+            source = source.replace(url, "")
     assert not re.search(r"https?://", source)
     for loader in ("import(", "importScripts", "fetch(", "XMLHttpRequest", "<script"):
         assert loader not in source, (name, loader)
@@ -158,14 +182,20 @@ def test_card_modules_stay_small() -> None:
 
 
 def _texts(language: str) -> dict[str, str]:
-    match = re.search(
-        rf"/\* i18n:{language} \*/\s*export const \w+ = (\{{.*?\}});\s*"
-        r"/\* i18n:end \*/",
-        I18N,
-        flags=re.DOTALL,
-    )
-    assert match is not None, language
-    return json.loads(match.group(1))
+    """The texts of a language: the card's table plus the Help tab's."""
+    merged: dict[str, str] = {}
+    for source in (I18N, I18N_HELP):
+        match = re.search(
+            rf"/\* i18n:{language} \*/\s*export const \w+ = (\{{.*?\}});\s*"
+            r"/\* i18n:end \*/",
+            source,
+            flags=re.DOTALL,
+        )
+        assert match is not None, language
+        table = json.loads(match.group(1))
+        assert not set(table) & set(merged)
+        merged.update(table)
+    return merged
 
 
 def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
@@ -182,6 +212,16 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     used |= {f"tab_{tab}" for tab in ("dashboard", "log", "requests")}
     used |= {f"dash_period_{period}" for period in ("today", "24h", "7d", "30d")}
     used |= {f"cat_{kind}" for kind in CATEGORIES}
+    used |= {f"help_tab_{tab}" for tab in ("dashboard", "log", "requests", "settings")}
+    used |= {f"tab_{tab}" for tab in ("settings", "help")}
+    for name in ("delay", "pause", "name", "nodb", "sidebar"):
+        used |= {f"help_faq_{name}_q", f"help_faq_{name}_a"}
+    codes = (
+        "invalid_color invalid_rows out_of_range invalid_type invalid_list_name "
+        "duplicate_list_name too_many_lists unknown_list_name list_in_use "
+        "nothing_to_change entry_not_found not_ready"
+    )
+    used |= {f"serr_{code}" for code in codes.split()}
     used |= set(re.findall(r'"(dash_\w+)"', CODE))
     used |= set(re.findall(r'label: "(\w+)"', CODE))
     used |= set(re.findall(r'_section\("(\w+)"', CODE))
@@ -771,7 +811,8 @@ def test_dashboard_tab_reads_one_command_and_drives_the_switch_entity() -> None:
     assert switch.count("callService(") == 1
     # The period and the rows are validated against the allowed values.
     assert 'readChoice("period", PERIODS, "24h")' in dashboard
-    assert 'readChoice("rows", ROW_CHOICES, 10)' in dashboard
+    # The rows: this browser's choice, else the server default, else 10.
+    assert 'readChoice("rows", ROW_CHOICES, prefs.rows || 10)' in dashboard
     fmt = SOURCES["ha-blocky-format.js"]
     assert 'PERIODS = ["today", "24h", "7d", "30d"]' in fmt
     assert "ROW_CHOICES = [5, 10, 20]" in fmt
@@ -781,7 +822,7 @@ def test_dashboard_tab_reads_one_command_and_drives_the_switch_entity() -> None:
 def test_tabs_show_an_icon_and_a_title_and_the_dashboard_comes_first() -> None:
     card = SOURCES["ha-blocky-card.js"]
     style = SOURCES["ha-blocky-style.js"]
-    assert 'const TABS = ["dashboard", "log", "requests"];' in card
+    assert 'const TABS = ["dashboard", "log", "requests", "settings", "help"];' in card
     assert 'this._tab = "dashboard";' in card
     assert 'role: "tab", title: label, "aria-label": label' in card
     assert 'haIcon(UI_ICONS, `tab_${id}`, "tabicon")' in card
@@ -803,10 +844,17 @@ def test_query_colours_are_custom_properties_used_everywhere() -> None:
     kinds = ("resolved", "cached", "local", "blocked", "other")
     for kind in kinds:
         # Defined once, with a default; mapped to one class that everything uses.
-        assert len(re.findall(rf"--hb-color-{kind}: #", style)) == 1, kind
+        assert f'{kind}: "#' in SOURCES["ha-blocky-format.js"], kind
         assert f".c-{kind} {{ --c: var(--hb-color-{kind}); }}" in dash_style, kind
         assert f"--hb-color-{kind}" not in CODE, kind
-    assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", CODE)
+    # The defaults are one table in ha-blocky-format.js that the style sheet
+    # turns into the custom properties; there is no other colour value.
+    assert "--hb-color-${kind}: ${DEFAULT_COLORS[kind]};" in style
+    values = re.findall(r"#[0-9a-fA-F]{3,8}\b", CODE)
+    table = re.findall(r'"(#[0-9a-f]{6})",', SOURCES["ha-blocky-format.js"])
+    assert len(table) == 5
+    assert set(values) == set(table)
+    assert not re.findall(r"rgba?\(|hsla?\(", CODE)
     # Segments, swatches and tiles take their colour from `--c`, never a value.
     for rule in (
         "svg.bars .seg, svg.mbar .seg { fill: var(--c); }",
@@ -1050,3 +1098,190 @@ def test_dashboard_helpers_clean_and_validate(tmp_path: Any) -> None:
     ]
     assert flash["timers"] == [True, True]
     assert flash["after"] == ["flash-good", "flash-bad"]
+
+
+# --- Settings, Live mode and Help --------------------------------------------
+
+
+def test_settings_tab_writes_through_one_command_with_the_whitelisted_keys() -> None:
+    from custom_components.ha_blocky.settings import OPERATIONAL_KEYS
+
+    settings_js = SOURCES["ha-blocky-settings.js"]
+    options_js = SOURCES["ha-blocky-settings-options.js"]
+    assert "`${DOMAIN}/set_settings`" in settings_js
+    assert "`${DOMAIN}/settings`" in settings_js
+    # The card offers exactly the options the server accepts, no others.
+    in_card = set(re.findall(r'\["(\w+)", "set_\w+"', options_js))
+    assert in_card == set(OPERATIONAL_KEYS)
+    # The error text and the field label come from the card's own tables.
+    assert "FIELD_LABELS" in settings_js
+    assert "serr_${code}" in settings_js
+    # A colour is validated before it is used, and a preview is not saved.
+    assert "validColor(this._inputs[category].value)" in settings_js
+    assert 'attrs: { type: "color"' in settings_js
+
+
+def test_colours_reach_the_page_through_one_validated_style_element() -> None:
+    prefs_js = SOURCES["ha-blocky-prefs.js"]
+    fmt = SOURCES["ha-blocky-format.js"]
+    # One element per card; its text is composed by colorCss from validated
+    # values and fixed names only, and written with textContent.
+    assert prefs_js.count('document.createElement("style")') == 1
+    assert prefs_js.count("textContent") == 1
+    assert "this.element.textContent = colorCss(this._preview || prefs.colors);" in (
+        prefs_js
+    )
+    assert "const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;" in fmt
+    assert "`--hb-color-${category}: ${color};`" in fmt
+    assert "validColor(colors && colors[category])" in fmt
+    # Both cards use it; nothing else creates a style element.
+    assert "new ColorStyle(root)" in SOURCES["ha-blocky-card.js"]
+    assert "new ColorStyle(root)" in SOURCES["ha-blocky-overview.js"]
+    for name, source in SOURCES.items():
+        if name not in ("ha-blocky-prefs.js",):
+            assert 'createElement("style")' not in source, name
+
+
+def test_live_mode_is_bounded_and_adds_no_command() -> None:
+    log_js = SOURCES["ha-blocky-log.js"]
+    assert "const LIVE_INTERVAL_MS = 3000;" in log_js
+    assert "const LIVE_MAX_MS = 10 * 60 * 1000;" in log_js
+    assert 'document.visibilityState === "visible"' in log_js
+    assert "if (Date.now() >= this._liveUntil)" in log_js
+    # Leaving the tab or the page ends it.
+    assert (
+        "setActive(active)" in log_js and "if (!active) this.setLive(false);" in log_js
+    )
+    assert 'this._log.setActive(tab === "log");' in SOURCES["ha-blocky-card.js"]
+    assert "this.setLive(false);" in log_js
+    # It reads the existing command only, and its new rows light up neutrally.
+    assert log_js.count("callWS(") == 1
+    assert "`${DOMAIN}/query_log`" in log_js
+    assert 'flasher.mark(`log:${row.id}`, "new")' in log_js
+    assert 'new: "info"' in SOURCES["ha-blocky-actions.js"]
+    assert "live_hint" in log_js
+    style = SOURCES["ha-blocky-style-more.js"]
+    assert "button.live.on .livedot { background: var(--hb-good); animation:" in style
+    assert "button.live.on .livedot { animation: none; }" in style
+
+
+def test_help_tab_shows_three_blocklists_as_text_with_a_guarded_copy() -> None:
+    help_js = SOURCES["ha-blocky-help.js"]
+    data = I18N_HELP
+    assert re.findall(r'url: "(https://[^"]+)"', data) == list(BLOCKLIST_URLS)
+    assert data.count("name:") == 3
+    # Plain text, never a link and never fetched.
+    for sink in ("<a", "href", "fetch(", "window.open", "target="):
+        assert sink not in help_js and sink not in data, sink
+    assert 'className: "srcurl"' in help_js
+    assert "text: source.url" in help_js
+    assert 'typeof clipboard.writeText !== "function"' in help_js
+    assert "navigator.clipboard" in help_js
+    assert "await clipboard.writeText(text)" in help_js
+    # Sections are built with DOM calls.
+    assert 'el("details"' in help_js and 'el("summary"' in help_js
+    assert "innerHTML" not in help_js
+
+
+NODE_SCRIPT_PREFS = """
+import { colorCss, hasChoice, validColor } from "./ha-blocky-format.js";
+import { prefs, setPrefs } from "./ha-blocky-prefs.js";
+
+const out = {};
+out.valid = [
+  "#aabbcc", "#AABBCC", "#aabbcc\\n", " #aabbcc", "#aabbc", "#aabbccd", "#aabbcg",
+  "red", "#fff", "#aabbcc;}", 5, null, undefined, ["#aabbcc"],
+].map((value) => validColor(value));
+out.css = [
+  colorCss({ blocked: "#AABBCC" }),
+  colorCss({ blocked: "#fff}body{display:none", cached: "url(x)" }),
+  colorCss({ evil: "#000000" }),
+  colorCss({ resolved: "#010203", local: "#040506", other: "#070809" }),
+  colorCss(undefined),
+  colorCss(null),
+  colorCss({}),
+];
+const seen = [];
+const listener = () => seen.push(JSON.stringify([prefs.colors, prefs.rows]));
+import { onPrefs, offPrefs } from "./ha-blocky-prefs.js";
+onPrefs(listener);
+setPrefs({
+  colors: { blocked: "#AABBCC", cached: "red; x", resolved: "#12345" },
+  rows: 7,
+});
+setPrefs({ colors: { local: "#0a0b0c", evil: "#000000" }, rows: 20 });
+setPrefs("not an object");
+offPrefs(listener);
+setPrefs({ colors: { other: "#010101" }, rows: 5 });
+out.seen = seen;
+out.after = [prefs.colors, prefs.rows];
+
+const data = {};
+const read = (key) => (key in data ? data[key] : null);
+globalThis.window = { localStorage: { getItem: read } };
+const rows = [5, 10, 20];
+const flags = [hasChoice("rows", rows)];
+data["ha_blocky.rows"] = "20";
+flags.push(hasChoice("rows", rows));
+data["ha_blocky.rows"] = "99";
+flags.push(hasChoice("rows", rows));
+const broken = () => { throw new Error("blocked"); };
+globalThis.window = { localStorage: { getItem: broken } };
+flags.push(hasChoice("rows", rows));
+out.flags = flags;
+console.log(JSON.stringify(out));
+"""
+
+
+def test_colour_text_and_preferences_only_ever_hold_validated_values(
+    tmp_path: Any,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    for path in MODULES:
+        (tmp_path / path.name).write_text(SOURCES[path.name], encoding="utf-8")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    script = tmp_path / "check.mjs"
+    script.write_text(NODE_SCRIPT_PREFS, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, check=False, cwd=tmp_path
+    )
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["valid"] == [
+        "#aabbcc",
+        "#aabbcc",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ]
+    assert out["css"] == [
+        ":host { --hb-color-blocked: #aabbcc; }",
+        "",
+        "",
+        ":host { --hb-color-resolved: #010203; --hb-color-local: #040506; "
+        "--hb-color-other: #070809; }",
+        "",
+        "",
+        "",
+    ]
+    # Only validated colours and allowed rows get in; others are dropped.
+    assert out["seen"] == [
+        '[{"blocked":"#aabbcc"},null]',
+        '[{"local":"#0a0b0c"},20]',
+        "[{},null]",
+    ]
+    assert out["after"] == [{"other": "#010101"}, 5]
+    assert out["flags"] == [False, True, False, False]

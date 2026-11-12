@@ -3,6 +3,8 @@
  * mirrors it key for key.
  */
 
+import { HELP_EN, HELP_UK } from "./ha-blocky-i18n-help.js";
+
 /* i18n:en */
 export const TEXT_EN = {
   "title": "Blocky query log",
@@ -121,7 +123,49 @@ export const TEXT_EN = {
   "cat_cached": "Cached",
   "cat_local": "Local",
   "cat_blocked": "Blocked",
-  "cat_other": "Other"
+  "cat_other": "Other",
+  "tab_settings": "Settings",
+  "tab_help": "Help",
+  "live_button": "Live",
+  "live_hint": "Live mode reloads every 3 seconds for up to 10 minutes while this tab is shown. Blocky writes its log in batches, so entries can appear with a delay.",
+  "set_display_title": "Display",
+  "set_display_hint": "Colours and defaults for this Home Assistant. Saving them does not reload anything.",
+  "set_colors": "Colour of each kind of query",
+  "set_preview": "Preview",
+  "set_rows_default": "Default rows in the dashboard top lists",
+  "set_rows_hint": "A choice made on the dashboard in this browser wins over this default.",
+  "set_save": "Save",
+  "set_reset": "Reset to defaults",
+  "set_saved": "Saved.",
+  "set_saved_reload": "Saved. The integration is reloading.",
+  "set_save_error": "Could not save the settings.",
+  "set_load_error": "Could not load the settings.",
+  "set_ops_title": "Operation",
+  "set_ops_hint": "Saving these reloads the integration for a moment. Turning off \"Show in sidebar\" removes the HA-Blocky sidebar entry; the card stays usable from a dashboard.",
+  "set_status_interval": "Blocking status interval (seconds)",
+  "set_stats_interval": "Query counters interval (seconds)",
+  "set_tops_interval": "Top lists interval (seconds)",
+  "set_default": "default",
+  "set_interval_note": "Blocky writes its query log in batches, by default every 30 seconds, so polling faster than that shows nothing new.",
+  "set_report": "Report existing history as new",
+  "set_report_hint": "Off: domains already in the query log when tracking starts are taken as known in learning zones. On: they raise requests like new domains.",
+  "set_sidebar": "Show in sidebar",
+  "set_allow_lists": "Allow lists",
+  "set_deny_lists": "Deny lists",
+  "set_exact_lists": "Lists without wildcards",
+  "set_lists_hint": "Comma-separated names: lower-case letters, digits and underscores, up to 32 characters, up to 20 lists in all. Removing a name deletes that list and its entries. The clients that may download lists and the list addresses are in the Configure menu of the integration.",
+  "serr_invalid_color": "Use the form #rrggbb.",
+  "serr_invalid_rows": "Choose 5, 10 or 20.",
+  "serr_out_of_range": "This number is outside the allowed range.",
+  "serr_invalid_type": "This value is not valid.",
+  "serr_invalid_list_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
+  "serr_duplicate_list_name": "Every list name must be used only once.",
+  "serr_too_many_lists": "Too many lists.",
+  "serr_unknown_list_name": "This name is not among the allow or deny lists.",
+  "serr_list_in_use": "A zone uses a list that this change would remove or make unsuitable. Edit or delete the zone first.",
+  "serr_nothing_to_change": "Nothing to change.",
+  "serr_entry_not_found": "The Blocky instance was not found.",
+  "serr_not_ready": "The settings are not available yet."
 };
 /* i18n:end */
 
@@ -243,16 +287,58 @@ export const TEXT_UK = {
   "cat_cached": "З кешу",
   "cat_local": "Локально",
   "cat_blocked": "Заблоковано",
-  "cat_other": "Інше"
+  "cat_other": "Інше",
+  "tab_settings": "Налаштування",
+  "tab_help": "Довідка",
+  "live_button": "Наживо",
+  "live_hint": "Режим «Наживо» оновлює дані кожні 3 секунди до 10 хвилин, поки ця вкладка відкрита. Blocky записує журнал пакетами, тому записи можуть з'являтися із затримкою.",
+  "set_display_title": "Вигляд",
+  "set_display_hint": "Кольори та типові значення для цього Home Assistant. Збереження нічого не перезавантажує.",
+  "set_colors": "Колір кожного виду запитів",
+  "set_preview": "Попередній перегляд",
+  "set_rows_default": "Типова кількість рядків у топах панелі",
+  "set_rows_hint": "Вибір, зроблений на панелі в цьому браузері, важливіший за це значення.",
+  "set_save": "Зберегти",
+  "set_reset": "Скинути до типових",
+  "set_saved": "Збережено.",
+  "set_saved_reload": "Збережено. Інтеграція перезавантажується.",
+  "set_save_error": "Не вдалося зберегти налаштування.",
+  "set_load_error": "Не вдалося завантажити налаштування.",
+  "set_ops_title": "Робота",
+  "set_ops_hint": "Збереження цих налаштувань на мить перезавантажує інтеграцію. Вимкнення «Показувати в бічній панелі» прибирає пункт HA-Blocky з бічної панелі; картка лишається доступною на панелі керування.",
+  "set_status_interval": "Інтервал стану блокування (секунди)",
+  "set_stats_interval": "Інтервал лічильників запитів (секунди)",
+  "set_tops_interval": "Інтервал топів (секунди)",
+  "set_default": "типово",
+  "set_interval_note": "Blocky записує журнал запитів пакетами, типово кожні 30 секунд, тому опитування частіше нічого нового не покаже.",
+  "set_report": "Повідомляти наявну історію як нову",
+  "set_report_hint": "Вимкнено: домени, що вже є в журналі на початку відстеження, вважаються відомими в зонах навчання. Увімкнено: вони створюють запити, як нові домени.",
+  "set_sidebar": "Показувати в бічній панелі",
+  "set_allow_lists": "Списки дозволених",
+  "set_deny_lists": "Списки заборонених",
+  "set_exact_lists": "Списки без шаблонів",
+  "set_lists_hint": "Назви через кому: малі літери, цифри та підкреслення, до 32 символів, разом не більше 20 списків. Видалення назви видаляє список і його записи. Клієнти, що можуть завантажувати списки, та адреси списків - у меню «Налаштувати» інтеграції.",
+  "serr_invalid_color": "Використайте вигляд #rrggbb.",
+  "serr_invalid_rows": "Виберіть 5, 10 або 20.",
+  "serr_out_of_range": "Це число поза допустимим діапазоном.",
+  "serr_invalid_type": "Це значення недійсне.",
+  "serr_invalid_list_name": "Використовуйте малі літери, цифри та підкреслення, починаючи з літери або цифри, до 32 символів.",
+  "serr_duplicate_list_name": "Кожну назву списку можна використати лише раз.",
+  "serr_too_many_lists": "Забагато списків.",
+  "serr_unknown_list_name": "Цієї назви немає серед списків дозволених або заборонених.",
+  "serr_list_in_use": "Зона використовує список, який ця зміна видалила б або зробила непридатним. Спершу змініть або видаліть зону.",
+  "serr_nothing_to_change": "Нічого змінювати.",
+  "serr_entry_not_found": "Екземпляр Blocky не знайдено.",
+  "serr_not_ready": "Налаштування ще недоступні."
 };
 /* i18n:end */
 
-const TEXTS = { en: TEXT_EN, uk: TEXT_UK };
+const TEXTS = { en: { ...TEXT_EN, ...HELP_EN }, uk: { ...TEXT_UK, ...HELP_UK } };
 
 // The text for a key in the language of Home Assistant, else in English.
 export function translate(hass, key) {
   const language =
     (hass && hass.locale && hass.locale.language) || (hass && hass.language) || "en";
   const table = TEXTS[language] || TEXTS[language.split("-")[0]] || TEXT_EN;
-  return table[key] || TEXT_EN[key] || key;
+  return table[key] || TEXT_EN[key] || HELP_EN[key] || key;
 }

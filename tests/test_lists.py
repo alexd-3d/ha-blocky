@@ -25,9 +25,6 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 from custom_components.ha_blocky.const import (
-    CONF_ALLOW_LISTS,
-    CONF_DENY_LISTS,
-    CONF_EXACT_ONLY_LISTS,
     CONF_LIST_NETWORKS,
     CONF_LISTS,
     DOMAIN,
@@ -567,32 +564,29 @@ async def test_sensor_of_a_deleted_list_is_removed(
 # --- Options ----------------------------------------------------------------
 
 
-async def test_options_define_lists(
+async def test_options_set_the_list_networks_and_keep_the_lists(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    entry = await _setup(hass, aioclient_mock, {})
-    result = await open_options_step(hass, entry, "lists")
+    entry = await _setup(hass, aioclient_mock, {CONF_LISTS: LIST_OPTIONS[CONF_LISTS]})
+    result = await open_options_step(hass, entry, "list_networks")
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "lists"
+    assert result["step_id"] == "list_networks"
+    suggested = {
+        str(key): key.description.get("suggested_value")
+        for key in result["data_schema"].schema
+    }
+    assert suggested == {CONF_LIST_NETWORKS: ["172.30.32.0/23"]}
+    # The list names are no longer part of this form.
+    assert [str(key) for key in result["data_schema"].schema] == [CONF_LIST_NETWORKS]
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            CONF_ALLOW_LISTS: ["allow_default", "allow_quarantine"],
-            CONF_DENY_LISTS: ["deny_default"],
-            CONF_EXACT_ONLY_LISTS: ["allow_quarantine"],
-            CONF_LIST_NETWORKS: ["192.0.2.0/24"],
-        },
+        result["flow_id"], {CONF_LIST_NETWORKS: ["192.0.2.0/24"]}
     )
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == {
-        CONF_LISTS: {
-            "allow_default": {"type": "allow", "exact_only": False},
-            "allow_quarantine": {"type": "allow", "exact_only": True},
-            "deny_default": {"type": "deny", "exact_only": False},
-        },
+        CONF_LISTS: LIST_OPTIONS[CONF_LISTS],
         CONF_LIST_NETWORKS: ["192.0.2.0/24"],
     }
     assert set(entry.runtime_data.lists.definitions) == {
@@ -602,62 +596,21 @@ async def test_options_define_lists(
     }
 
 
-async def test_options_show_current_lists_and_default_network(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(hass, aioclient_mock, {CONF_LISTS: LIST_OPTIONS[CONF_LISTS]})
-
-    result = await open_options_step(hass, entry, "lists")
-
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {
-        CONF_ALLOW_LISTS: ["allow_default", "allow_quarantine"],
-        CONF_DENY_LISTS: ["deny_default"],
-        CONF_EXACT_ONLY_LISTS: ["allow_quarantine"],
-        CONF_LIST_NETWORKS: ["172.30.32.0/23"],
-    }
-
-
 @pytest.mark.parametrize(
-    ("user_input", "errors"),
-    [
-        ({CONF_ALLOW_LISTS: ["Bad Name"]}, {CONF_ALLOW_LISTS: "invalid_list_name"}),
-        ({CONF_DENY_LISTS: ["../x"]}, {CONF_DENY_LISTS: "invalid_list_name"}),
-        (
-            {CONF_ALLOW_LISTS: ["same"], CONF_DENY_LISTS: ["same"]},
-            {"base": "duplicate_list_name"},
-        ),
-        ({CONF_ALLOW_LISTS: ["a", "a"]}, {"base": "duplicate_list_name"}),
-        (
-            {CONF_ALLOW_LISTS: ["a"], CONF_EXACT_ONLY_LISTS: ["b"]},
-            {CONF_EXACT_ONLY_LISTS: "unknown_list_name"},
-        ),
-        (
-            {CONF_ALLOW_LISTS: [f"l{index}" for index in range(21)]},
-            {"base": "too_many_lists"},
-        ),
-        ({CONF_LIST_NETWORKS: ["0.0.0.0/0"]}, {CONF_LIST_NETWORKS: "invalid_network"}),
-        ({CONF_LIST_NETWORKS: ["nonsense"]}, {CONF_LIST_NETWORKS: "invalid_network"}),
-    ],
+    "networks", [["0.0.0.0/0"], ["nonsense"], ["192.0.2.0/24", "x"]]
 )
-async def test_options_reject_bad_list_settings(
-    hass: HomeAssistant,
-    aioclient_mock: AiohttpClientMocker,
-    user_input: dict[str, Any],
-    errors: dict[str, str],
+async def test_options_reject_bad_list_networks(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, networks: list[str]
 ) -> None:
     entry = await _setup(hass, aioclient_mock, {})
-    result = await open_options_step(hass, entry, "lists")
+    result = await open_options_step(hass, entry, "list_networks")
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input
+        result["flow_id"], {CONF_LIST_NETWORKS: networks}
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == errors
+    assert result["errors"] == {CONF_LIST_NETWORKS: "invalid_network"}
     assert entry.options == {}
 
 

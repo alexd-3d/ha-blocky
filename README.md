@@ -156,7 +156,7 @@ false leaks. A list entry covers its own domain and its subdomains, and a wildca
 entry `*.example.com` covers subdomains only; this matching has not been verified
 against Blocky's own.
 
-**Baseline.** In the options (New domain requests) you choose what happens with domains
+**Baseline.** In the Settings tab of the card ("Report existing history as new") you choose what happens with domains
 a client asked for before it was tracked. By default (silent baseline) a client first
 seen in a `learning` zone has its distinct domains of the last 7 days (up to the
 known-pairs cap) taken as known, without events or requests; at most 10 clients are
@@ -214,14 +214,14 @@ card, not an interface to build on.
 ## Sidebar panel
 
 Administrators get an HA-Blocky entry in the sidebar that shows the same card full width.
-It is on by default; turn it off in the options under "Show in sidebar" (the integration
+It is on by default; turn it off in the Settings tab of the card under "Show in sidebar" (the integration
 reloads when you save). The panel is removed when the last HA-Blocky entry is unloaded.
 It needs the `frontend` component (a normal Home Assistant installation has it). The card is
 also still available for dashboards as before.
 
 ## Dashboard cards
 
-The card is `custom:ha-blocky-card` (it is also the sidebar panel). It has three tabs; on a
+The card is `custom:ha-blocky-card` (it is also the sidebar panel). It has five tabs (Dashboard, Query log, Requests, Settings, Help); on a
 narrow card they show their icons only.
 
 **Dashboard** (the first tab). A large switch turns blocking off or on (it drives the
@@ -244,6 +244,31 @@ rows for 30 seconds.
 The colours of the query kinds are the custom properties `--hb-color-resolved`,
 `--hb-color-cached`, `--hb-color-local`, `--hb-color-blocked` and `--hb-color-other` of the
 card (for example set with a card theme or `card-mod`).
+
+**Settings.** Two kinds of settings, both written through the administrator-only command
+`ha_blocky/set_settings` (read with `ha_blocky/settings`; both are internal to the card).
+*Display* (kept by Home Assistant, applied at once, nothing reloads): the colour of each kind
+of query (resolved, cached, local, blocked, other; a colour is exactly `#rrggbb`, and the
+card applies them through one style element) and the default number of rows of the
+dashboard top lists (5, 10, 20; a choice made on the dashboard in a browser wins over it in
+that browser). *Operation* (options of the integration; saving them reloads it): the three
+update intervals (blocking status, query counters, top lists), "Report existing history as
+new", "Show in sidebar" (off removes the sidebar entry; the card stays usable from a
+dashboard) and the names of the allow lists, deny lists and lists without wildcards. They
+have the same limits as before; the server validates every value and refuses a list that a
+zone uses. **These options are no longer in the Configure menu**, which keeps the
+connection, the database, the clients that may download lists, the list addresses and the
+zones.
+
+**Live mode.** The Live button of the Query log tab reads the first page of the log every 3
+seconds, only while the page is visible, for at most 10 minutes; it stops when you leave the
+tab. Rows that are new since the previous read light up briefly. Blocky writes its log in
+batches, so entries can appear with a delay.
+
+**Help.** A short quick start, a few answers, and three well-known blocklist sources
+(StevenBlack hosts, HaGeZi Pro, OISD big) as plain text with a copy button. They are not
+links and the card never fetches them. List sources are added in Blocky's own
+configuration; HA-Blocky does not apply them.
 
 The other tabs are the query log and the requests, described below. The overview card is
 `custom:ha-blocky-overview-card`; it needs the query log database and an administrator.

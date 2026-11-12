@@ -303,13 +303,10 @@
         "title": "HA-Blocky options",
         "menu_options": {
           "database": "Query log database",
-          "intervals": "Update intervals",
-          "lists": "Manual lists",
+          "list_networks": "Clients that may download lists",
           "list_urls": "List addresses for Blocky",
           "zones": "Zones",
-          "zone_config": "Zone configuration for Blocky",
-          "new_domains": "New domain requests",
-          "sidebar": "Sidebar panel"
+          "zone_config": "Zone configuration for Blocky"
         }
       },
       "database": {
@@ -327,33 +324,13 @@
           "db_password": "Enter it again whenever you change these settings."
         }
       },
-      "intervals": {
-        "title": "Update intervals",
-        "description": "How often Home Assistant asks Blocky and the query log database for new data. Blocky itself writes the query log in batches, by default every 30 seconds, so polling faster than that shows nothing new.",
+      "list_networks": {
+        "title": "Clients that may download lists",
+        "description": "Say which clients may download the manual lists from Home Assistant. Blocky downloads each list from Home Assistant. Which lists exist, and the other settings, are in the Settings tab of the HA-Blocky card.",
         "data": {
-          "status_interval": "Blocking status",
-          "stats_interval": "Query counters and 24 hour summary",
-          "tops_interval": "Top lists"
-        },
-        "data_description": {
-          "status_interval": "10 to 600 seconds. Default: 30.",
-          "stats_interval": "30 to 3600 seconds. Default: 60.",
-          "tops_interval": "30 to 3600 seconds. Default: 300. Top lists are the heaviest queries; they are never refreshed more often than the counters."
-        }
-      },
-      "lists": {
-        "title": "Manual lists",
-        "description": "Define the lists you manage from Home Assistant. Blocky downloads each one from Home Assistant; which client group uses which list is set in Blocky's own configuration. Removing a name here deletes that list and its entries.",
-        "data": {
-          "allow_lists": "Allow lists",
-          "deny_lists": "Deny lists",
-          "exact_only_lists": "Lists without wildcards",
           "list_networks": "Clients allowed to download lists"
         },
         "data_description": {
-          "allow_lists": "Names of allow lists: lower-case letters, digits and underscores, up to 32 characters.",
-          "deny_lists": "Names of deny lists, same rules.",
-          "exact_only_lists": "Lists named here accept only exact domain names, never a leading wildcard. Use this for lists that grant access.",
           "list_networks": "Networks in CIDR notation. Only clients in them can download a list. The default is the network of Home Assistant apps (add-ons)."
         }
       },
@@ -392,26 +369,6 @@
       "zone_config": {
         "title": "Zone configuration for Blocky",
         "description": "Merge this fragment into the blocking section of Blocky's configuration. Home Assistant does not apply it. The list addresses contain a secret token, so keep the configuration private.\n\n{config}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
-      },
-      "new_domains": {
-        "title": "New domain requests",
-        "description": "Home Assistant watches the query log for domains that clients of learning and allowlist-only zones ask for the first time and turns them into requests. When tracking starts, the latest 5000 rows of the query log are the existing history: it can be taken as known without any request (in learning zones), or be reported as new.",
-        "data": {
-          "report_existing_domains": "Report existing history as new"
-        },
-        "data_description": {
-          "report_existing_domains": "Off (default): domains already in the query log when tracking starts are taken as known, in learning zones, and raise no request. On: they raise requests like new domains."
-        }
-      },
-      "sidebar": {
-        "title": "Sidebar panel",
-        "description": "Show the query log and the requests in a sidebar panel for administrators. The panel hosts the same card a dashboard does. A change takes effect when the integration reloads, which saving does.",
-        "data": {
-          "show_in_sidebar": "Show in sidebar"
-        },
-        "data_description": {
-          "show_in_sidebar": "On (default): a full-width HA-Blocky panel appears in the sidebar, for administrators only. Off: no panel; the card stays available for dashboards."
-        }
       }
     },
     "error": {
@@ -420,12 +377,8 @@
       "db_cannot_connect": "Could not connect to the database with these settings.",
       "db_schema": "This database does not contain Blocky's query log table.",
       "db_not_read_only": "This account can change data. Use an account that only has the SELECT privilege.",
-      "invalid_list_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
-      "duplicate_list_name": "Every list name must be used only once.",
       "unknown_list_name": "This name is not among the allow or deny lists.",
-      "too_many_lists": "Too many lists.",
       "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted.",
-      "list_in_use": "A zone uses a list that this change would remove or make unsuitable. Edit or delete the zone first.",
       "duplicate_zone_name": "A zone with this name already exists.",
       "too_many_zones": "Too many zones.",
       "invalid_zone_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",

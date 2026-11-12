@@ -140,13 +140,10 @@ async def open_options_step(
     assert result["type"] is FlowResultType.MENU
     assert result["menu_options"] == [
         "database",
-        "intervals",
-        "lists",
+        "list_networks",
         "list_urls",
         "zones",
         "zone_config",
-        "new_domains",
-        "sidebar",
     ]
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}

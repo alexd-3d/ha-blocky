@@ -11,6 +11,7 @@
 import { ACTION_OF, ListPicker, flashPause, flasher, iconButton, setDisabled } from "./ha-blocky-actions.js";
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
 import { translate } from "./ha-blocky-i18n.js";
+import { ColorStyle, loadPrefs } from "./ha-blocky-prefs.js";
 import { STYLE } from "./ha-blocky-style.js";
 
 const MIN_REFRESH_SECONDS = 10;
@@ -83,10 +84,12 @@ class HaBlockyOverviewCard extends HTMLElement {
 
   connectedCallback() {
     this._restartTimer();
+    if (this._colors) this._colors.start();
   }
 
   disconnectedCallback() {
     this._stopTimer();
+    if (this._colors) this._colors.stop();
   }
 
   t(key) {
@@ -107,6 +110,8 @@ class HaBlockyOverviewCard extends HTMLElement {
     this._built = true;
     const root = this.shadowRoot;
     root.appendChild(el("style", { text: STYLE }));
+    this._colors = new ColorStyle(root);
+    this._colors.start();
     this._card = document.createElement("ha-card");
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
     this._panel = el("div", { className: "panel", attrs: { hidden: "" } });
@@ -157,6 +162,7 @@ class HaBlockyOverviewCard extends HTMLElement {
       this._showMessage("no_query_log", false);
       return;
     }
+    await loadPrefs(hass);
     await this.load();
     this._restartTimer();
   }

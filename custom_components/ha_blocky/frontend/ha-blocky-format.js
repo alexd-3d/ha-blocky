@@ -9,6 +9,34 @@
 
 // The categories of a query, in the order they are stacked (bottom first).
 export const CATEGORIES = ["resolved", "cached", "local", "blocked", "other"];
+// The default colour of each category. The style sheet defines the custom
+// properties from this table, and "Reset to defaults" shows it.
+export const DEFAULT_COLORS = {
+  resolved: "#26a69a",
+  cached: "#42a5f5",
+  local: "#ab47bc",
+  blocked: "#ef5350",
+  other: "#9e9e9e",
+};
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+// The colour in lower case when it is exactly #rrggbb, else "".
+export function validColor(value) {
+  return typeof value === "string" && HEX_COLOR.test(value) ? value.toLowerCase() : "";
+}
+
+// The text of the one style element that overrides the category colours. It
+// is composed only from the fixed property names and values that passed
+// validColor, so nothing else can ever get into a style sheet.
+export function colorCss(colors) {
+  const rules = [];
+  for (const category of CATEGORIES) {
+    const color = validColor(colors && colors[category]);
+    if (color) rules.push(`--hb-color-${category}: ${color};`);
+  }
+  return rules.length ? `:host { ${rules.join(" ")} }` : "";
+}
+
 export const PERIODS = ["today", "24h", "7d", "30d"];
 export const ROW_CHOICES = [5, 10, 20];
 
@@ -124,6 +152,16 @@ export function readChoice(name, allowed, fallback) {
     return choose(window.localStorage.getItem(STORAGE_PREFIX + name), allowed, fallback);
   } catch (err) {
     return fallback;
+  }
+}
+
+// Whether this browser has remembered a valid choice of `name`.
+export function hasChoice(name, allowed) {
+  try {
+    const found = window.localStorage.getItem(STORAGE_PREFIX + name);
+    return found !== null && choose(found, allowed, undefined) !== undefined;
+  } catch (err) {
+    return false;
   }
 }
 

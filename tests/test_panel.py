@@ -8,7 +8,6 @@ import pytest
 from homeassistant.components import frontend
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -26,8 +25,6 @@ from custom_components.ha_blocky.frontend import (
     async_register_panel,
     async_remove_panel,
 )
-
-from .test_stats import open_options_step
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -155,52 +152,27 @@ async def test_registering_twice_does_not_raise(
 
 @pytest.mark.usefixtures("with_frontend")
 async def test_saving_the_option_reloads_and_moves_the_panel(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _add_entry(hass, aioclient_mock)
     assert _panel(hass) is not None
 
-    result = await open_options_step(hass, entry, "sidebar")
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "sidebar"
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {CONF_SHOW_IN_SIDEBAR: True}
+    response = await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: False}
-    )
-    await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert response["success"]
     assert entry.options[CONF_SHOW_IN_SIDEBAR] is False
     assert _panel(hass) is None
 
-    result = await open_options_step(hass, entry, "sidebar")
-    suggested = {
-        str(key): key.description.get("suggested_value")
-        for key in result["data_schema"].schema
-    }
-    assert suggested == {CONF_SHOW_IN_SIDEBAR: False}
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: True}
-    )
-    await hass.async_block_till_done()
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
     assert _panel(hass) is not None
 
 
 async def test_the_option_keeps_the_other_options(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _add_entry(hass, aioclient_mock, {"report_existing_domains": True})
 
-    result = await open_options_step(hass, entry, "sidebar")
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SHOW_IN_SIDEBAR: False}
-    )
-    await hass.async_block_till_done()
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
 
     assert entry.options == {
         "report_existing_domains": True,

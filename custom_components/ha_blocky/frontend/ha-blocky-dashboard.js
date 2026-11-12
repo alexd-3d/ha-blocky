@@ -8,6 +8,7 @@
  */
 
 import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
+import { buttonGroup } from "./ha-blocky-controls.js";
 import { buildChart } from "./ha-blocky-chart.js";
 import { normalize } from "./ha-blocky-dashboard-data.js";
 import { DOMAIN, el } from "./ha-blocky-dom.js";
@@ -15,12 +16,14 @@ import {
   PERIODS,
   ROW_CHOICES,
   compact,
+  hasChoice,
   percent,
   readChoice,
   timeFormats,
   writeChoice,
 } from "./ha-blocky-format.js";
 import { Popover } from "./ha-blocky-popover.js";
+import { prefs } from "./ha-blocky-prefs.js";
 import { BlockingSwitch } from "./ha-blocky-switch.js";
 import { topList } from "./ha-blocky-toplist.js";
 
@@ -36,7 +39,7 @@ export class DashboardView {
   constructor(host, container) {
     this._host = host;
     this._period = readChoice("period", PERIODS, "24h");
-    this._rows = readChoice("rows", ROW_CHOICES, 10);
+    this._rows = readChoice("rows", ROW_CHOICES, prefs.rows || 10);
     this._token = 0;
     this._active = false;
     this._data = undefined;
@@ -75,32 +78,6 @@ export class DashboardView {
     };
   }
 
-  // A joined group of buttons; `onPick` gets the chosen value.
-  _group(labelKey, options, current, onPick) {
-    const group = el("div", {
-      className: "btngroup",
-      attrs: { role: "group", "aria-label": this._t(labelKey) },
-    });
-    const buttons = options.map((option) => {
-      const button = el("button", { text: option.label, attrs: { type: "button" } });
-      button.addEventListener("click", () => {
-        mark(option.value);
-        onPick(option.value);
-      });
-      return { value: option.value, button };
-    });
-    const mark = (value) => {
-      for (const entry of buttons) {
-        const on = entry.value === value;
-        entry.button.className = on ? "on" : "";
-        entry.button.setAttribute("aria-pressed", String(on));
-      }
-    };
-    mark(current);
-    group.append(...buttons.map((entry) => entry.button));
-    return group;
-  }
-
   // A titled part with a muted hint and a "?" button that shows an info panel.
   _part(titleKey, hintKey, infoKey) {
     const info = el("div", { className: "info", text: this._t(infoKey), attrs: { hidden: "" } });
@@ -134,8 +111,8 @@ export class DashboardView {
     this._switch = new BlockingSwitch(this._host, (key) => this.showMessage(key, Boolean(key)));
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
 
-    const periods = this._group(
-      "period",
+    const periods = buttonGroup(
+      this._t("period"),
       PERIODS.map((value) => ({ value, label: this._t(`dash_period_${value}`) })),
       this._period,
       (value) => {
@@ -166,8 +143,8 @@ export class DashboardView {
 
     const chart = this._part("dash_chart_title", "dash_chart_hint", "dash_chart_info");
     this._chartBody = chart.body;
-    const rows = this._group(
-      "dash_rows",
+    const rows = (this._rowsGroup = buttonGroup(
+      this._t("dash_rows"),
       ROW_CHOICES.map((value) => ({ value, label: String(value) })),
       this._rows,
       (value) => {
@@ -175,7 +152,7 @@ export class DashboardView {
         writeChoice("rows", value);
         this.load();
       }
-    );
+    ));
     const bar = el("div", { className: "listbar" }, [
       el("span", { text: this._t("dash_show_top"), className: "sub" }),
       rows,
@@ -222,6 +199,16 @@ export class DashboardView {
     this._content.hidden = true;
     this._footer.hidden = true;
     this.showMessage(key, isError);
+  }
+
+  // The server's default number of rows counts until this browser has a choice.
+  applyPrefs() {
+    if (hasChoice("rows", ROW_CHOICES)) return;
+    const wanted = prefs.rows || 10;
+    if (this._rows === wanted) return;
+    this._rows = wanted;
+    this._rowsGroup.mark(wanted);
+    if (this._active) this.load();
   }
 
   // Whether the tab is the one shown; only then does it reload on its own.

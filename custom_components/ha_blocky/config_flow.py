@@ -11,7 +11,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_URL, UnitOfTime
+from homeassistant.const import CONF_URL
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
@@ -38,36 +38,23 @@ from .api import (
     normalize_base_url,
 )
 from .const import (
-    CONF_ALLOW_LISTS,
     CONF_DB_HOST,
     CONF_DB_NAME,
     CONF_DB_PASSWORD,
     CONF_DB_PORT,
     CONF_DB_USERNAME,
-    CONF_DENY_LISTS,
-    CONF_EXACT_ONLY_LISTS,
     CONF_LIST_NETWORKS,
-    CONF_LISTS,
-    CONF_REPORT_EXISTING_DOMAINS,
-    CONF_SHOW_IN_SIDEBAR,
     CONF_ZONES,
     DEFAULT_DB_PORT,
     DEFAULT_LIST_NETWORKS,
     DOMAIN,
-    INTERVALS,
-    LIST_TYPE_ALLOW,
-    LIST_TYPE_DENY,
-    MAX_LISTS,
     MAX_ZONES,
     ZONE_MODES,
 )
-from .intervals import interval_seconds
 from .lists import read_definitions
 from .validation import (
-    InvalidListNameError,
     InvalidNetworkError,
     parse_networks,
-    validate_list_name,
 )
 from .zones import (
     ZoneDefinition,
@@ -101,46 +88,14 @@ STEP_DATABASE_SCHEMA = vol.Schema(
     }
 )
 
-STEP_INTERVALS_SCHEMA = vol.Schema(
+# Only the clients that may fetch the lists are set here; which lists exist is
+# set in the Settings tab of the card.
+STEP_LIST_NETWORKS_SCHEMA = vol.Schema(
     {
-        vol.Required(key): NumberSelector(
-            NumberSelectorConfig(
-                min=spec.minimum,
-                max=spec.maximum,
-                step=1,
-                mode=NumberSelectorMode.BOX,
-                unit_of_measurement=UnitOfTime.SECONDS,
-            )
-        )
-        for key, spec in INTERVALS.items()
-    }
-)
-
-STEP_LISTS_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_ALLOW_LISTS, default=list): TextSelector(
-            TextSelectorConfig(multiple=True)
-        ),
-        vol.Optional(CONF_DENY_LISTS, default=list): TextSelector(
-            TextSelectorConfig(multiple=True)
-        ),
-        vol.Optional(CONF_EXACT_ONLY_LISTS, default=list): TextSelector(
-            TextSelectorConfig(multiple=True)
-        ),
         vol.Optional(CONF_LIST_NETWORKS, default=list): TextSelector(
             TextSelectorConfig(multiple=True)
         ),
     }
-)
-
-LIST_KEYS = (CONF_LISTS, CONF_LIST_NETWORKS)
-
-STEP_NEW_DOMAINS_SCHEMA = vol.Schema(
-    {vol.Required(CONF_REPORT_EXISTING_DOMAINS, default=False): BooleanSelector()}
-)
-
-STEP_SIDEBAR_SCHEMA = vol.Schema(
-    {vol.Required(CONF_SHOW_IN_SIDEBAR, default=True): BooleanSelector()}
 )
 
 # Fields of the zone forms.
@@ -243,7 +198,7 @@ class BlockyConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class BlockyOptionsFlow(OptionsFlowWithReload):
-    """Configure the query log database and the update intervals."""
+    """Configure the connection, the list networks and addresses, and the zones."""
 
     _zone_choice: str = ZONE_CHOICE_NEW
 
@@ -263,13 +218,10 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             step_id="init",
             menu_options=[
                 "database",
-                "intervals",
-                "lists",
+                "list_networks",
                 "list_urls",
                 "zones",
                 "zone_config",
-                "new_domains",
-                "sidebar",
             ],
         )
 
@@ -336,116 +288,42 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             errors=errors,
         )
 
-    async def async_step_intervals(
+    async def async_step_list_networks(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask how often Blocky and the query log are polled."""
-        if user_input is not None:
-            # The form schema bounds every value; re-read them through the
-            # same validation the coordinators use rather than trusting it.
-            intervals = {key: interval_seconds(user_input, key) for key in INTERVALS}
-            return self.async_create_entry(
-                data={**self._options_without(tuple(INTERVALS)), **intervals}
-            )
-
-        current = {
-            key: interval_seconds(self.config_entry.options, key) for key in INTERVALS
-        }
-        return self.async_show_form(
-            step_id="intervals",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_INTERVALS_SCHEMA, current
-            ),
-        )
-
-    async def async_step_lists(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Define the manual lists and who may fetch them."""
+        """Say which clients may download the lists."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            allow = [str(name).strip() for name in user_input.get(CONF_ALLOW_LISTS, [])]
-            deny = [str(name).strip() for name in user_input.get(CONF_DENY_LISTS, [])]
-            exact = [
-                str(name).strip() for name in user_input.get(CONF_EXACT_ONLY_LISTS, [])
-            ]
             networks = [
                 str(net).strip() for net in user_input.get(CONF_LIST_NETWORKS, [])
             ]
-
-            for field, names in ((CONF_ALLOW_LISTS, allow), (CONF_DENY_LISTS, deny)):
-                try:
-                    for name in names:
-                        validate_list_name(name)
-                except InvalidListNameError:
-                    errors[field] = "invalid_list_name"
-            if not errors:
-                if (
-                    len(set(allow)) != len(allow)
-                    or len(set(deny)) != len(deny)
-                    or set(allow) & set(deny)
-                ):
-                    errors["base"] = "duplicate_list_name"
-                elif len(allow) + len(deny) > MAX_LISTS:
-                    errors["base"] = "too_many_lists"
-                elif set(exact) - set(allow) - set(deny):
-                    errors[CONF_EXACT_ONLY_LISTS] = "unknown_list_name"
             try:
                 parse_networks(networks)
             except InvalidNetworkError:
                 errors[CONF_LIST_NETWORKS] = "invalid_network"
-
-            if not errors:
-                definitions = {
-                    name: {"type": list_type, "exact_only": name in exact}
-                    for list_type, names in (
-                        (LIST_TYPE_ALLOW, allow),
-                        (LIST_TYPE_DENY, deny),
-                    )
-                    for name in names
-                }
-                if not self._zones_stay_valid(definitions):
-                    errors["base"] = "list_in_use"
-            if not errors:
+            else:
                 return self.async_create_entry(
                     data={
-                        **self._options_without(LIST_KEYS),
-                        CONF_LISTS: definitions,
+                        **self._options_without((CONF_LIST_NETWORKS,)),
                         CONF_LIST_NETWORKS: networks,
                     }
                 )
-            suggested = user_input
+            suggested: dict[str, Any] = user_input
         else:
-            definitions = read_definitions(self.config_entry.options)
             stored_networks = self.config_entry.options.get(
                 CONF_LIST_NETWORKS, list(DEFAULT_LIST_NETWORKS)
             )
             suggested = {
-                CONF_ALLOW_LISTS: [
-                    name
-                    for name, definition in definitions.items()
-                    if definition.list_type == LIST_TYPE_ALLOW
-                ],
-                CONF_DENY_LISTS: [
-                    name
-                    for name, definition in definitions.items()
-                    if definition.list_type == LIST_TYPE_DENY
-                ],
-                CONF_EXACT_ONLY_LISTS: [
-                    name
-                    for name, definition in definitions.items()
-                    if definition.exact_only
-                ],
                 CONF_LIST_NETWORKS: (
                     list(stored_networks) if isinstance(stored_networks, list) else []
                 ),
             }
 
         return self.async_show_form(
-            step_id="lists",
+            step_id="list_networks",
             data_schema=self.add_suggested_values_to_schema(
-                STEP_LISTS_SCHEMA, suggested
+                STEP_LIST_NETWORKS_SCHEMA, suggested
             ),
             errors=errors,
         )
@@ -477,72 +355,6 @@ class BlockyOptionsFlow(OptionsFlowWithReload):
             data_schema=vol.Schema({}),
             description_placeholders={"urls": "\n".join(lines) or "-"},
         )
-
-    async def async_step_new_domains(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Ask whether the existing query log history is reported as new."""
-        if user_input is not None:
-            report = user_input.get(CONF_REPORT_EXISTING_DOMAINS) is True
-            return self.async_create_entry(
-                data={
-                    **self._options_without((CONF_REPORT_EXISTING_DOMAINS,)),
-                    CONF_REPORT_EXISTING_DOMAINS: report,
-                }
-            )
-        current = {
-            CONF_REPORT_EXISTING_DOMAINS: (
-                self.config_entry.options.get(CONF_REPORT_EXISTING_DOMAINS) is True
-            )
-        }
-        return self.async_show_form(
-            step_id="new_domains",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_NEW_DOMAINS_SCHEMA, current
-            ),
-        )
-
-    async def async_step_sidebar(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Ask whether the query log panel appears in the sidebar."""
-        if user_input is not None:
-            show = user_input.get(CONF_SHOW_IN_SIDEBAR) is True
-            return self.async_create_entry(
-                data={
-                    **self._options_without((CONF_SHOW_IN_SIDEBAR,)),
-                    CONF_SHOW_IN_SIDEBAR: show,
-                }
-            )
-        current = {
-            CONF_SHOW_IN_SIDEBAR: (
-                self.config_entry.options.get(CONF_SHOW_IN_SIDEBAR, True) is True
-            )
-        }
-        return self.async_show_form(
-            step_id="sidebar",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_SIDEBAR_SCHEMA, current
-            ),
-        )
-
-    def _zones_stay_valid(self, new_lists: dict[str, dict[str, Any]]) -> bool:
-        """Return whether every stored zone is still valid with new lists."""
-        options = self.config_entry.options
-        new_definitions = read_definitions({CONF_LISTS: new_lists})
-        for zone in read_zones(options, read_definitions(options)).values():
-            try:
-                build_zone(
-                    zone.name,
-                    [str(net) for net in zone.networks],
-                    zone.mode,
-                    list(zone.lists),
-                    definitions=new_definitions,
-                    others=(),
-                )
-            except ZoneError:
-                return False
-        return True
 
     def _zones(self) -> dict[str, ZoneDefinition]:
         options = self.config_entry.options

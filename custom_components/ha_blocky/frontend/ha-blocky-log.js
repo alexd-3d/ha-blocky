@@ -8,6 +8,9 @@ import { ListPicker, STATUS_ICONS, flasher, haIcon, iconButton } from "./ha-bloc
 import { groupRows } from "./ha-blocky-group.js";
 
 const HOURS = [1, 6, 24, 168, 720];
+// Live mode: how often the log is read, and for how long at most.
+const LIVE_INTERVAL_MS = 3000;
+const LIVE_MAX_MS = 10 * 60 * 1000;
 const STATUSES = ["all", "blocked", "allowed"];
 const COLUMNS = [
   { key: "time", label: "col_time", sort: "id" },
@@ -58,6 +61,10 @@ export class LogView {
     this._sort = { key: "id", direction: -1 };
     this._group = true;
     this._debounce = undefined;
+    this._live = false;
+    this._liveTimer = undefined;
+    this._liveUntil = 0;
+    this._newestId = undefined;
     this._build(container);
   }
 
@@ -95,6 +102,12 @@ export class LogView {
       el("span", { text: this._t("group_repeats") }),
     ]);
 
+    this._liveButton = el(
+      "button",
+      { className: "live", attrs: { type: "button", "aria-pressed": "false" } },
+      [el("span", { className: "livedot" }), el("span", { text: this._t("live_button") })]
+    );
+    this._liveButton.addEventListener("click", () => this.setLive(!this._live));
     this._groupBox.addEventListener("change", () => {
       this._group = this._groupBox.checked;
       this.render();
@@ -112,9 +125,11 @@ export class LogView {
         this._statusSelect,
         this._hoursSelect,
         groupLabel,
+        this._liveButton,
         this._refreshButton,
       ])
     );
+    container.appendChild(el("div", { className: "hint", text: this._t("live_hint") }));
 
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
     container.appendChild(this._message);
@@ -145,6 +160,42 @@ export class LogView {
 
   stop() {
     clearTimeout(this._debounce);
+    this.setLive(false);
+  }
+
+  // Whether the tab is the one shown; leaving it ends live mode.
+  setActive(active) {
+    if (!active) this.setLive(false);
+  }
+
+  // Live mode: read the first page every few seconds, only while the page is
+  // visible, for at most ten minutes. Rows new since the last read light up.
+  setLive(on) {
+    if (on === this._live) return;
+    this._live = on;
+    clearInterval(this._liveTimer);
+    this._liveTimer = undefined;
+    this._liveButton.className = on ? "live on" : "live";
+    this._liveButton.setAttribute("aria-pressed", String(on));
+    if (!on) return;
+    this._liveUntil = Date.now() + LIVE_MAX_MS;
+    this._newestId = this._rows.reduce((top, row) => Math.max(top, Number(row.id) || 0), 0);
+    this._liveTimer = setInterval(() => this._liveTick(), LIVE_INTERVAL_MS);
+  }
+
+  _liveTick() {
+    if (Date.now() >= this._liveUntil) {
+      this.setLive(false);
+      return;
+    }
+    if (
+      document.visibilityState === "visible" &&
+      !this._loading &&
+      !this.busy &&
+      !this._host.isEditing()
+    ) {
+      this.load(true);
+    }
   }
 
   hideTable() {
@@ -204,7 +255,16 @@ export class LogView {
       const result = await this._host.hass.callWS(message);
       if (request !== this._request) return;
       const rows = Array.isArray(result.rows) ? result.rows : [];
+      if (reset && this._live && this._newestId !== undefined) {
+        for (const row of rows) {
+          if (Number(row.id) > this._newestId) flasher.mark(`log:${row.id}`, "new");
+        }
+      }
       this._rows = reset ? rows : this._rows.concat(rows);
+      this._newestId = this._rows.reduce(
+        (top, row) => Math.max(top, Number(row.id) || 0),
+        this._newestId || 0
+      );
       this._hasMore = Boolean(result.has_more);
       this._nextBeforeId = result.next_before_id || undefined;
       this.showMessage(this._rows.length ? "" : "no_rows", false);

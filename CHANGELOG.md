@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+
+- **Settings tab** (BLO-015) in the card and the sidebar panel.
+  - Display preferences, kept by Home Assistant (one store, no reload): the colour
+    of each kind of query (`#rrggbb`, validated on the server and again in the card)
+    and the default number of rows of the dashboard top lists. A choice made on the
+    dashboard in a browser still wins in that browser. The colours reach the card
+    and the overview card through one style element whose text is composed only
+    from fixed property names and validated colours.
+  - Operational options, moved here from Configure (saving reloads the
+    integration): the three update intervals, "Report existing history as new",
+    "Show in sidebar" and the names of the allow lists, deny lists and lists
+    without wildcards. They use the same bounds and checks as before, now in one
+    place (`settings.py`).
+- WebSocket commands `ha_blocky/settings` (read) and `ha_blocky/set_settings`
+  (partial update), administrators only. The write takes only the whitelisted keys,
+  validates everything before writing anything and names the refused field and a
+  stable code without repeating the value. Both are internal to the card.
+- **Live mode** in the Query log tab: reads the first page every 3 seconds, only
+  while the page is visible, for at most 10 minutes, and stops when you leave the
+  tab. New rows light up. No new server command.
+- **Help tab**: a quick start, a short FAQ and three well-known blocklist sources
+  (StevenBlack hosts, HaGeZi Pro, OISD big) as plain text with a copy button. They
+  are never links and never fetched.
+
+### Changed
+
+- The Configure menu keeps the database, the clients that may download lists (the
+  step "Manual lists" is now "Clients that may download lists"), the list
+  addresses and the zones. Update intervals, new-domain requests, the sidebar panel
+  and the list names are in the Settings tab.
+
+### Security
+
+- `ha_blocky/set_settings` is the only new write path. It cannot change the
+  connection, the database, the list networks or the zones; a colour is exactly
+  `#rrggbb` (lower-cased) and nothing else is stored or written into a style sheet.
+
 ## 0.10.0
 
 ### Added

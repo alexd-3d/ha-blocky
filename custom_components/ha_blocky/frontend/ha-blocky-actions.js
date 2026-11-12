@@ -40,6 +40,8 @@ export const UI_ICONS = {
   tab_dashboard: "mdi:view-dashboard",
   tab_log: "mdi:format-list-bulleted",
   tab_requests: "mdi:inbox-arrow-down",
+  tab_settings: "mdi:cog",
+  tab_help: "mdi:help-circle-outline",
   tile_total: "mdi:dns",
   tile_blocked: "mdi:cancel",
   tile_cached: "mdi:cached",
@@ -55,6 +57,8 @@ export const EFFECT_OF = {
   block: "bad",
   reject: "bad",
   dismiss: "bad",
+  // A row that appeared in the live query log: a neutral highlight.
+  new: "info",
 };
 
 export function effectOf(action) {

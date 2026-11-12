@@ -15,7 +15,6 @@ import voluptuous as vol
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import CONF_URL
 from homeassistant.core import Context, Event, HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
@@ -58,7 +57,7 @@ from custom_components.ha_blocky.zones import ZoneDefinition, read_zones
 
 from .test_db import add_rows, make_log
 from .test_lists import LOOPBACK
-from .test_stats import DB_OPTIONS, _poll, log_row, open_options_step
+from .test_stats import DB_OPTIONS, _poll, log_row
 
 pytestmark = pytest.mark.usefixtures(
     "enable_custom_integrations", "freezer", "hass_storage", "log_url"
@@ -608,46 +607,33 @@ async def test_baseline_state_survives_a_restart(
     assert again.tracker._clients[LAB].baselined
 
 
-async def test_options_flow_sets_the_baseline_option(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+async def test_settings_set_the_baseline_option(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _setup(hass, aioclient_mock, OPTIONS)
     assert entry.runtime_data.requests is not None
 
-    result = await open_options_step(hass, entry, "new_domains")
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "new_domains"
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_REPORT_EXISTING_DOMAINS: True}
-    )
+    response = await settings_ws(**{CONF_REPORT_EXISTING_DOMAINS: True})
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert response["success"]
     assert entry.options[CONF_REPORT_EXISTING_DOMAINS] is True
     assert entry.options["db_host"] == "db.example"
-    await hass.async_block_till_done()
     assert entry.runtime_data.requests._report_existing is True
 
-    result = await open_options_step(hass, entry, "new_domains")
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_REPORT_EXISTING_DOMAINS: False}
-    )
+    await settings_ws(**{CONF_REPORT_EXISTING_DOMAINS: False})
     assert entry.options[CONF_REPORT_EXISTING_DOMAINS] is False
 
 
-async def test_options_survive_other_option_steps(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+async def test_options_survive_other_settings(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
 ) -> None:
     entry = await _setup(
         hass, aioclient_mock, {**OPTIONS, CONF_REPORT_EXISTING_DOMAINS: True}
     )
 
-    result = await open_options_step(hass, entry, "intervals")
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"status_interval": 30, "stats_interval": 60, "tops_interval": 300},
-    )
+    response = await settings_ws(status_interval=30, stats_interval=60)
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert response["success"]
     assert entry.options[CONF_REPORT_EXISTING_DOMAINS] is True
 
 
