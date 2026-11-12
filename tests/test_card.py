@@ -561,6 +561,15 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 const out = {};
 await import("./ha-blocky-card.js");
+await tick();
+// Before Home Assistant's app has defined its root element (and with it
+// installed its registry polyfill) nothing may be defined.
+out.early = [
+  Boolean(customElements.get("ha-blocky-card")),
+  Boolean(customElements.get("ha-blocky-overview-card")),
+];
+customElements.define("home-assistant", class {});
+await tick();
 out.defined = [
   Boolean(customElements.get("ha-blocky-card")),
   Boolean(customElements.get("ha-blocky-overview-card")),
@@ -632,8 +641,12 @@ def _node_dir(tmp_path: Any) -> Any:
 
 
 def test_the_entry_module_defines_the_elements_first(tmp_path: Any) -> None:
-    # No imports: the elements exist the moment the file has loaded.
+    # No imports; the elements are defined as soon as Home Assistant's app is
+    # up, never before: its scoped-registry polyfill (installed by the app
+    # bundle) cannot see an element defined natively ahead of it.
     assert not re.search(r"^\s*import\b", SHELL, flags=re.MULTILINE)
+    assert 'customElements.whenDefined("home-assistant").then(' in SHELL
+    assert not re.search(r"^defineShell\(", SHELL, flags=re.MULTILINE)
     assert 'import("./ha-blocky-card-view.js")' in SHELL
     assert 'defineShell("ha-blocky-card"' in SHELL
     assert "customElements.whenDefined(viewTag)" in SHELL
@@ -666,6 +679,7 @@ def test_the_entry_module_defines_the_elements_first(tmp_path: Any) -> None:
 
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
+    assert out["early"] == [False, False]
     assert out["defined"] == [True, True, False]
     assert out["cards"] == ["ha-blocky-card", "ha-blocky-overview-card"]
     assert out["size"] == 10
