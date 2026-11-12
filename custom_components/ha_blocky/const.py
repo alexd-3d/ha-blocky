@@ -160,9 +160,7 @@ LEAK_WINDOW: Final = timedelta(hours=1)
 
 # The sidebar panel that hosts the query log card full width.
 CONF_SHOW_IN_SIDEBAR: Final = "show_in_sidebar"
-# Not "ha-blocky": that is the natural name of a user's own dashboard, and a
-# taken path makes the registration a silent no-op.
-PANEL_URL_PATH: Final = "ha-blocky-log"
+PANEL_URL_PATH: Final = "ha-blocky"
 PANEL_ELEMENT: Final = "ha-blocky-panel"
 
 # Names for client addresses, kept by hand in one store per Home Assistant.
