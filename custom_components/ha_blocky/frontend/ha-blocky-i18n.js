@@ -4,6 +4,7 @@
  */
 
 import { HELP_EN, HELP_UK } from "./ha-blocky-i18n-help.js";
+import { MORE_EN, MORE_UK } from "./ha-blocky-i18n-more.js";
 
 /* i18n:en */
 export const TEXT_EN = {
@@ -63,7 +64,7 @@ export const TEXT_EN = {
   "unit_h": "h",
   "client_edit": "Click to name this client",
   "client_name_placeholder": "Name (empty clears)",
-  "group_repeats": "Group repeats",
+  "group_repeats": "Grouping",
   "ov_title": "Blocky overview",
   "ov_top_domains": "Top domains (24 h)",
   "ov_top_blocked": "Top blocked domains (24 h)",
@@ -81,7 +82,7 @@ export const TEXT_EN = {
   "dash_blocking_paused": "Blocking paused",
   "dash_blocking_unavailable": "Blocking status unavailable",
   "dash_switch_label": "Blocking",
-  "dash_switch_hint": "Turning it off pauses blocking for 5 minutes; it then resumes on its own.",
+  "dash_switch_hint": "Turning it off pauses blocking for {n}; it then resumes on its own.",
   "dash_switch_error": "Could not change blocking.",
   "dash_period_today": "Today",
   "dash_period_24h": "24 h",
@@ -227,7 +228,7 @@ export const TEXT_UK = {
   "unit_h": "год",
   "client_edit": "Натисніть, щоб назвати цього клієнта",
   "client_name_placeholder": "Назва (порожня очищає)",
-  "group_repeats": "Групувати повтори",
+  "group_repeats": "Групування",
   "ov_title": "Огляд Blocky",
   "ov_top_domains": "Топ доменів (24 год)",
   "ov_top_blocked": "Топ заблокованих доменів (24 год)",
@@ -245,7 +246,7 @@ export const TEXT_UK = {
   "dash_blocking_paused": "Блокування призупинено",
   "dash_blocking_unavailable": "Стан блокування недоступний",
   "dash_switch_label": "Блокування",
-  "dash_switch_hint": "Вимкнення призупиняє блокування на 5 хвилин, після чого воно відновлюється саме.",
+  "dash_switch_hint": "Вимкнення призупиняє блокування на {n}, після чого воно відновлюється саме.",
   "dash_switch_error": "Не вдалося змінити блокування.",
   "dash_period_today": "Сьогодні",
   "dash_period_24h": "24 год",
@@ -333,12 +334,15 @@ export const TEXT_UK = {
 };
 /* i18n:end */
 
-const TEXTS = { en: { ...TEXT_EN, ...HELP_EN }, uk: { ...TEXT_UK, ...HELP_UK } };
+const TEXTS = {
+  en: { ...TEXT_EN, ...HELP_EN, ...MORE_EN },
+  uk: { ...TEXT_UK, ...HELP_UK, ...MORE_UK },
+};
 
 // The text for a key in the language of Home Assistant, else in English.
 export function translate(hass, key) {
   const language =
     (hass && hass.locale && hass.locale.language) || (hass && hass.language) || "en";
   const table = TEXTS[language] || TEXTS[language.split("-")[0]] || TEXT_EN;
-  return table[key] || TEXT_EN[key] || HELP_EN[key] || key;
+  return table[key] || TEXT_EN[key] || HELP_EN[key] || MORE_EN[key] || key;
 }

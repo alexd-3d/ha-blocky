@@ -23,10 +23,10 @@ export const DASHBOARD_STYLE = `
 
   .bswitch {
     --c: var(--disabled-text-color, #9e9e9e);
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    box-sizing: border-box; width: 100%; min-height: 56px; padding: 8px 16px;
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
+    box-sizing: border-box; max-width: 100%; min-height: 44px; padding: 4px 12px;
     border: 2px solid var(--c); border-radius: 12px;
-    color: var(--primary-text-color); font-size: 1.1em; font-weight: 600;
+    color: var(--primary-text-color); font-size: 1em; font-weight: 600;
     background: color-mix(in srgb, var(--c) 14%, transparent);
   }
   .bswitch.on { --c: var(--hb-good); }
@@ -38,14 +38,14 @@ export const DASHBOARD_STYLE = `
     background: var(--c);
   }
   .track {
-    position: relative; flex: 0 0 auto; width: 52px; height: 30px; border-radius: 15px;
+    position: relative; flex: 0 0 auto; width: 44px; height: 26px; border-radius: 13px;
     background: var(--c);
   }
   .knob {
-    position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+    position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
     border-radius: 50%; background: #fff; transition: transform 0.2s;
   }
-  .bswitch.on .knob { transform: translateX(22px); }
+  .bswitch.on .knob { transform: translateX(18px); }
 
   .btngroup { display: flex; width: 100%; }
   .btngroup button {
@@ -59,7 +59,7 @@ export const DASHBOARD_STYLE = `
     color: var(--text-primary-color); background: var(--primary-color);
     border-color: var(--primary-color);
   }
-  .listbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .listbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
   .listbar .btngroup { width: auto; }
   .listbar .btngroup button { flex: 0 0 auto; min-width: 44px; min-height: 32px; padding: 4px 12px; }
 
@@ -84,15 +84,14 @@ export const DASHBOARD_STYLE = `
   .phead { display: flex; align-items: center; gap: 8px; }
   .phead h3 { margin: 0; font-size: 1.05em; font-weight: 600; }
   .help {
-    flex: none; box-sizing: border-box; width: 24px; height: 24px; min-width: 24px;
-    padding: 0; border-radius: 50%; display: inline-flex; align-items: center;
-    justify-content: center; font-size: 0.85em; line-height: 1;
+    flex: none; box-sizing: border-box; width: 28px; height: 28px; min-width: 28px;
+    padding: 0; border: 0; border-radius: 50%; display: inline-flex; align-items: center;
+    justify-content: center; line-height: 1; --mdc-icon-size: 22px;
     color: var(--secondary-text-color);
   }
-  .help[aria-expanded="true"] {
-    color: var(--text-primary-color); background: var(--primary-color);
-    border-color: var(--primary-color);
-  }
+  .help:hover { background: var(--divider-color); }
+  .help:focus-visible { outline: 2px solid var(--primary-color); }
+  .help[aria-expanded="true"] { color: var(--primary-color); }
   .info {
     margin: 6px 0; padding: 8px 12px; border-radius: 8px; font-size: 0.9em;
     background: color-mix(in srgb, var(--primary-color) 10%, transparent);
@@ -121,6 +120,8 @@ export const DASHBOARD_STYLE = `
     font-size: 0.75em; white-space: nowrap; color: var(--secondary-text-color);
   }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 0.85em; }
+  .legend .line { cursor: help; border-radius: 4px; }
+  .legend .line:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
   .line { display: flex; align-items: center; gap: 6px; }
   .sw { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
   .lvalue { font-weight: 600; }

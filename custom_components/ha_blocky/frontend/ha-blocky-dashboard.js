@@ -18,13 +18,14 @@ import {
   compact,
   hasChoice,
   percent,
+  formatWhen,
   readChoice,
   timeFormats,
   writeChoice,
 } from "./ha-blocky-format.js";
 import { Popover } from "./ha-blocky-popover.js";
 import { prefs } from "./ha-blocky-prefs.js";
-import { BlockingSwitch } from "./ha-blocky-switch.js";
+import { Toolbar } from "./ha-blocky-toolbar.js";
 import { topList } from "./ha-blocky-toplist.js";
 
 const DEFAULT_REFRESH_SECONDS = 60;
@@ -56,10 +57,12 @@ export class DashboardView {
     return (hass && hass.locale && hass.locale.language) || (hass && hass.language) || undefined;
   }
 
-  // What the chart and the lists need to format times and texts.
+  // What the chart and the lists need to format times and texts; the time
+  // format follows the profile of Home Assistant.
   _ctx() {
+    const hass = this._host.hass;
     const language = this._language();
-    const formats = timeFormats(language);
+    const formats = timeFormats(hass && hass.locale, language);
     return {
       language,
       t: (key) => this._t(key),
@@ -68,24 +71,29 @@ export class DashboardView {
           unit === "day"
             ? full ? formats.dayFull : formats.dayAxis
             : full ? formats.hourFull : formats.hourAxis;
-        return format.format(value);
+        return formatWhen(format, value);
       },
-      dateTime: (value) => {
-        const date = new Date(value);
-        return Number.isNaN(date.getTime()) ? "" : formats.dateTime.format(date);
-      },
-      clock: (date) => formats.clock.format(date),
+      dateTime: (value) => formatWhen(formats.dateTime, value),
+      clock: (date) => formatWhen(formats.clock, date),
     };
   }
 
-  // A titled part with a muted hint and a "?" button that shows an info panel.
+  // A titled part with a muted hint and a help icon button that shows an info panel.
   _part(titleKey, hintKey, infoKey) {
     const info = el("div", { className: "info", text: this._t(infoKey), attrs: { hidden: "" } });
-    const help = el("button", {
-      className: "help",
-      text: "?",
-      attrs: { type: "button", "aria-expanded": "false", "aria-label": this._t("dash_help") },
-    });
+    const help = el(
+      "button",
+      {
+        className: "help",
+        attrs: {
+          type: "button",
+          title: this._t("dash_help"),
+          "aria-expanded": "false",
+          "aria-label": this._t("dash_help"),
+        },
+      },
+      [haIcon(UI_ICONS, "help")]
+    );
     help.addEventListener("click", () => {
       info.hidden = !info.hidden;
       help.setAttribute("aria-expanded", String(!info.hidden));
@@ -108,7 +116,6 @@ export class DashboardView {
     this._root = el("div", { className: "dash" });
     this._popover = new Popover(this._root);
 
-    this._switch = new BlockingSwitch(this._host, (key) => this.showMessage(key, Boolean(key)));
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
 
     const periods = buttonGroup(
@@ -121,6 +128,8 @@ export class DashboardView {
         this.load();
       }
     );
+
+    this._toolbar = new Toolbar(this._host, (key) => this.showMessage(key, Boolean(key)), periods);
 
     this._tiles = {};
     const tiles = el(
@@ -171,10 +180,8 @@ export class DashboardView {
       el("div", { className: "tops" }, parts.map((part) => part.root)),
     ]);
     this._root.prepend(
-      this._switch.element,
-      el("div", { className: "hint", text: this._t("dash_switch_hint") }),
+      this._toolbar.element,
       this._message,
-      periods,
       tiles,
       this._content,
       this._footer
@@ -182,9 +189,9 @@ export class DashboardView {
     container.appendChild(this._root);
   }
 
-  // Redraw what depends on the states of Home Assistant: the blocking switch.
+  // Redraw what depends on the states of Home Assistant: the toolbar.
   updateHass() {
-    this._switch.update();
+    this._toolbar.update();
   }
 
   showMessage(key, isError) {

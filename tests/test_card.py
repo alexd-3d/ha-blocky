@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,6 +54,7 @@ for _style in (
     "ha-blocky-style.js",
     "ha-blocky-style-dashboard.js",
     "ha-blocky-style-more.js",
+    "ha-blocky-style-tabs.js",
 ):
     CODE = CODE.replace(SOURCES[_style], "")
 I18N_HELP = SOURCES["ha-blocky-i18n-help.js"]
@@ -64,6 +66,10 @@ BLOCKLIST_URLS = (
     "https://big.oisd.nl/domainswild",
 )
 I18N = SOURCES["ha-blocky-i18n.js"]
+I18N_MORE = SOURCES["ha-blocky-i18n-more.js"]
+# The card element Home Assistant creates is a shell; the views are lazy.
+SHELL = SOURCES["ha-blocky-card.js"]
+VIEW = SOURCES["ha-blocky-card-view.js"]
 
 
 async def _setup(
@@ -96,6 +102,7 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
     """The whole directory is served: nothing else may sit in it."""
     assert sorted(path.name for path in FRONTEND_DIR.iterdir()) == [
         "ha-blocky-actions.js",
+        "ha-blocky-card-view.js",
         "ha-blocky-card.js",
         "ha-blocky-chart.js",
         "ha-blocky-controls.js",
@@ -106,6 +113,7 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-group.js",
         "ha-blocky-help.js",
         "ha-blocky-i18n-help.js",
+        "ha-blocky-i18n-more.js",
         "ha-blocky-i18n.js",
         "ha-blocky-known.js",
         "ha-blocky-log.js",
@@ -118,8 +126,10 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-settings.js",
         "ha-blocky-style-dashboard.js",
         "ha-blocky-style-more.js",
+        "ha-blocky-style-tabs.js",
         "ha-blocky-style.js",
         "ha-blocky-switch.js",
+        "ha-blocky-toolbar.js",
         "ha-blocky-toplist.js",
     ]
     assert CARD_PATH in MODULES
@@ -158,6 +168,10 @@ def test_module_loads_nothing_from_outside(name: str) -> None:
             assert source.count(url) == 1, url
             source = source.replace(url, "")
     assert not re.search(r"https?://", source)
+    if name == "ha-blocky-card.js":
+        # The entry module loads the two views by a literal relative path,
+        # nothing else (see test_the_entry_module_defines_the_elements_first).
+        source = re.sub(r'import\("\./ha-blocky-[\w-]+\.js"\)', "", source)
     for loader in ("import(", "importScripts", "fetch(", "XMLHttpRequest", "<script"):
         assert loader not in source, (name, loader)
 
@@ -178,14 +192,15 @@ def test_imports_are_relative_and_resolve_to_existing_modules() -> None:
 
 
 def test_card_modules_stay_small() -> None:
-    assert len(SOURCES["ha-blocky-card.js"].splitlines()) <= 300
+    assert len(SHELL.splitlines()) <= 300
+    assert len(VIEW.splitlines()) <= 340
     assert all(len(source.splitlines()) <= 400 for source in SOURCES.values())
 
 
 def _texts(language: str) -> dict[str, str]:
     """The texts of a language: the card's table plus the Help tab's."""
     merged: dict[str, str] = {}
-    for source in (I18N, I18N_HELP):
+    for source in (I18N, I18N_HELP, I18N_MORE):
         match = re.search(
             rf"/\* i18n:{language} \*/\s*export const \w+ = (\{{.*?\}});\s*"
             r"/\* i18n:end \*/",
@@ -229,6 +244,9 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     used |= set(re.findall(r'_domainTable\("(\w+)"', CODE))
     used |= set(re.findall(r'"(ov_\w+|known_\w+|req_none)"', CODE))
     used |= {f"act_{name}" for name in ("approve", "reject", "block", "dismiss")}
+    used |= {f"cat_hint_{kind}" for kind in CATEGORIES}
+    used |= set(re.findall(r'label: "(dash_\w+)"', CODE))
+    used |= set(re.findall(r'"(set_group_\w+)"', CODE))
     assert used <= set(english)
     assert "TEXT_EN[key]" in I18N
 
@@ -423,11 +441,11 @@ def test_narrow_card_shows_two_lines_per_entry_with_the_same_dom() -> None:
 
 
 def test_overview_card_is_registered_through_the_card_module() -> None:
-    card = SOURCES["ha-blocky-card.js"]
     overview = SOURCES["ha-blocky-overview.js"]
-    assert 'import "./ha-blocky-overview.js";' in card
-    assert 'customElements.define("ha-blocky-overview-card"' in overview
-    assert 'type: "ha-blocky-overview-card"' in overview
+    assert 'import("./ha-blocky-overview.js")' in SHELL
+    assert 'defineShell("ha-blocky-overview-card"' in SHELL
+    assert 'customElements.define("ha-blocky-overview-view"' in overview
+    assert 'type: "ha-blocky-overview-card"' in SHELL
     assert "`${DOMAIN}/overview`" in overview
     assert "`${DOMAIN}/resolve_request`" in overview
     # Same checks and the same shared pieces as the query log card.
@@ -452,7 +470,12 @@ def test_known_domains_load_on_demand_and_block_only_learning_clients() -> None:
     assert "if (canBlock) {" in known
     assert "known_readonly" in known
     # Loaded on the first expansion only.
-    assert "state.open && !state.loaded" in known
+    assert "state.open && !state.loaded && !state.loading" in known
+    assert 'addEventListener("toggle"' in known
+    # One native <details> per client; no per-client button.
+    assert 'el("details", { className: "kitem" }' in known
+    assert 'el("summary", { className: "ksum" }' in known
+    assert "kcount" in known and "innerHTML" not in known
     requests_js = SOURCES["ha-blocky-requests.js"]
     assert "new KnownView(host)" in requests_js
     assert "this._known.update(result.tracked)" in requests_js
@@ -469,7 +492,8 @@ def test_texts_exist_in_both_languages() -> None:
     keys |= {"ov_title", "ov_top_domains", "ov_top_blocked", "ov_top_clients"}
     keys |= {"ov_requests", "ov_none", "ov_error"}
     keys |= {"known_title", "known_error", "known_none", "known_readonly"}
-    keys |= {"known_blocked"}
+    keys |= {"known_blocked", "card_error", "dash_pause_for", "dash_refresh_lists"}
+    keys |= {"dash_flush_cache", "dash_tool_error", "dash_minutes", "dash_hours"}
     assert keys <= set(english)
     assert keys <= set(ukrainian)
 
@@ -496,6 +520,312 @@ def test_card_javascript_is_valid(path: Any) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+# --- The entry module, time formats and the layout ---------------------------
+
+SHELL_SCRIPT = """
+class Node {
+  constructor() { this.children = []; this.textContent = ""; this.className = ""; }
+  append(...nodes) { this.children.push(...nodes); }
+  appendChild(node) { this.children.push(node); return node; }
+  remove() { this.removed = true; }
+}
+globalThis.HTMLElement = class extends Node {
+  attachShadow() { this.shadowRoot = new Node(); return this.shadowRoot; }
+};
+const waiting = new Map();
+globalThis.customElements = {
+  map: new Map(),
+  get(tag) { return this.map.get(tag); },
+  define(tag, cls) {
+    this.map.set(tag, cls);
+    (waiting.get(tag) || []).forEach((resolve) => resolve());
+  },
+  whenDefined(tag) {
+    if (this.map.has(tag)) return Promise.resolve();
+    return new Promise((resolve) => {
+      waiting.set(tag, [...(waiting.get(tag) || []), resolve]);
+    });
+  },
+};
+globalThis.document = {
+  createElement(tag) {
+    const cls = customElements.get(tag);
+    return cls ? new cls() : new Node();
+  },
+};
+globalThis.window = {};
+console.error = () => {};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+const out = {};
+await import("./ha-blocky-card.js");
+out.defined = [
+  Boolean(customElements.get("ha-blocky-card")),
+  Boolean(customElements.get("ha-blocky-overview-card")),
+  Boolean(customElements.get("ha-blocky-card-view")),
+];
+out.cards = window.customCards.map((card) => card.type);
+
+// Anything may be called first, with anything, before the view exists.
+const card = document.createElement("ha-blocky-card");
+const calls = [];
+const attempt = (name, fn) => {
+  try { fn(); calls.push([name, true]); } catch (err) { calls.push([name, false]); }
+};
+attempt("size", () => { out.size = card.getCardSize(); });
+attempt("hass-undefined", () => { card.hass = undefined; });
+attempt("hass-null", () => { card.hass = null; });
+attempt("config-undefined", () => card.setConfig(undefined));
+attempt("hass-first", () => { card.hass = { language: "uk" }; });
+attempt("edit", () => { card.editMode = true; });
+attempt("connected", () => card.connectedCallback());
+attempt("config", () => card.setConfig({ title: "T" }));
+out.loadingText = card.shadowRoot.children[1].textContent;
+await tick();
+out.view = {
+  attached: card.shadowRoot.children.at(-1).constructor.name,
+  noteRemoved: card._note.removed,
+  config: card._view.config,
+  hass: card._view.h,
+  edit: card._view.edit,
+};
+// The view throwing never reaches Home Assistant.
+attempt("explode", () => card.setConfig({ explode: true }));
+attempt("hass-again", () => { card.hass = { language: "en" }; });
+out.calls = calls;
+
+// The overview's module fails to load: a note, no exception.
+const overview = document.createElement("ha-blocky-overview-card");
+const calls2 = [];
+const attempt2 = (name, fn) => {
+  try { fn(); calls2.push([name, true]); } catch (err) { calls2.push([name, false]); }
+};
+attempt2("overview-config", () => overview.setConfig({}));
+attempt2("overview-hass", () => { overview.hass = { language: "uk" }; });
+await tick();
+out.failed = overview.shadowRoot.children[1].textContent;
+out.failedClass = overview.shadowRoot.children[1].className;
+out.calls2 = calls2;
+console.log(JSON.stringify(out));
+"""
+
+VIEW_STUB = """
+class View extends HTMLElement {
+  setConfig(config) {
+    if (config && config.explode) throw new Error("boom");
+    this.config = config;
+  }
+  set hass(value) { this.h = value; }
+  set editMode(value) { this.edit = value; }
+}
+customElements.define("ha-blocky-card-view", View);
+"""
+
+
+def _node_dir(tmp_path: Any) -> Any:
+    for path in MODULES:
+        (tmp_path / path.name).write_text(SOURCES[path.name], encoding="utf-8")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    return tmp_path
+
+
+def test_the_entry_module_defines_the_elements_first(tmp_path: Any) -> None:
+    # No imports: the elements exist the moment the file has loaded.
+    assert not re.search(r"^\s*import\b", SHELL, flags=re.MULTILINE)
+    assert 'import("./ha-blocky-card-view.js")' in SHELL
+    assert 'defineShell("ha-blocky-card"' in SHELL
+    assert "customElements.whenDefined(viewTag)" in SHELL
+    # Home Assistant's own entry points never throw into the page.
+    assert not re.search(r"throw", SHELL)
+    assert "console.error" in SHELL
+    # The view copes with any order too.
+    assert "if (!hass) return;" in VIEW
+    assert "_safely(" in VIEW and "_fail(err)" in VIEW
+    assert VIEW.count('customElements.define("ha-blocky-card-view"') == 1
+    assert 'customElements.define("ha-blocky-card"' not in VIEW
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    directory = _node_dir(tmp_path)
+    # Stand-ins for the views: one fine, one whose module fails to load.
+    (directory / "ha-blocky-card-view.js").write_text(VIEW_STUB, encoding="utf-8")
+    (directory / "ha-blocky-overview.js").write_text(
+        'throw new Error("no such module");', encoding="utf-8"
+    )
+    (directory / "check.mjs").write_text(SHELL_SCRIPT, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, "check.mjs"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=directory,
+    )
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["defined"] == [True, True, False]
+    assert out["cards"] == ["ha-blocky-card", "ha-blocky-overview-card"]
+    assert out["size"] == 10
+    assert all(ok for _, ok in out["calls"]), out["calls"]
+    assert out["loadingText"] == "Завантаження…"
+    assert out["view"] == {
+        "attached": "View",
+        "noteRemoved": True,
+        "config": {"title": "T"},
+        "hass": {"language": "uk"},
+        "edit": True,
+    }
+    assert all(ok for _, ok in out["calls2"])
+    assert out["failed"].startswith("Не вдалося завантажити")  # noqa: RUF001
+    assert out["failedClass"] == "note error"
+
+
+TIME_SCRIPT = """
+import {
+  formatWhen, timeFormats, timeLanguage, timeOptions,
+} from "./ha-blocky-format.js";
+
+const moment = new Date(Date.UTC(2026, 10, 12, 22, 5, 7));
+const show = (locale, fallback) => {
+  const formats = timeFormats(locale, fallback);
+  return {
+    axis: formatWhen(formats.hourAxis, moment),
+    clock: formatWhen(formats.clock, moment),
+    log: formatWhen(formats.log, moment),
+    day: formatWhen(formats.dayAxis, moment),
+  };
+};
+const out = {};
+out.options = ["24", "12", "language", "system", "bogus", undefined].map(
+  (value) => timeOptions({ time_format: value })
+);
+out.options.push(timeOptions(undefined), timeOptions(null), timeOptions("x"));
+out.language = [
+  timeLanguage({ time_format: "system", language: "uk" }, "en"),
+  timeLanguage({ time_format: "language", language: "uk" }, "en"),
+  timeLanguage(undefined, "en"),
+  timeLanguage(undefined, undefined),
+  timeLanguage({ language: 5 }, "de"),
+];
+out.h24 = show({ language: "en-US", time_format: "24" });
+out.h12 = show({ language: "en-US", time_format: "12" });
+out.lang = show({ language: "en-US", time_format: "language" });
+out.langUk = show({ language: "uk", time_format: "language" });
+out.system = show({ language: "uk", time_format: "system" });
+out.none = show(undefined);
+out.bad = show({ language: "not a language!!", time_format: "24" }, "en");
+out.invalid = [
+  formatWhen(timeFormats(undefined).clock, "not a date"),
+  formatWhen(timeFormats(undefined).clock, undefined),
+  formatWhen(timeFormats(undefined).clock, null) === "",
+];
+console.log(JSON.stringify(out));
+"""
+
+
+def test_time_format_follows_the_profile_of_home_assistant(tmp_path: Any) -> None:
+    fmt = SOURCES["ha-blocky-format.js"]
+    assert 'return { hourCycle: "h23" };' in fmt
+    assert "return { hour12: true };" in fmt
+    # One helper formats every date and time; no ad-hoc locale formatting.
+    assert "new Intl.DateTimeFormat" not in CODE.replace(fmt, "")
+    assert "toLocale" not in CODE
+    assert "timeFormats(" in SOURCES["ha-blocky-dashboard.js"]
+    assert "timeFormats(" in SOURCES["ha-blocky-log.js"]
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    directory = _node_dir(tmp_path)
+    (directory / "check.mjs").write_text(TIME_SCRIPT, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, "check.mjs"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=directory,
+        env={**os.environ, "TZ": "UTC"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["options"] == [
+        {"hourCycle": "h23"},
+        {"hour12": True},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+    ]
+    assert out["language"] == [None, "uk", "en", None, "de"]
+    assert out["h24"]["axis"] == "22:05"
+    assert out["h24"]["clock"] == "22:05:07"
+    assert "22:05:07" in out["h24"]["log"]
+    assert out["h12"]["axis"] == "10 PM"
+    assert out["h12"]["clock"] == "10:05:07 PM"
+    assert "10:05:07 PM" in out["h12"]["log"]
+    assert out["lang"]["axis"] == "10 PM"
+    assert out["langUk"]["axis"] == "22:05"
+    assert out["langUk"]["clock"] == "22:05:07"
+    # An undefined profile, an unknown language: still a text, never an error.
+    for key in ("system", "none", "bad"):
+        assert all(out[key][name] for name in ("axis", "clock", "log", "day")), key
+    assert out["invalid"] == ["", "", True]
+
+
+def test_layout_rules_of_the_tabs() -> None:
+    style = SOURCES["ha-blocky-style.js"]
+    tabs = SOURCES["ha-blocky-style-tabs.js"]
+    more = SOURCES["ha-blocky-style-more.js"]
+    dash_style = SOURCES["ha-blocky-style-dashboard.js"]
+    log_js = SOURCES["ha-blocky-log.js"]
+    # The status of a log row is a badge in the colour of its kind.
+    assert "`statustext badge c-${kind}`" in log_js
+    badge = "border: 1px solid var(--c); background: transparent; color: var(--c);"
+    assert badge in tabs
+    assert "white-space: nowrap" in tabs
+    # The grouping box has a one-word label; Refresh and Live are icon buttons.
+    assert 'glyphButton(this._t("refresh"), "log_refresh")' in log_js
+    assert '"aria-label": label' not in log_js
+    assert "title: label" in SOURCES["ha-blocky-controls.js"]
+    # Settings: a grid of cards, narrow inputs, one clean colour swatch.
+    assert "repeat(auto-fit, minmax(min(360px, 100%), 1fr))" in tabs
+    assert "max-width: 1100px" in tabs
+    assert "max-width: 240px" in more
+    assert "::-webkit-color-swatch-wrapper { padding: 0; }" in more
+    assert "::-webkit-color-swatch { border: none;" in more
+    assert "::-moz-color-swatch { border: none;" in more
+    assert 'className: "scard"' in SOURCES["ha-blocky-settings.js"]
+    # Known domains: a native <details> with a turning arrow.
+    assert "details[open] > .ksum .karrow { transform: rotate(90deg); }" in tabs
+    # The help icon is an icon, not a character; legend entries explain themselves.
+    dashboard = SOURCES["ha-blocky-dashboard.js"]
+    assert 'haIcon(UI_ICONS, "help")' in dashboard and 'text: "?"' not in dashboard
+    assert 'help: "mdi:help-circle-outline"' in SOURCES["ha-blocky-actions.js"]
+    assert '"aria-label": this._t("dash_help")' in dashboard
+    chart = SOURCES["ha-blocky-chart.js"]
+    assert "ctx.t(`cat_hint_${category}`)" in chart
+    assert 'setAttribute("tabindex", "0")' in chart
+    # Long values are cut with an ellipsis and keep their text as the title.
+    for rule in (
+        "td.domain {",
+        "text-overflow: ellipsis",
+        "td.zone { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }",
+    ):
+        assert rule in style, rule
+    assert 'attrs: { title: row.domain || "" }' in log_js
+    assert "attrs: { title: text }" in SOURCES["ha-blocky-dom.js"]
+    # Toolbars wrap instead of squeezing.
+    assert "flex-wrap: wrap" in tabs
+    assert ".filters { display: flex; flex-wrap: wrap;" in style
+    assert "margin-left: auto" in tabs and "width: 100%; margin-left: 0;" in style
+    assert "width: 100%; min-height: 56px" not in dash_style
 
 
 # --- Serving ----------------------------------------------------------------
@@ -569,6 +899,19 @@ async def test_config_command(
         "switch", DOMAIN, f"{entry.entry_id}_blocking"
     )
     assert blocking is not None and blocking.startswith("switch.")
+    registry = er.async_get(hass)
+    pause = registry.async_get_entity_id(
+        "select", DOMAIN, f"{entry.entry_id}_pause_blocking"
+    )
+    refresh_lists = registry.async_get_entity_id(
+        "button", DOMAIN, f"{entry.entry_id}_refresh_lists"
+    )
+    flush_cache = registry.async_get_entity_id(
+        "button", DOMAIN, f"{entry.entry_id}_flush_cache"
+    )
+    assert pause is not None and pause.startswith("select.")
+    assert refresh_lists is not None and refresh_lists.startswith("button.")
+    assert flush_cache is not None and flush_cache.startswith("button.")
 
     assert response["success"]
     assert response["result"] == {
@@ -578,6 +921,9 @@ async def test_config_command(
                 "title": entry.title,
                 "has_query_log": True,
                 "blocking_entity": blocking,
+                "pause_entity": pause,
+                "refresh_lists_entity": refresh_lists,
+                "flush_cache_entity": flush_cache,
                 "lists": [
                     {"name": "allow_default", "type": "allow", "exact_only": False},
                     {"name": "deny_default", "type": "deny", "exact_only": False},
@@ -808,10 +1154,22 @@ def test_dashboard_tab_reads_one_command_and_drives_the_switch_entity() -> None:
     assert "`${DOMAIN}/dashboard`" in dashboard
     assert dashboard.count("callWS(") == 1
     assert "callService" not in dashboard
+    # One toolbar: the switch, the pause length, two buttons and the periods.
+    assert "new Toolbar(this._host" in dashboard
+    toolbar = SOURCES["ha-blocky-toolbar.js"]
+    assert r"PAUSE_ID = /^select\.[a-z0-9_]+$/" in toolbar
+    assert r"BUTTON_ID = /^button\.[a-z0-9_]+$/" in toolbar
+    assert 'callService("button", "press", { entity_id: id })' in toolbar
+    assert toolbar.count("callService(") == 1
+    assert 'field: "refresh_lists_entity"' in toolbar
+    assert 'field: "flush_cache_entity"' in toolbar
+    assert "entity_id: pause.id, option: String(pause.minutes)" in switch
+    assert 'dash_switch_hint").replace("{n}"' in toolbar
     # The switch: the entity id comes from the server and must look like one.
     assert r"SWITCH_ID = /^switch\.[a-z0-9_]+$/" in switch
     assert "entry.blocking_entity" in switch
-    assert 'callService("switch", state === "on" ? "turn_off" : "turn_on"' in switch
+    assert '["switch", state === "on" ? "turn_off" : "turn_on"' in switch
+    assert '"select", "select_option"' in switch
     assert 'role: "switch"' in switch
     assert switch.count("callService(") == 1
     # The period and the rows are validated against the allowed values.
@@ -825,7 +1183,7 @@ def test_dashboard_tab_reads_one_command_and_drives_the_switch_entity() -> None:
 
 
 def test_tabs_show_an_icon_and_a_title_and_the_dashboard_comes_first() -> None:
-    card = SOURCES["ha-blocky-card.js"]
+    card = VIEW
     style = SOURCES["ha-blocky-style.js"]
     assert 'const TABS = ["dashboard", "log", "requests", "settings", "help"];' in card
     assert 'this._tab = "dashboard";' in card
@@ -1140,10 +1498,11 @@ def test_colours_reach_the_page_through_one_validated_style_element() -> None:
     assert "`--hb-color-${category}: ${color};`" in fmt
     assert "validColor(colors && colors[category])" in fmt
     # Both cards use it; nothing else creates a style element.
-    assert "new ColorStyle(root)" in SOURCES["ha-blocky-card.js"]
+    assert "new ColorStyle(root)" in VIEW
     assert "new ColorStyle(root)" in SOURCES["ha-blocky-overview.js"]
     for name, source in SOURCES.items():
-        if name not in ("ha-blocky-prefs.js",):
+        # The entry module's loading note is the one other style element.
+        if name not in ("ha-blocky-prefs.js", "ha-blocky-card.js"):
             assert 'createElement("style")' not in source, name
 
 
@@ -1157,7 +1516,7 @@ def test_live_mode_is_bounded_and_adds_no_command() -> None:
     assert (
         "setActive(active)" in log_js and "if (!active) this.setLive(false);" in log_js
     )
-    assert 'this._log.setActive(tab === "log");' in SOURCES["ha-blocky-card.js"]
+    assert 'this._log.setActive(tab === "log");' in VIEW
     assert "this.setLive(false);" in log_js
     # It reads the existing command only, and its new rows light up neutrally.
     assert log_js.count("callWS(") == 1
@@ -1166,8 +1525,11 @@ def test_live_mode_is_bounded_and_adds_no_command() -> None:
     assert 'new: "info"' in SOURCES["ha-blocky-actions.js"]
     assert "live_hint" in log_js
     style = SOURCES["ha-blocky-style-more.js"]
-    assert "button.live.on .livedot { background: var(--hb-good); animation:" in style
-    assert "button.live.on .livedot { animation: none; }" in style
+    assert "button.live.on {" in style and "animation: hbpulse" in style
+    assert "button.live.on { animation: none; }" in style
+    # Live is an icon button with a name and a pressed state.
+    assert 'glyphButton(this._t("live_button"), "log_live", "live")' in log_js
+    assert 'setAttribute("aria-pressed", String(on))' in log_js
 
 
 def test_help_tab_shows_three_blocklists_as_text_with_a_guarded_copy() -> None:

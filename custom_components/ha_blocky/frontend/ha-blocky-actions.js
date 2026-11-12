@@ -35,7 +35,7 @@ export const STATUS_ICONS = {
   other: "mdi:help-circle-outline",
 };
 
-// The icons of the card's own chrome: the tabs and the dashboard tiles.
+// The icons of the card's own chrome: the tabs, the tiles and the tool buttons.
 export const UI_ICONS = {
   tab_dashboard: "mdi:view-dashboard",
   tab_log: "mdi:format-list-bulleted",
@@ -46,6 +46,12 @@ export const UI_ICONS = {
   tile_blocked: "mdi:cancel",
   tile_cached: "mdi:cached",
   tile_latency: "mdi:timer-outline",
+  help: "mdi:help-circle-outline",
+  tool_refresh_lists: "mdi:playlist-check",
+  tool_flush_cache: "mdi:delete-sweep",
+  log_refresh: "mdi:refresh",
+  log_live: "mdi:access-point",
+  chevron: "mdi:chevron-right",
 };
 
 // The effect of each action: "good" actions let something through, "bad" ones

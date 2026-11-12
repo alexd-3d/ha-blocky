@@ -63,10 +63,11 @@ class HaBlockyOverviewCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    if (!hass) return;
     if (!this._built) this._build();
     if (!this._started) {
       this._started = true;
-      this._start();
+      this._start().catch(() => this._showMessage("ov_error", true));
     }
   }
 
@@ -224,7 +225,7 @@ class HaBlockyOverviewCard extends HTMLElement {
     for (const item of items) {
       if (!item || typeof item.name !== "string") continue;
       const cells = [
-        el("td", { text: item.name, className: "domain" }),
+        el("td", { text: item.name, className: "domain", attrs: { title: item.name } }),
         el("td", { text: Number(item.count) || 0, className: "num" }),
       ];
       const key = `ov:${action}:${item.name}`;
@@ -274,7 +275,11 @@ class HaBlockyOverviewCard extends HTMLElement {
       if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
       const line = el("tr", {}, [
         clientCell(this, request.client, request.client_name, request.zone),
-        el("td", { text: request.domain || "", className: "domain" }),
+        el("td", {
+          text: request.domain || "",
+          className: "domain",
+          attrs: { title: request.domain || "" },
+        }),
         actions,
       ]);
       flasher.apply(`req:${request.id}`, line);
@@ -329,15 +334,8 @@ class HaBlockyOverviewCard extends HTMLElement {
   }
 }
 
-if (!customElements.get("ha-blocky-overview-card")) {
-  customElements.define("ha-blocky-overview-card", HaBlockyOverviewCard);
-}
-
-window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "ha-blocky-overview-card")) {
-  window.customCards.push({
-    type: "ha-blocky-overview-card",
-    name: "HA-Blocky overview",
-    description: "Top domains, blocked domains and clients of the last 24 hours, and pending requests.",
-  });
+// The shell element `ha-blocky-overview-card` (ha-blocky-card.js) loads this
+// module and shows this view inside itself.
+if (!customElements.get("ha-blocky-overview-view")) {
+  customElements.define("ha-blocky-overview-view", HaBlockyOverviewCard);
 }

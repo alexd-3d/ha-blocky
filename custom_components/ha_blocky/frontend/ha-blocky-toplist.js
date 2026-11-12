@@ -71,11 +71,15 @@ export function topList(ctx, popover, items, isClient) {
   for (const item of items) {
     const named = isClient && item.client_name;
     const heading = [
-      el("span", { text: named ? item.client_name : item.name, className: "tname" }),
+      el("span", {
+        text: named ? item.client_name : item.name,
+        className: "tname",
+        attrs: { title: named ? item.client_name : item.name },
+      }),
       el("span", { text: compact(item.count, ctx.language), className: "tcount" }),
     ];
     const lines = [el("div", { className: "thead" }, heading)];
-    if (named) lines.push(el("div", { text: item.name, className: "taddr" }));
+    if (named) lines.push(el("div", { text: item.name, className: "taddr", attrs: { title: item.name } }));
     lines.push(miniBar(item.categories));
     const row = el(
       "div",

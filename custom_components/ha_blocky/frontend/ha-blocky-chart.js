@@ -103,12 +103,16 @@ export function buildChart(ctx, popover, buckets, unit, totals) {
       })
     )
   );
+  // Each legend entry explains its kind on hover and on keyboard focus.
   const legend = el(
     "div",
     { className: "legend" },
-    CATEGORIES.map((category) =>
-      swatchLine(ctx, category, compact(totals[category], ctx.language), "")
-    )
+    CATEGORIES.map((category) => {
+      const line = swatchLine(ctx, category, compact(totals[category], ctx.language), "");
+      line.setAttribute("title", ctx.t(`cat_hint_${category}`));
+      line.setAttribute("tabindex", "0");
+      return line;
+    })
   );
   return el("div", { className: "chart" }, [
     el("div", { className: "plot" }, [

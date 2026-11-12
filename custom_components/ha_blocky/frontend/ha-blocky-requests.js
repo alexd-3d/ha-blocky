@@ -174,8 +174,16 @@ export class RequestsView {
         if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
         const line = el("tr", {}, [
           clientCell(this._host, request.client, request.client_name, ""),
-          el("td", { text: request.zone || "", className: "zone" }),
-          el("td", { text: request.domain || "", className: "domain" }),
+          el("td", {
+            text: request.zone || "",
+            className: "zone",
+            attrs: { title: request.zone || "" },
+          }),
+          el("td", {
+            text: request.domain || "",
+            className: "domain",
+            attrs: { title: request.domain || "" },
+          }),
           el("td", { text: this._age(request.created), className: "age" }),
           actions,
         ]);
