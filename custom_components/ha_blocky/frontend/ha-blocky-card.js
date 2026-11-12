@@ -1,11 +1,12 @@
 /*
  * HA-Blocky card: the entry module Home Assistant loads on its own.
  *
- * This file has no imports on purpose. It defines the two card elements the
- * moment it runs, so a dashboard never meets an undefined element (Home
- * Assistant shows an error card when a custom element is not defined within
- * about two seconds, and the whole module graph of the views can take longer
- * on a slow link). Each element is a thin shell: it keeps the configuration
+ * This file has no imports on purpose. It defines the two card elements as
+ * soon as Home Assistant's app is up (see the end of the file for why not
+ * earlier), so a dashboard never meets an undefined element (Home Assistant
+ * shows an error card when a custom element is not defined within about two
+ * seconds, and the whole module graph of the views can take longer on a slow
+ * link). Each element is a thin shell: it keeps the configuration
  * and `hass` it is given, shows a short loading note, loads the real view
  * module (ha-blocky-card-view.js, ha-blocky-overview.js) once, and hands
  * everything over. `setConfig`, `hass`, `editMode`, `getCardSize` and
@@ -146,8 +147,18 @@ function defineShell(tag, load, viewTag, size) {
   customElements.define(tag, Shell);
 }
 
-defineShell("ha-blocky-card", () => import("./ha-blocky-card-view.js"), "ha-blocky-card-view", 10);
-defineShell("ha-blocky-overview-card", () => import("./ha-blocky-overview.js"), "ha-blocky-overview-view", 8);
+// Define the shells only once Home Assistant's own app bundle has defined
+// `home-assistant`. That bundle installs a scoped custom-element registry
+// polyfill, and an element defined natively BEFORE it is invisible to
+// `customElements.get()` and `whenDefined()` afterwards: the dashboard then
+// shows "Configuration error" for a card that exists. This file is tiny and
+// can run long before the app bundle (cold cache, slow link, phone), so
+// defining at load time loses that race. Waiting costs nothing: no dashboard
+// renders a card before the app element exists.
+customElements.whenDefined("home-assistant").then(() => {
+  defineShell("ha-blocky-card", () => import("./ha-blocky-card-view.js"), "ha-blocky-card-view", 10);
+  defineShell("ha-blocky-overview-card", () => import("./ha-blocky-overview.js"), "ha-blocky-overview-view", 8);
+});
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === "ha-blocky-card")) {
