@@ -29,6 +29,13 @@
 
 ### Fixed
 
+- The sidebar panel is removed only if this integration registered it. A dashboard
+  with the URL path `ha-blocky` is no longer taken out of the sidebar, and replaced
+  by the HA-Blocky panel, when the integration reloads (for example after saving
+  settings).
+- Saving a setting to the value it already has (including a default that was never
+  written, such as "Show in sidebar" on) no longer changes the options or reloads
+  the integration.
 - After an update a browser could keep old copies of the card's other JavaScript
   files and fail to load the card ("does not provide an export named ...") until a
   hard refresh. The files are now served under `/ha_blocky/<token>/`, where the

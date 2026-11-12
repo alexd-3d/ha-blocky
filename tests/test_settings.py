@@ -493,3 +493,42 @@ def test_apply_operational_touches_only_the_whitelisted_options() -> None:
         apply_operational(options, {"status_interval": 0})
     assert (err.value.field, err.value.code) == ("status_interval", "out_of_range")
     assert str(err.value) == "status_interval: out_of_range"
+
+
+async def test_a_default_written_out_is_no_change_and_no_reload(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client: WebSocketGenerator,
+    log_url: URL,
+) -> None:
+    entry = await _setup(hass, aioclient_mock)
+    client = await hass_ws_client(hass)
+    before = dict(entry.options)
+    assert "show_in_sidebar" not in before
+    reloads: list[str] = []
+    original = hass.config_entries.async_schedule_reload
+
+    def spy(entry_id: str) -> None:
+        reloads.append(entry_id)
+        original(entry_id)
+
+    hass.config_entries.async_schedule_reload = spy  # type: ignore[method-assign]
+
+    response = await _command(
+        client,
+        1,
+        type=SET,
+        show_in_sidebar=True,
+        status_interval=30,
+        report_existing_domains=False,
+        allow_lists=["allow_default", "allow_quarantine"],
+    )
+    await hass.async_block_till_done()
+
+    assert response["result"] == {
+        "display_changed": False,
+        "entry_changed": False,
+        "reloading": False,
+    }
+    assert entry.options == before
+    assert reloads == []

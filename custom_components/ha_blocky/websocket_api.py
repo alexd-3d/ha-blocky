@@ -468,6 +468,10 @@ async def ws_set_settings(
                 raise SettingError("entry_id", "entry_not_found")
             entry = entries[0]
             new_options = apply_operational(entry.options, changes)
+            # Compare what the options mean, not the stored keys: a default
+            # written out is no change and must not reload the entry.
+            if read_operational(new_options) == read_operational(entry.options):
+                new_options = None
         display = get_display(hass)
         if has_display and display is None:
             raise SettingError("display", "not_ready")

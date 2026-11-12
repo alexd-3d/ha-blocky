@@ -17,6 +17,10 @@ PANEL_FILE = "ha-blocky-panel.js"
 STATIC_URL = f"/{DOMAIN}"
 # The address the files are served under: /ha_blocky/<token>, set once at setup.
 DATA_FRONTEND_BASE: HassKey[str] = HassKey(f"{DOMAIN}_frontend_base")
+# True while the sidebar panel at PANEL_URL_PATH is ours. A panel somebody else
+# registered there (for example a dashboard with the same URL path) is never
+# touched.
+DATA_PANEL_OWNED: HassKey[bool] = HassKey(f"{DOMAIN}_panel_owned")
 TOKEN_LENGTH = 12
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 CARD_PATH = FRONTEND_DIR / CARD_FILE
@@ -91,12 +95,16 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         module_url=f"{base}/{PANEL_FILE}",
         require_admin=True,
     )
+    hass.data[DATA_PANEL_OWNED] = True
 
 
 def async_remove_panel(hass: HomeAssistant) -> None:
-    """Remove the sidebar panel; nothing happens when there is none."""
+    """Remove the sidebar panel, but only one this integration registered."""
     if "frontend" not in hass.config.components:
         return
+    if not hass.data.get(DATA_PANEL_OWNED):
+        return
+    hass.data[DATA_PANEL_OWNED] = False
     from homeassistant.components import frontend
 
     frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)

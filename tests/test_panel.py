@@ -190,3 +190,58 @@ async def test_without_the_frontend_nothing_is_registered_and_nothing_fails(
 
     assert frontend.DATA_PANELS not in hass.data
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def _foreign_panel(hass: HomeAssistant) -> Any:
+    """Register somebody else's panel (a dashboard) at our URL path."""
+    frontend.async_register_built_in_panel(
+        hass,
+        "lovelace",
+        sidebar_title="Mine",
+        sidebar_icon="mdi:home",
+        frontend_url_path=PANEL_URL_PATH,
+        config={"mode": "storage"},
+    )
+    panel = _panel(hass)
+    assert panel is not None
+    return panel
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_a_panel_of_somebody_else_is_never_removed_or_replaced(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    foreign = _foreign_panel(hass)
+    entry = await _add_entry(hass, aioclient_mock)
+    assert _panel(hass) is foreign
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _panel(hass) is foreign
+
+    # Turning the option off and on again, which reloads, leaves it alone too.
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
+    assert _panel(hass) is foreign
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
+    assert _panel(hass) is foreign
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert _panel(hass) is foreign
+    async_remove_panel(hass)
+    assert _panel(hass) is foreign
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_our_own_panel_is_still_removed_and_added_again(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    entry = await _add_entry(hass, aioclient_mock)
+    own = _panel(hass)
+    assert own is not None
+
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: False})
+    assert _panel(hass) is None
+    await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
+    assert _panel(hass) is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert _panel(hass) is None
