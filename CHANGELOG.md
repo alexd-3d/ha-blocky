@@ -27,6 +27,16 @@
   (StevenBlack hosts, HaGeZi Pro, OISD big) as plain text with a copy button. They
   are never links and never fetched.
 
+### Fixed
+
+- After an update a browser could keep old copies of the card's other JavaScript
+  files and fail to load the card ("does not provide an export named ...") until a
+  hard refresh. The files are now served under `/ha_blocky/<token>/`, where the
+  token is a digest of their contents, so every update (or reinstall) gets new
+  addresses for all of them; they are served with cache headers. The old address
+  `/ha_blocky/ha-blocky-card.js` no longer exists; the card is registered for
+  dashboards automatically.
+
 ### Changed
 
 - The Configure menu keeps the database, the clients that may download lists (the

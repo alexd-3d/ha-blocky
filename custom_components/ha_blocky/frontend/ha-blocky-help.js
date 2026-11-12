@@ -101,6 +101,6 @@ export class HelpView {
       el("p", { text: t("help_lists_body") }),
       ...BLOCKLISTS.map((source) => this._source(source)),
     ]);
-    return el("div", { className: "help" }, [quick, names, actions, zones, faq, lists]);
+    return el("div", { className: "helppage" }, [quick, names, actions, zones, faq, lists]);
   }
 }

@@ -4,8 +4,8 @@
  */
 
 export const MORE_STYLE = `
-  .settings, .help { display: grid; gap: 12px; min-width: 0; }
-  .settings > *, .help > * { min-width: 0; }
+  .settings, .helppage { display: grid; gap: 12px; min-width: 0; }
+  .settings > *, .helppage > * { min-width: 0; }
   .field { margin: 8px 0; }
   .flabel { display: flex; flex-direction: column; gap: 4px; font-weight: 500; }
   .flabel input[type="number"], .flabel input[type="text"] {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -20,8 +21,9 @@ from custom_components.ha_blocky.const import (
     PANEL_URL_PATH,
 )
 from custom_components.ha_blocky.frontend import (
-    CARD_URL,
-    PANEL_URL,
+    CARD_FILE,
+    DATA_FRONTEND_BASE,
+    PANEL_FILE,
     async_register_panel,
     async_remove_panel,
 )
@@ -79,15 +81,14 @@ async def test_panel_is_registered_for_administrators(
     assert panel.sidebar_title == "HA-Blocky"
     custom = panel.config["_panel_custom"]
     assert custom["name"] == PANEL_ELEMENT
-    assert custom["module_url"].startswith(f"{PANEL_URL}?v=")
+    base = hass.data[DATA_FRONTEND_BASE]
+    assert re.fullmatch(r"/ha_blocky/[0-9a-f]{12}", base)
+    assert custom["module_url"] == f"{base}/{PANEL_FILE}"
     assert "js_url" not in custom
     assert custom["embed_iframe"] is False
     assert custom["trust_external"] is False
     # The card is still offered to dashboards.
-    assert any(
-        url.startswith(f"{CARD_URL}?v=")
-        for url in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
-    )
+    assert f"{base}/{CARD_FILE}" in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
 
 
 @pytest.mark.usefixtures("with_frontend")

@@ -28,10 +28,11 @@ from custom_components.ha_blocky import db
 from custom_components.ha_blocky.const import DOMAIN, MAX_LOG_ROWS
 from custom_components.ha_blocky.db import CATEGORIES
 from custom_components.ha_blocky.frontend import (
+    CARD_FILE,
     CARD_PATH,
-    CARD_URL,
+    DATA_FRONTEND_BASE,
     FRONTEND_DIR,
-    PANEL_URL,
+    PANEL_FILE,
 )
 
 from .test_db import add_rows
@@ -509,7 +510,8 @@ async def test_card_file_is_served(
     await _setup(hass, aioclient_mock, {})
     client = await hass_client_no_auth()
 
-    response = await client.get(CARD_URL)
+    base = hass.data[DATA_FRONTEND_BASE]
+    response = await client.get(f"{base}/{CARD_FILE}")
 
     assert response.status == 200
     assert "javascript" in response.content_type
@@ -524,22 +526,25 @@ async def test_every_module_is_served_and_nothing_else(
 ) -> None:
     await _setup(hass, aioclient_mock, {})
     client = await hass_client_no_auth()
+    base = hass.data[DATA_FRONTEND_BASE]
 
     for path in MODULES:
-        response = await client.get(f"/{DOMAIN}/{path.name}")
+        response = await client.get(f"{base}/{path.name}")
         assert response.status == 200, path.name
         assert "javascript" in response.content_type
         assert await response.text() == SOURCES[path.name]
-    assert (await client.get(PANEL_URL)).status == 200
+    assert (await client.get(f"{base}/{PANEL_FILE}")).status == 200
+    # The old unversioned address is gone.
+    assert (await client.get(f"/{DOMAIN}/{CARD_FILE}")).status == 404
     # No directory listing, no other files, no way out of the directory.
     for url in (
-        f"/{DOMAIN}",
-        f"/{DOMAIN}/",
-        f"/{DOMAIN}/missing.js",
-        f"/{DOMAIN}/ha-blocky-card.js.map",
-        f"/{DOMAIN}/../const.py",
-        f"/{DOMAIN}/%2e%2e/const.py",
-        f"/{DOMAIN}/..%2fconst.py",
+        base,
+        f"{base}/",
+        f"{base}/missing.js",
+        f"{base}/ha-blocky-card.js.map",
+        f"{base}/../const.py",
+        f"{base}/%2e%2e/const.py",
+        f"{base}/..%2fconst.py",
     ):
         response = await client.get(url)
         assert response.status in (400, 403, 404), url
@@ -1285,3 +1290,25 @@ def test_colour_text_and_preferences_only_ever_hold_validated_values(
     ]
     assert out["after"] == [{"other": "#010101"}, 5]
     assert out["flags"] == [False, True, False, False]
+
+
+def test_frontend_token_follows_the_content_of_the_files(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from custom_components.ha_blocky import frontend
+
+    (tmp_path / "a.js").write_text("one", encoding="utf-8")
+    (tmp_path / "b.js").write_text("two", encoding="utf-8")
+    (tmp_path / "ignored.txt").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(frontend, "FRONTEND_DIR", tmp_path)
+
+    token = frontend.frontend_token()
+    assert re.fullmatch(r"[0-9a-f]{12}", token)
+    assert frontend.frontend_token() == token
+    (tmp_path / "ignored.txt").write_text("y", encoding="utf-8")
+    assert frontend.frontend_token() == token
+    (tmp_path / "b.js").write_text("two!", encoding="utf-8")
+    changed = frontend.frontend_token()
+    assert changed != token
+    (tmp_path / "c.js").write_text("", encoding="utf-8")
+    assert frontend.frontend_token() not in (token, changed)
