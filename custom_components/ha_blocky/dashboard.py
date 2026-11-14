@@ -28,6 +28,8 @@ PERIOD_7D: Final = "7d"
 PERIOD_30D: Final = "30d"
 _DAYS: Final = {PERIOD_7D: 7, PERIOD_30D: 30}
 _HOUR: Final = timedelta(hours=1)
+# Today always has 24 slots: the hours still to come stay empty.
+TODAY_SLOTS: Final = 24
 UNIT_HOUR: Final = "hour"
 UNIT_DAY: Final = "day"
 
@@ -51,7 +53,12 @@ def _local_day_start(moment: datetime) -> datetime:
 
 
 def build_window(period: str, now: datetime) -> Window:
-    """Return the window of a period; the last bucket holds ``now``."""
+    """Return the window of a period.
+
+    For 24 h, 7 d and 30 d the last bucket holds ``now``. Today is padded with
+    empty buckets for the hours to come, so that it always has 24 slots (more
+    on a day with 25 hours); ``until`` still ends at the current hour.
+    """
     now = dt_util.as_utc(now)
     if period in (PERIOD_TODAY, PERIOD_24H):
         until = _hour_floor(now) + _HOUR
@@ -60,6 +67,8 @@ def build_window(period: str, now: datetime) -> Window:
         else:
             first = until - 24 * _HOUR
         count = round((until - first) / _HOUR)
+        if period == PERIOD_TODAY:
+            count = max(count, TODAY_SLOTS)
         starts = tuple(first + index * _HOUR for index in range(count))
         since = _local_day_start(now) if period == PERIOD_TODAY else first
         return Window(since, until, UNIT_HOUR, starts)

@@ -141,6 +141,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     if entry.options.get(CONF_SHOW_IN_SIDEBAR, True) is True:
         await async_register_panel(hass)
+    elif not wants_panel(hass, excluding=entry.entry_id):
+        # The option was turned off (a reload brought it here): no entry wants
+        # the panel any more.
+        async_remove_panel(hass)
     return True
 
 
@@ -151,8 +155,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> b
         await entry.runtime_data.lists.async_close()
         if entry.runtime_data.stats is not None:
             await entry.runtime_data.stats.async_close()
-        # The panel goes with the last entry that wants it.
-        if not wants_panel(hass, excluding=entry.entry_id):
+        # A reload unloads and sets up again, and a panel that disappears for
+        # that moment throws an open browser back to the default dashboard. So
+        # the panel stays; setup decides again whether it is still wanted. Only
+        # an entry that was disabled (Home Assistant sets disabled_by before it
+        # unloads the entry) takes the panel with it, unless another entry
+        # wants it. Removal of an entry is handled in async_remove_entry.
+        if entry.disabled_by is not None and not wants_panel(
+            hass, excluding=entry.entry_id
+        ):
             async_remove_panel(hass)
     return unloaded
 
@@ -166,3 +177,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> N
     await Store(
         hass, REQUESTS_STORAGE_VERSION, requests_storage_key(entry.entry_id)
     ).async_remove()
+    # The entry is gone from the registry by now, so only the others count.
+    if not wants_panel(hass):
+        async_remove_panel(hass)

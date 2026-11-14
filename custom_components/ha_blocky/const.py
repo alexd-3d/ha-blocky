@@ -190,3 +190,5 @@ PANEL_ELEMENT: Final = "ha-blocky-panel"
 # Names for client addresses, kept by hand in one store per Home Assistant.
 MAX_CLIENT_NAMES: Final = 512
 MAX_CLIENT_NAME_LENGTH: Final = 64
+# The most addresses a name filter of the query log expands to.
+MAX_NAME_MATCHES: Final = 256

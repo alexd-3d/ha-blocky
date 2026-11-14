@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.util import dt as dt_util
 
-from .client_names import client_name_map
+from .client_names import client_name_map, get_client_names
 from .const import (
     ATTR_ACTION,
     ATTR_CONFIG_ENTRY_ID,
@@ -41,6 +41,7 @@ from .db import BlockyDbError
 from .levels import (
     LevelError,
     apply_options,
+    base_groups_saved,
     render_block,
     with_base_groups,
     with_client,
@@ -191,30 +192,51 @@ async def ws_levels(
                 key = normalize_client(address)
                 if key is not None:
                     seen[key] = seen.get(key, 0) + queries
-    for address in levels.clients:
+    # Clients with a level or a manual name are always listed, also when the
+    # log has not seen them lately. Nothing is stored for a client seen for the
+    # first time: the list is derived on every call.
+    client_names = get_client_names(hass)
+    manual = client_names.manual_names() if client_names is not None else {}
+    for address in (*levels.clients, *manual):
         seen.setdefault(address, 0)
     names = client_name_map(hass)
     clients = []
     for address, queries in sorted(seen.items(), key=lambda item: (-item[1], item[0])):
         config = levels.clients.get(address)
+        name = names.get(address)
         clients.append(
             {
                 "address": address,
-                "client_name": names.get(address),
+                "client_name": name,
+                # "manual" is editable; "device" comes from a device tracker.
+                "name_source": (
+                    None
+                    if name is None
+                    else "manual"
+                    if address in manual
+                    else "device"
+                ),
                 "level": config.level if config else "standard",
                 "ask": bool(config and config.ask),
                 "queries": queries,
             }
         )
-    # A client with a level is always listed, even beyond the cap.
-    configured = [item for item in clients if item["level"] != "standard"]
-    others = [item for item in clients if item["level"] == "standard"]
-    clients = (configured + others)[:MAX_CLIENTS_LISTED]
+    # A client with a level or a manual name is always listed, even beyond the
+    # cap; the others fill what is left of it.
+    pinned: list[dict[str, Any]] = []
+    others: list[dict[str, Any]] = []
+    for item in clients:
+        is_pinned = item["level"] != "standard" or item["address"] in manual
+        (pinned if is_pinned else others).append(item)
+    clients = pinned + others[: max(0, MAX_CLIENTS_LISTED - len(pinned))]
     connection.send_result(
         msg["id"],
         {
             "entry_id": entry.entry_id,
             "base_groups": list(levels.base_groups),
+            # False while the list groups were never saved: the built-in
+            # default may not match the names used in Blocky.
+            "base_groups_saved": base_groups_saved(entry.options),
             "notify": dict(levels.notify),
             "clients": clients,
             "status": level_status(entry),

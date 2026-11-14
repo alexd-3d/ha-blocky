@@ -3,6 +3,8 @@
  * Every row shows the name, the count and a thin bar split by category; a
  * popover gives the counts and shares per category, the time last seen and,
  * for a blocked domain, the most frequent block reason.
+ * A client row opens that client's queries in the Query log (a click, or
+ * Enter or Space); the details of a client then show on hover only.
  * `ctx` offers: t(key), language, dateTime(value).
  */
 
@@ -65,8 +67,9 @@ function detailLines(ctx, item) {
 
 // A list of rows. `items` have: name, count, categories and, optionally,
 // client_name, last_seen and reason. `isClient` shows the address under the
-// name of a client.
-export function topList(ctx, popover, items, isClient) {
+// name of a client; `onOpen(address)` (clients only) is called when a client
+// row is activated.
+export function topList(ctx, popover, items, isClient, onOpen) {
   const list = el("div", { className: "toplist", attrs: { role: "list" } });
   for (const item of items) {
     const named = isClient && item.client_name;
@@ -89,6 +92,19 @@ export function topList(ctx, popover, items, isClient) {
       },
       lines
     );
+    if (isClient && typeof onOpen === "function") {
+      row.setAttribute("title", ctx.t("dash_open_log"));
+      row.addEventListener("click", (event) => {
+        event.stopImmediatePropagation();
+        onOpen(item.name);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onOpen(item.name);
+      });
+    }
     popover.attach(row, () => detailLines(ctx, item));
     list.appendChild(row);
   }

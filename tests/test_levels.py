@@ -50,6 +50,7 @@ from custom_components.ha_blocky.levels import (
     ClientConfig,
     LevelConfig,
     LevelError,
+    client_groups,
     compute_rev,
     parse_base_groups,
     read_base_groups,
@@ -240,6 +241,10 @@ def test_block_app_format_has_the_groups_and_one_line_per_client() -> None:
     ]
     # Every address carries the revision.
     assert text.count("?r=0123abcd") == 3
+    # Each of the three parts says where it goes; the comments keep it valid YAML.
+    assert "# Part 1 of 3, blocking.denylists:" in text
+    assert "# Part 2 of 3, blocking.allowlists:" in text
+    assert "# Part 3 of 3, blocking.client_groups_block:" in text
 
 
 def test_block_plain_format_is_blockys_own_yaml() -> None:
@@ -258,6 +263,9 @@ def test_block_plain_format_is_blockys_own_yaml() -> None:
         "198.51.100.5": ["lockdown"],
         "2001:db8::1": ["lockdown"],
     }
+    assert "# Part 1 of 3, blocking.denylists:" in text
+    assert "# Part 2 of 3, blocking.allowlists:" in text
+    assert "# Part 3 of 3, blocking.clientGroupsBlock:" in text
 
 
 def test_block_without_clients_still_defines_the_groups_and_has_no_lines() -> None:
@@ -566,10 +574,13 @@ async def test_the_levels_command_lists_clients_seen_and_configured(
     assert result["clients"][1] == {
         "address": LAB,
         "client_name": None,
+        "name_source": None,
         "level": "standard",
         "ask": False,
         "queries": 2,
     }
+    # Never saved: the card warns that the built-in default may not fit.
+    assert result["base_groups_saved"] is False
     assert result["setup"]["api_ok"] is True
     assert result["setup"]["log_ok"] is True
     assert set(result["status"]) == {
@@ -951,3 +962,20 @@ def test_the_block_json_roundtrips_through_a_websocket_safe_form() -> None:
     block = render_block(("default",), CLIENTS, URLS)
 
     assert json.loads(json.dumps(block)) == block
+
+
+def test_every_manual_list_names_the_levels_it_changes() -> None:
+    from custom_components.ha_blocky.const import RULE_LISTS
+    from custom_components.ha_blocky.levels import LIST_LEVELS
+
+    assert set(LIST_LEVELS) == set(RULE_LISTS)
+    assert LIST_LEVELS["lockdown_allow"] == ("lockdown",)
+    assert LIST_LEVELS["restricted_deny"] == ("restricted",)
+    # Unfiltered clients use an empty group: no manual list reaches them.
+    assert all("unfiltered" not in levels for levels in LIST_LEVELS.values())
+    # The groups of a client line agree: a Restricted client has the base groups
+    # (where the Always lists belong) plus its own list.
+    assert client_groups(ClientConfig("restricted"), ("default",)) == (
+        "default",
+        "restricted",
+    )

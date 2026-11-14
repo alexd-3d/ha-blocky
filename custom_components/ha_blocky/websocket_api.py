@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 
 from .client_names import (
     ClientNameError,
+    addresses_with_name,
     client_name_map,
     get_client_names,
 )
@@ -36,6 +37,7 @@ from .coordinator import BlockyConfigEntry
 from .dashboard import async_dashboard
 from .db import CATEGORIES, BlockyDbError, TopItem
 from .display import get_display, valid_color, valid_rows
+from .levels import LIST_LEVELS
 from .requests import RequestError, RequestTracker
 from .settings import (
     OPERATIONAL_KEYS,
@@ -46,8 +48,10 @@ from .settings import (
 from .validation import (
     InvalidClientNameError,
     InvalidDomainError,
+    InvalidIpFilterError,
     normalize_client,
     normalize_domain,
+    parse_ip_filter,
     validate_client_name,
 )
 
@@ -123,7 +127,12 @@ def ws_config(
                         "button", DOMAIN, f"{entry.entry_id}_flush_cache"
                     ),
                     "lists": [
-                        {"name": name, "type": list_type}
+                        {
+                            "name": name,
+                            "type": list_type,
+                            # The levels whose answers the list changes.
+                            "levels": list(LIST_LEVELS[name]),
+                        }
                         for name, list_type in RULE_LISTS.items()
                     ],
                 }
@@ -143,7 +152,9 @@ def ws_config(
         vol.Optional("status", default=STATUS_ALL): vol.In(
             [STATUS_ALL, STATUS_BLOCKED, STATUS_ALLOWED]
         ),
-        vol.Optional("client", default=""): vol.All(_printable, vol.Length(max=64)),
+        # Checked in the handler, so that a refusal never repeats the value.
+        vol.Optional("ip", default=""): object,
+        vol.Optional("name", default=""): object,
         vol.Optional("domain", default=""): vol.All(_printable, vol.Length(max=253)),
         vol.Optional("before_id"): vol.All(int, vol.Range(min=1)),
         vol.Optional("limit", default=50): vol.All(
@@ -173,6 +184,35 @@ async def ws_query_log(
         )
         return
 
+    try:
+        exact_ip, ip_part = parse_ip_filter(msg["ip"])
+    except InvalidIpFilterError:
+        connection.send_error(
+            msg["id"],
+            "invalid_ip",
+            "The IP filter may hold only 0-9, a-f, A-F, dots and colons (45 at most)",
+        )
+        return
+    addresses: list[str] | None = None
+    raw_name = msg["name"]
+    if raw_name is not None and raw_name != "":
+        try:
+            name_text = validate_client_name(raw_name)
+        except InvalidClientNameError:
+            connection.send_error(
+                msg["id"],
+                "invalid_name",
+                "The name must be 1 to 64 characters without control characters",
+            )
+            return
+        addresses = addresses_with_name(client_name_map(hass), name_text)
+        if not addresses:
+            # No client has such a name: nothing to look up.
+            connection.send_result(
+                msg["id"], {"rows": [], "has_more": False, "next_before_id": None}
+            )
+            return
+
     since = (dt_util.utcnow() - timedelta(hours=msg["hours"])).replace(tzinfo=None)
     blocked: bool | None = None
     if msg["status"] == STATUS_BLOCKED:
@@ -186,7 +226,9 @@ async def ws_query_log(
             partial(
                 stats.database.query_log,
                 since=since,
-                client=msg["client"] or None,
+                client=exact_ip,
+                client_part=ip_part,
+                addresses=addresses,
                 domain=msg["domain"] or None,
                 blocked=blocked,
                 before_id=msg.get("before_id"),

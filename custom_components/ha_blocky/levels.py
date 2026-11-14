@@ -38,7 +38,10 @@ from .const import (
     DEFAULT_NOTIFY,
     LEVEL_LOCKDOWN,
     LEVEL_RESTRICTED,
+    LEVEL_STANDARD,
     LEVEL_UNFILTERED,
+    LIST_ALLOW_DEFAULT,
+    LIST_DENY_DEFAULT,
     LIST_LOCKDOWN_ALLOW,
     LIST_RESTRICTED_DENY,
     LIST_UNFILTERED_EMPTY,
@@ -56,6 +59,20 @@ _LOGGER = logging.getLogger(__name__)
 REV_RE: Final = re.compile(r"[0-9a-f]{8}")
 # Group names this integration defines in Blocky; a base group may not use them.
 RESERVED_GROUPS: Final = (LEVEL_UNFILTERED, LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
+
+
+# Which levels each manual list changes the answers for. Derived from the groups
+# of client_groups(): a Standard client uses Blocky's base groups (where the
+# Always allow / Always block lists belong), a Restricted client the base groups
+# plus its own deny list, a Lockdown client only its allow list, an Unfiltered
+# client nothing at all. The card reads this to know which log rows an action
+# touches and which list to offer first.
+LIST_LEVELS: Final[dict[str, tuple[str, ...]]] = {
+    LIST_ALLOW_DEFAULT: (LEVEL_STANDARD, LEVEL_RESTRICTED),
+    LIST_DENY_DEFAULT: (LEVEL_STANDARD, LEVEL_RESTRICTED),
+    LIST_RESTRICTED_DENY: (LEVEL_RESTRICTED,),
+    LIST_LOCKDOWN_ALLOW: (LEVEL_LOCKDOWN,),
+}
 
 
 class LevelError(Exception):
@@ -105,6 +122,11 @@ def read_base_groups(options: Mapping[str, Any]) -> tuple[str, ...]:
     except LevelError:
         _LOGGER.error("Stored base list groups are invalid; using the default")
         return DEFAULT_BASE_GROUPS
+
+
+def base_groups_saved(options: Mapping[str, Any]) -> bool:
+    """Return whether the base list groups were ever saved (even as the default)."""
+    return options.get(CONF_BASE_GROUPS) is not None
 
 
 def read_clients(options: Mapping[str, Any]) -> dict[str, ClientConfig]:
@@ -240,32 +262,40 @@ def render_block(
     ``plain`` (Blocky's own YAML). Built only from validated names, addresses
     and the given URLs.
     """
-    note = (
+    note = [
         "# Add these entries to your existing blocking section; "
-        "do not replace the whole option."
-    )
+        "do not replace the whole option.",
+        "# Each of the three parts goes under the key named in its comment: "
+        "merge it with what is already there.",
+    ]
     groups = (
         ("denylists", LEVEL_RESTRICTED, LIST_RESTRICTED_DENY),
         ("allowlists", LEVEL_LOCKDOWN, LIST_LOCKDOWN_ALLOW),
         ("denylists", LEVEL_UNFILTERED, LIST_UNFILTERED_EMPTY),
     )
-    app = [note, "blocking:"]
-    for key in ("denylists", "allowlists"):
-        app.append(f"  {key}:")
+    parts = {
+        "denylists": "add these groups to your existing denylists.",
+        "allowlists": "add these groups to your existing allowlists.",
+    }
+
+    def label(number: int, key: str, what: str) -> str:
+        return f"  # Part {number} of 3, blocking.{key}: {what}"
+
+    app = [*note, "blocking:"]
+    plain = [*note, "blocking:"]
+    for number, key in enumerate(("denylists", "allowlists"), start=1):
+        app.extend([label(number, key, parts[key]), f"  {key}:"])
+        plain.extend([label(number, key, parts[key]), f"  {key}:"])
         for kind, name, served in groups:
             if kind == key:
                 app.append(f"    - name: {_quote(name)}")
                 app.append("      sources:")
                 app.append(f"        - {_quote(urls[served])}")
-    app.append("  client_groups_block:")
-    plain = [note, "blocking:"]
-    for key in ("denylists", "allowlists"):
-        plain.append(f"  {key}:")
-        for kind, name, served in groups:
-            if kind == key:
                 plain.append(f"    {_quote(name)}:")
                 plain.append(f"      - {_quote(urls[served])}")
-    plain.append("  clientGroupsBlock:")
+    what = "add these clients with the list groups they use."
+    app.extend([label(3, "client_groups_block", what), "  client_groups_block:"])
+    plain.extend([label(3, "clientGroupsBlock", what), "  clientGroupsBlock:"])
     for address in sorted(clients):
         names = client_groups(clients[address], base_groups)
         app.append(f"    - name: {_quote(address)}")

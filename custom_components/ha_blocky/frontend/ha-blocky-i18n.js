@@ -11,7 +11,6 @@ import { MORE_EN, MORE_UK } from "./ha-blocky-i18n-more.js";
 export const TEXT_EN = {
   "title": "Blocky query log",
   "search_domain": "Domain contains",
-  "search_client": "Client address",
   "status": "Status",
   "status_all": "All",
   "status_blocked": "Blocked",
@@ -59,7 +58,7 @@ export const TEXT_EN = {
   "act_dismiss": "Dismiss",
   "unit_min": "min",
   "unit_h": "h",
-  "client_edit": "Click to name this client",
+  "client_edit": "Name of this client",
   "client_name_placeholder": "Name (empty clears)",
   "group_repeats": "Grouping",
   "ov_title": "Blocky overview",
@@ -162,7 +161,6 @@ export const TEXT_EN = {
 export const TEXT_UK = {
   "title": "Журнал запитів Blocky",
   "search_domain": "Домен містить",
-  "search_client": "Адреса клієнта",
   "status": "Статус",
   "status_all": "Усі",
   "status_blocked": "Заблоковані",
@@ -210,7 +208,7 @@ export const TEXT_UK = {
   "act_dismiss": "Закрити",
   "unit_min": "хв",
   "unit_h": "год",
-  "client_edit": "Натисніть, щоб назвати цього клієнта",
+  "client_edit": "Назва цього клієнта",
   "client_name_placeholder": "Назва (порожня очищає)",
   "group_repeats": "Групування",
   "ov_title": "Огляд Blocky",

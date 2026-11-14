@@ -93,8 +93,24 @@ export const MORE_STYLE = `
     70% { box-shadow: 0 0 0 8px transparent; }
     100% { box-shadow: 0 0 0 0 transparent; }
   }
-  tr.flash-info { background-color: color-mix(in srgb, var(--primary-color) 22%, transparent); }
   @media (prefers-reduced-motion: reduce) {
     button.live.on { animation: none; }
+  }
+  /* The "ignore query type" toggle: a T with a line through it while on. */
+  .ibtn.ignoretype { position: relative; }
+  .ibtn.ignoretype.on {
+    color: var(--primary-color); border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  }
+  .ibtn.ignoretype.on::after {
+    content: ""; position: absolute; left: 7px; right: 7px; top: 50%; height: 2px;
+    background: currentColor; transform: rotate(-40deg); pointer-events: none;
+  }
+  .ibtn.ignoretype:disabled { opacity: 0.4; }
+  table.prot td.nametd { min-width: 9rem; }
+  table.prot input.nameedit {
+    width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit;
+    color: var(--primary-text-color); background: var(--card-background-color);
+    border: 1px solid var(--divider-color); border-radius: 6px;
   }
 `;

@@ -113,7 +113,13 @@ export class ProtectionView {
     });
     const save = el("button", { text: t("set_save"), className: "primary" });
     save.addEventListener("click", () => this._saveBase());
+    this._baseWarning = el("div", {
+      className: "basewarning banner waiting",
+      text: t("prot_base_default_warning"),
+      attrs: { hidden: "" },
+    });
     base.root.append(
+      this._baseWarning,
       field(t("prot_base_label"), this._baseInput, t("prot_base_field_hint")),
       el("div", { className: "btnrow" }, [save]),
       base.message
@@ -149,6 +155,8 @@ export class ProtectionView {
           .filter((name) => typeof name === "string")
           .join(", ");
       }
+      // Never saved: the built-in default may not match the names in Blocky.
+      this._baseWarning.hidden = result.base_groups_saved !== false;
       this._apply.update(result.status, result.setup);
       this._say(this._clientsMessage, "", false);
     } catch (err) {
@@ -205,6 +213,50 @@ export class ProtectionView {
     await this.load();
   }
 
+  // The name of a client, edited in place. A name typed here is stored by the
+  // server (empty clears it); a name that comes from a device tracker is shown
+  // as the placeholder, not as a value, so it is never saved by accident.
+  _nameEditor(item) {
+    const t = (key) => this._t(key);
+    const manual = item.name_source === "manual" && typeof item.client_name === "string";
+    const device = item.name_source === "device" && typeof item.client_name === "string";
+    const input = el("input", {
+      className: "nameedit",
+      attrs: {
+        type: "text",
+        maxlength: 64,
+        autocomplete: "off",
+        spellcheck: "false",
+        "aria-label": t("client_edit"),
+        title: t("client_edit"),
+        placeholder: device ? item.client_name : t("client_name_placeholder"),
+      },
+    });
+    input.value = manual ? item.client_name : "";
+    const error = el("div", { className: "rowerror", attrs: { hidden: "" } });
+    // "change" fires when the field is left or Enter is pressed, and only if
+    // the text changed.
+    input.addEventListener("change", async () => {
+      input.disabled = true;
+      try {
+        await this._host.hass.callWS({
+          type: `${DOMAIN}/set_client_name`,
+          ip: item.address,
+          name: input.value.trim(),
+        });
+      } catch (err) {
+        // The card's own words for the refusal; the typed value is not echoed.
+        error.textContent = refusalText(this._host, err, "prot_error");
+        error.hidden = false;
+        input.disabled = false;
+        return;
+      }
+      if (typeof this._host.refresh === "function") this._host.refresh();
+      await this.load();
+    });
+    return [input, error];
+  }
+
   _renderClients() {
     const t = (key) => this._t(key);
     if (!this._clients.length) {
@@ -223,7 +275,8 @@ export class ProtectionView {
       select.value = level;
       select.addEventListener("change", () => this._setLevel(item.address, select.value));
       const cells = [
-        el("td", { className: "client" }, clientLines(item.address, item.client_name, "")),
+        el("td", { className: "client" }, clientLines(item.address, "", "")),
+        el("td", { className: "nametd" }, this._nameEditor(item)),
         el("td", {}, [select]),
       ];
       const askCell = el("td", { className: "askcell" });

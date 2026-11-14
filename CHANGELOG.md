@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.14.0
+
+Query log filters by IP and name, client names in Settings, and Settings save keeps
+you on the HA-Blocky panel (BLO-018).
+
+### Added
+
+- **Query log: separate IP and Name filters.** A complete address matches exactly; a
+  fragment matches anywhere in the address. The name filter matches the names the card
+  shows (manual names and device tracker names), ignoring case.
+- **Query log: "Ignore type" toggle** (on by default, remembered per browser, active
+  while grouping is on): rows that differ only by query type merge into one row that
+  shows the combined types, for example `A, HTTPS`.
+- **Dashboard: a click on a Top clients row** opens the Query log filtered to that
+  address.
+- **Settings > Clients: names are edited in the list.** The list now also shows a
+  client that has a manual name but no recent queries.
+- **Settings: a warning** while the base list names were never saved, and the Blocky
+  block labels its three parts (`blocking.denylists`, `blocking.allowlists`, client
+  groups) so it is clear where each part goes.
+
+### Changed
+
+- **Dashboard chart has a fixed number of slots** per view (Today and 24 h: 24, 7 d: 7,
+  30 d: 30); a slot without data stays empty.
+- **Block / allow** highlights every visible row of the same domain whose client level
+  the chosen list affects, and the list picker preselects the list that fits the
+  client's level (for a Lockdown client: the Lockdown allow list).
+- **New rows fade in** instead of flashing.
+- **Renaming a client from a Query log row is removed;** rename in Settings > Clients.
+- The WebSocket command `ha_blocky/query_log` takes `ip` and `name` instead of
+  `client`.
+
+### Fixed
+
+- **Saving Settings no longer throws the browser to the default dashboard.** The
+  sidebar panel now survives a reload of the integration; it is removed only when the
+  entry is removed or disabled, or when "show in sidebar" is turned off.
+
+
 ## 0.13.0
 
 Clients with four protection levels replace zones and free lists (BLO-017).

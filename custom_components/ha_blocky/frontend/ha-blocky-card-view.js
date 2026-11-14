@@ -36,6 +36,8 @@ import { ColorStyle, loadPrefs, offPrefs, onPrefs } from "./ha-blocky-prefs.js";
 import { STYLE } from "./ha-blocky-style.js";
 
 const MIN_REFRESH_SECONDS = 10;
+const RELOAD_POLL_MS = 1500;
+const RELOAD_TRIES = 20;
 const TABS = ["dashboard", "log", "requests", "settings", "help"];
 
 class HaBlockyCard extends HTMLElement {
@@ -166,9 +168,11 @@ class HaBlockyCard extends HTMLElement {
     return translate(this._hass, key);
   }
 
-  // True while a client name is being typed: reloads would throw it away.
+  // True while a client name is being typed (the field has the focus):
+  // reloads would throw it away.
   isEditing() {
-    return Boolean(this.shadowRoot.querySelector("input.nameedit"));
+    const active = this.shadowRoot.activeElement;
+    return Boolean(active && active.matches && active.matches("input.nameedit"));
   }
 
   // Show these colours instead of the saved ones (undefined: the saved ones).
@@ -176,18 +180,38 @@ class HaBlockyCard extends HTMLElement {
     if (this._colors) this._colors.preview(colors);
   }
 
+  // Show the Query log tab with the rows of one client address (a click on a
+  // client of the dashboard).
+  openLog(address) {
+    this._selectTab("log");
+    this._log.showClient(address);
+  }
+
   // Read the instance again, e.g. after its options were saved and it reloaded.
-  async reloadEntry() {
-    try {
-      const config = await this._hass.callWS({ type: `${DOMAIN}/config` });
-      const entries = Array.isArray(config.entries) ? config.entries : [];
-      const id = this._entry && this._entry.entry_id;
-      this._entry = entries.find((entry) => entry.entry_id === id) || this._entry;
-    } catch (err) {
-      return;
+  // With `wait` it asks every second or so until the instance is back (the
+  // server lists loaded instances only) and gives up after about 30 seconds.
+  // Returns whether the instance was found.
+  async reloadEntry(wait = false) {
+    const id = this._entry && this._entry.entry_id;
+    let found = false;
+    for (let attempt = 0; attempt < (wait ? RELOAD_TRIES : 1); attempt += 1) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, RELOAD_POLL_MS));
+      try {
+        const config = await this._hass.callWS({ type: `${DOMAIN}/config` });
+        const entries = Array.isArray(config.entries) ? config.entries : [];
+        const entry = entries.find((item) => item.entry_id === id);
+        if (entry) {
+          this._entry = entry;
+          found = true;
+          break;
+        }
+      } catch (err) {
+        // The server may still be busy with the reload: try again.
+      }
     }
     this._dash.updateHass();
-    if (this._tab === "settings") this._settings.load();
+    if (this._tab === "settings" && !wait) this._settings.load();
+    return found;
   }
 
   // Reload what is shown, e.g. after a name was saved.

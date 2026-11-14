@@ -121,6 +121,8 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-i18n-more.js",
         "ha-blocky-i18n.js",
         "ha-blocky-known.js",
+        "ha-blocky-log-filters.js",
+        "ha-blocky-log-logic.js",
         "ha-blocky-log.js",
         "ha-blocky-overview.js",
         "ha-blocky-panel.js",
@@ -200,7 +202,7 @@ def test_imports_are_relative_and_resolve_to_existing_modules() -> None:
 
 def test_card_modules_stay_small() -> None:
     assert len(SHELL.splitlines()) <= 300
-    assert len(VIEW.splitlines()) <= 340
+    assert len(VIEW.splitlines()) <= 360
     assert all(len(source.splitlines()) <= 400 for source in SOURCES.values())
 
 
@@ -284,12 +286,23 @@ def test_names_come_from_the_server_only() -> None:
     assert "attributes.ip" not in SOURCE
     assert "client_name" in SOURCES["ha-blocky-log.js"]
     assert "client_name" in SOURCES["ha-blocky-requests.js"]
+
+
+def test_a_client_is_named_in_the_settings_tab_only() -> None:
+    """No rename control in the log, the requests or the dashboard."""
+    protection = SOURCES["ha-blocky-protection.js"]
+    assert "`${DOMAIN}/set_client_name`" in protection
+    assert "maxlength: 64" in protection
+    assert 'input.addEventListener("change"' in protection
+    # A name from a device tracker is a placeholder, never an editable value.
+    assert 'item.name_source === "manual"' in protection
+    assert "placeholder: device ? item.client_name" in protection
+    for name, source in SOURCES.items():
+        if name != "ha-blocky-protection.js":
+            assert "set_client_name" not in source, name
     dom = SOURCES["ha-blocky-dom.js"]
-    assert "`${DOMAIN}/set_client_name`" in dom
-    assert "maxlength: MAX_NAME_LENGTH" in dom
-    assert "MAX_NAME_LENGTH = 64" in dom
-    assert '"Escape"' in dom
-    assert '"Enter"' in dom
+    assert 'createElement("input")' not in dom and 'el("input"' not in dom
+    assert "client_edit" not in dom and "keydown" not in dom
 
 
 def test_cards_never_build_style_or_links_from_data() -> None:
@@ -358,12 +371,13 @@ def test_log_tab_offers_one_icon_action_per_row() -> None:
 
 def test_log_tab_groups_repeats_by_default_and_keeps_it_in_memory() -> None:
     log_js = SOURCES["ha-blocky-log.js"]
-    assert "this._group = true;" in log_js
-    assert 'attrs: { type: "checkbox" }' in log_js
-    assert 'this._t("group_repeats")' in log_js
-    assert "groupRows(this._sortedRows(), this._group)" in log_js
+    filters_js = SOURCES["ha-blocky-log-filters.js"]
+    assert 'attrs: { type: "checkbox" }' in filters_js
+    assert 't("group_repeats")' in filters_js
+    assert "this._groupBox.checked = true;" in filters_js
+    assert "groupRows(" in log_js and "this._bar.ignoreType" in log_js
     assert chr(0xD7) + "${count}" in log_js
-    # Only the dashboard's period and rows are remembered (ha-blocky-format.js).
+    # What a browser remembers goes through ha-blocky-format.js only.
     for sink in ("localStorage", "sessionStorage", "indexedDB", "document.cookie"):
         for name, source in SOURCES.items():
             if name != "ha-blocky-format.js":
@@ -377,9 +391,9 @@ def test_grouping_function_is_pure() -> None:
     group_js = SOURCES["ha-blocky-group.js"]
     assert "import " not in group_js
     assert "document" not in group_js and "window" not in group_js
-    assert "export function groupRows(rows, enabled)" in group_js
+    assert "export function groupRows(rows, enabled, ignoreType = false)" in group_js
     for field in ("client", "domain", "query_type", "response_type"):
-        assert f"row.{field}," in group_js, field
+        assert f"row.{field}" in group_js, field
 
 
 GROUPING_SCRIPT = """
@@ -401,6 +415,10 @@ const out = {
   off: shape(groupRows(rows, false)),
   empty: groupRows([], true).length,
   untouched: JSON.stringify(rows) === frozen,
+  merged: groupRows(rows, true, true).map((e) => [e.row.id, e.count, e.types]),
+  merged_reversed: groupRows(rows.slice().reverse(), true, true).map((e) => [e.row.id, e.count, e.types]),
+  off_types: groupRows(rows, false, true).map((e) => e.types),
+  strict: groupRows(rows, true, false).map((e) => [e.row.id, e.count, e.types]),
 };
 console.log(JSON.stringify(out));
 """
@@ -426,6 +444,18 @@ def test_grouping_function_merges_repeats_and_keeps_the_latest_row() -> None:
     assert out["off"] == [[5, 1], [4, 1], [3, 1], [2, 1], [1, 1], [0, 1]]
     assert out["empty"] == 0
     assert out["untouched"] is True
+    # Ignoring the type: rows that differ only by query type merge, and the
+    # entry lists the distinct types, sorted.
+    assert out["merged"] == [[5, 4, ["A", "AAAA"]], [2, 1, ["A"]], [1, 1, ["A"]]]
+    assert out["merged_reversed"][0][2] == ["A", "AAAA"]
+    assert out["off_types"] == [["A"], ["A"], ["AAAA"], ["A"], ["A"], ["A"]]
+    # A different status or client never merges, whatever the type.
+    assert out["strict"] == [
+        [5, 3, ["A"]],
+        [3, 1, ["AAAA"]],
+        [2, 1, ["A"]],
+        [1, 1, ["A"]],
+    ]
 
 
 def test_narrow_card_shows_two_lines_per_entry_with_the_same_dom() -> None:
@@ -803,13 +833,14 @@ def test_layout_rules_of_the_tabs() -> None:
     more = SOURCES["ha-blocky-style-more.js"]
     dash_style = SOURCES["ha-blocky-style-dashboard.js"]
     log_js = SOURCES["ha-blocky-log.js"]
+    filters_js = SOURCES["ha-blocky-log-filters.js"]
     # The status of a log row is a badge in the colour of its kind.
     assert "`statustext badge c-${kind}`" in log_js
     badge = "border: 1px solid var(--c); background: transparent; color: var(--c);"
     assert badge in tabs
     assert "white-space: nowrap" in tabs
     # The grouping box has a one-word label; Refresh and Live are icon buttons.
-    assert 'glyphButton(this._t("refresh"), "log_refresh")' in log_js
+    assert 'glyphButton(t("refresh"), "log_refresh")' in filters_js
     assert '"aria-label": label' not in log_js
     assert "title: label" in SOURCES["ha-blocky-controls.js"]
     # Settings: a grid of cards, narrow inputs, one clean colour swatch.
@@ -943,10 +974,26 @@ async def test_config_command(
                 "refresh_lists_entity": refresh_lists,
                 "flush_cache_entity": flush_cache,
                 "lists": [
-                    {"name": "allow_default", "type": "allow"},
-                    {"name": "deny_default", "type": "deny"},
-                    {"name": "restricted_deny", "type": "deny"},
-                    {"name": "lockdown_allow", "type": "allow"},
+                    {
+                        "name": "allow_default",
+                        "type": "allow",
+                        "levels": ["standard", "restricted"],
+                    },
+                    {
+                        "name": "deny_default",
+                        "type": "deny",
+                        "levels": ["standard", "restricted"],
+                    },
+                    {
+                        "name": "restricted_deny",
+                        "type": "deny",
+                        "levels": ["restricted"],
+                    },
+                    {
+                        "name": "lockdown_allow",
+                        "type": "allow",
+                        "levels": ["lockdown"],
+                    },
                 ],
             }
         ]
@@ -1005,7 +1052,7 @@ async def test_query_log_filters_and_pages(
         "b.example.com",
         "a.example.com",
     ]
-    by_client = (await _command(client, 4, type=kind, client="192.0.2.11"))["result"]
+    by_client = (await _command(client, 4, type=kind, ip="192.0.2.11"))["result"]
     assert len(by_client["rows"]) == 2
     by_domain = (await _command(client, 5, type=kind, domain="example.com"))["result"]
     assert [row["domain"] for row in by_domain["rows"]] == [
@@ -1546,7 +1593,10 @@ def test_live_mode_is_bounded_and_adds_no_command() -> None:
     assert "button.live.on {" in style and "animation: hbpulse" in style
     assert "button.live.on { animation: none; }" in style
     # Live is an icon button with a name and a pressed state.
-    assert 'glyphButton(this._t("live_button"), "log_live", "live")' in log_js
+    assert (
+        'glyphButton(t("live_button"), "log_live", "live")'
+        in SOURCES["ha-blocky-log-filters.js"]
+    )
     assert 'setAttribute("aria-pressed", String(on))' in log_js
 
 
@@ -1879,8 +1929,8 @@ def test_the_protection_view_draws_from_text_only(tmp_path: Any) -> None:
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
 
-    # A device name is text, never markup.
-    assert "Phone <b>x</b>" in out["text"]
+    # A name now lives in an input (value or placeholder), never in markup.
+    assert "<b>" not in out["text"]
     assert out["selectValues"] == ["standard", "lockdown"]
     assert out["checkboxes"] == [True]
     assert out["base"] == "default, ads"

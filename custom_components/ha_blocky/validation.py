@@ -22,6 +22,8 @@ _MAX_ADDRESS_LENGTH: Final = 64
 
 _LABEL_RE: Final = re.compile(r"[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?")
 _GROUP_NAME_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
+MAX_IP_FILTER_LENGTH: Final = 45
+_IP_FILTER_RE: Final = re.compile(r"[0-9a-fA-F.:]{1,45}")
 
 type IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -37,6 +39,10 @@ class InvalidGroupNameError(ValueError):
 
 class InvalidClientNameError(ValueError):
     """The value is not an acceptable client name."""
+
+
+class InvalidIpFilterError(ValueError):
+    """The value is not an acceptable fragment of an IP address."""
 
 
 class InvalidNetworkError(ValueError):
@@ -123,6 +129,27 @@ def normalize_client(value: object) -> str | None:
         if address.ipv4_mapped is not None:
             address = address.ipv4_mapped
     return str(address)
+
+
+def parse_ip_filter(value: object) -> tuple[str | None, str | None]:
+    """Split the IP filter of the query log into (exact, fragment).
+
+    Only the characters of an address are accepted (0-9 a-f A-F . :), at most
+    45 of them, or InvalidIpFilterError is raised. A complete, valid address is
+    returned as ``exact`` in its canonical form; anything else is a literal
+    ``fragment``. An empty value means no filter: (None, None).
+    """
+    if not isinstance(value, str):
+        raise InvalidIpFilterError("not a string")
+    text = value.strip()
+    if not text:
+        return None, None
+    if _IP_FILTER_RE.fullmatch(text) is None:
+        raise InvalidIpFilterError("characters or length")
+    address = normalize_client(text)
+    if address is not None:
+        return address, None
+    return None, text
 
 
 def validate_client_name(value: object) -> str:
