@@ -109,6 +109,8 @@ export const MORE_STYLE = `
     --c: var(--disabled-text-color, #9e9e9e);
     flex: 0 0 auto; min-height: 0; padding: 4px; border: 0; border-radius: 16px; background: none;
   }
+  /* A span is inline: without this the track has no size and only the knob shows. */
+  button.tswitch .track { display: block; }
   button.tswitch[aria-checked="true"] { --c: var(--hb-good); }
   button.tswitch[aria-checked="true"] .knob { transform: translateX(18px); }
   button.tswitch:disabled { opacity: 0.5; cursor: not-allowed; }
