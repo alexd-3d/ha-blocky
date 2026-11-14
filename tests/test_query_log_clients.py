@@ -68,7 +68,7 @@ def test_ip_filter_is_exact_for_a_whole_address_and_a_fragment_otherwise(
         "1 2",
         "%",
         "_",
-        "1.2.3.4'; --",
+        "192.0.2.4'; --",
         "192.0.2.1\nx",
         "a" * 46,
         "١٢٣",  # Arabic-Indic digits are not 0-9
