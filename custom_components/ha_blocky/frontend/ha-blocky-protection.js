@@ -24,7 +24,7 @@ export class ProtectionView {
     this._clients = [];
     this._token = 0;
     this._baseTouched = false;
-    this.element = el("div");
+    this.element = el("div", { className: "stack" });
     this._apply = new ApplyView(host, () => this.load());
     this._rules = new RulesView(host);
     this._build();

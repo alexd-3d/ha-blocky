@@ -23,6 +23,9 @@ import { loadPrefs, prefs } from "./ha-blocky-prefs.js";
 import { ProtectionView } from "./ha-blocky-protection.js";
 import { OptionsForm } from "./ha-blocky-settings-options.js";
 
+// How long the short "Saved." stays after the integration reloaded.
+const SAVED_MS = 4000;
+
 // The label of each field a refusal can name (never taken from the server).
 const FIELD_LABELS = {
   status_interval: "set_status_interval",
@@ -78,6 +81,7 @@ export class SettingsView {
   }
 
   _say(message, key, isError, text) {
+    if (message === this._opsMessage) clearTimeout(this._clearTimer);
     message.textContent = text || (key ? this._t(key) : "");
     message.className = isError ? "message error" : "message";
     message.hidden = !message.textContent;
@@ -271,11 +275,18 @@ export class SettingsView {
     if (!result.reloading) return;
     // The integration reloads; look again once it is back.
     this._reloading = true;
+    let back = false;
     try {
-      await this._host.reloadEntry(true);
+      back = await this._host.reloadEntry(true);
     } finally {
       this._reloading = false;
     }
     if (this._active) await this.load();
+    // The reload is over: the long message goes, a short "Saved." stays for a
+    // moment (or the refusal to find the instance again).
+    this._say(this._opsMessage, back ? "set_saved" : "set_load_error", !back);
+    if (back) {
+      this._clearTimer = setTimeout(() => this._say(this._opsMessage, "", false), SAVED_MS);
+    }
   }
 }

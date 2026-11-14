@@ -222,3 +222,136 @@ def test_the_default_base_groups_warning_is_shown_from_the_server_flag() -> None
     protection = SOURCES["ha-blocky-protection.js"]
     assert "result.base_groups_saved !== false" in protection
     assert 'text: t("prot_base_default_warning")' in protection
+
+
+def _rule(style: str, selector: str) -> str:
+    """The declarations of the first rule that starts with `selector {`."""
+    start = style.index(f"{selector} {{")
+    return style[start : style.index("}", start)]
+
+
+def test_the_log_row_has_the_cells_of_a_two_line_mobile_row() -> None:
+    log = SOURCES["ha-blocky-log.js"]
+    style = SOURCES["ha-blocky-style.js"]
+    # One render path: the same cells on a wide and on a narrow card.
+    assert 'className: "time" }, [' in log
+    assert 'className: "when"' in log and 'className: "count"' in log
+    assert "`statustext badge c-${kind}`" in log
+    assert "statusicon" not in log
+    narrow = style[style.index("@container (max-width: 760px)") :]
+    # The table needs about 14rem for the domain: the log drops to two lines at 760 px,
+    # the rest of the card (tab labels, requests) at 560 px.
+    assert narrow.index("table.log thead") < narrow.index(
+        "@container (max-width: 560px)"
+    )
+    assert "th.vh {" in style and "width: 100%; max-width: 0" in style
+    # Line 1: client (name, or the address) and the time; line 2: badge and
+    # domain; the action icon over both lines.
+    assert (
+        'grid-template-areas: "client client time actions" "status domain domain actions"'
+        in narrow
+    )
+    for area in ("client", "time", "status", "domain", "actions"):
+        assert (
+            f"table.log td.{area} {{" in narrow
+            or f"table.log td.{area} {{ grid-area: {area}" in narrow
+        ), area
+    # The badge column has a fixed width: the domains line up across rows.
+    assert "grid-template-columns: 6.5rem minmax(0, 1fr) auto 2.5rem;" in narrow
+    # The domain is cut with an ellipsis, its whole text is its title.
+    assert "td.domain {" in style and "text-overflow: ellipsis" in style
+    assert 'attrs: { title: row.domain || "" }' in log
+    # The repeat count is lighter and smaller than the time.
+    count = _rule(style, "td.time .count")
+    assert "color: var(--secondary-text-color)" in count
+    assert "font-size: var(--hb-fs-label)" in count
+
+
+def test_the_heading_is_the_name_of_the_integration() -> None:
+    view = SOURCES["ha-blocky-card-view.js"]
+    assert 'const PRODUCT_NAME = "HA-Blocky";' in view
+    assert "this._config.title || PRODUCT_NAME" in view
+    assert 'this.t("title")' not in view
+
+
+def test_a_badge_and_an_action_button_look_different() -> None:
+    tabs = SOURCES["ha-blocky-style-tabs.js"]
+    style = SOURCES["ha-blocky-style.js"]
+    badge = _rule(tabs, ".badge")
+    # A badge only tells: tinted, no border, no pointer, not clickable.
+    assert "border: 0" in badge and "cursor: default" in badge
+    assert "pointer-events: none" in badge
+    assert "var(--c)" in badge
+    assert ".badge:hover" not in tabs + style
+    # A button acts: outlined, a pointer, hover and focus states.
+    button = _rule(style, "button")
+    assert "cursor: pointer" in button and "border: 1px solid" in button
+    assert "button:hover:not(:disabled)" in style and "button:focus-visible" in style
+    # The two never share a class: the log builds the badge, the action
+    # buttons are buttons (`abtn`) or icon buttons.
+    log = SOURCES["ha-blocky-log.js"]
+    assert "badge" in log and "abtn" not in log
+    assert "className: `abtn fx-${effectOf(name)}`" in SOURCES["ha-blocky-requests.js"]
+    assert 'className: "abtn primary"' in SOURCES["ha-blocky-actions.js"]
+    for name, source in SOURCES.items():
+        if name.startswith("ha-blocky-style"):
+            continue
+        for line in source.splitlines():
+            assert not ("badge" in line and "abtn" in line), (name, line)
+
+
+def test_sizes_come_from_the_tokens_of_the_host() -> None:
+    style = SOURCES["ha-blocky-style.js"]
+    for token in (
+        "--hb-s2: 8px",
+        "--hb-s4: 16px",
+        "--hb-fs-body: 14px",
+        "--hb-fs-label: 12px",
+    ):
+        assert token in style, token
+    # No text or background colour that a theme variable provides.
+    for name in (
+        "ha-blocky-style.js",
+        "ha-blocky-style-tabs.js",
+        "ha-blocky-style-more.js",
+        "ha-blocky-style-dashboard.js",
+    ):
+        source = SOURCES[name]
+        for forbidden in ("color: #", "background: #", "color: white", "color: black"):
+            assert forbidden not in source, (name, forbidden)
+
+
+def test_a_block_or_allow_reloads_the_log_and_keeps_its_length() -> None:
+    log = SOURCES["ha-blocky-log.js"]
+    assert "this.reloadCurrent();" in log
+    assert "async load(reset, keep)" in log
+    assert "limit: keep || this._host.config.page_size," in log
+    assert "Math.min(shown, MAX_ROWS)" in log
+    # The highlight is marked before the reload and picked up by the rebuilt row.
+    assert log.index("flasher.mark(`log:${id}`") < log.index("this.reloadCurrent();")
+    assert "flasher.apply(`log:${row.id}`, line)" in log
+
+
+def test_the_saved_message_does_not_outlive_the_reload() -> None:
+    settings = SOURCES["ha-blocky-settings.js"]
+    assert "back = await this._host.reloadEntry(true);" in settings
+    after = settings[settings.index("back = await") :]
+    assert (
+        'this._say(this._opsMessage, back ? "set_saved" : "set_load_error", !back);'
+        in after
+    )
+    assert 'setTimeout(() => this._say(this._opsMessage, "", false), SAVED_MS)' in after
+    # Any new message cancels the pending clear.
+    assert (
+        "if (message === this._opsMessage) clearTimeout(this._clearTimer);" in settings
+    )
+
+
+def test_settings_groups_are_stacked_with_a_gap() -> None:
+    assert 'className: "stack"' in SOURCES["ha-blocky-protection.js"]
+    assert 'className: "stack"' in SOURCES["ha-blocky-apply.js"]
+    assert (
+        ".stack { display: grid; gap: var(--hb-s4);"
+        in SOURCES["ha-blocky-style-tabs.js"]
+    )
+    assert 'className: "plain vh"' in SOURCES["ha-blocky-log.js"]

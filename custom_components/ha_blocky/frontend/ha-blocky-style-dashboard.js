@@ -16,23 +16,24 @@ export const DASHBOARD_STYLE = `
   .c-total { --c: var(--primary-color); }
 
   .dash {
-    position: relative; display: grid; gap: 12px; min-width: 0; overflow-x: clip;
+    position: relative; display: grid; gap: var(--hb-s4); min-width: 0; overflow-x: clip;
   }
   .dash > * { min-width: 0; }
-  .dash .hint { margin: 0; color: var(--secondary-text-color); font-size: 0.85em; }
+  .dash .hint { margin: 0; color: var(--secondary-text-color); font-size: var(--hb-fs-label); }
 
   .bswitch {
     --c: var(--disabled-text-color, #9e9e9e);
     display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
-    box-sizing: border-box; max-width: 100%; min-height: 44px; padding: 4px 12px;
-    border: 2px solid var(--c); border-radius: 12px;
-    color: var(--primary-text-color); font-size: 1em; font-weight: 600;
-    background: color-mix(in srgb, var(--c) 14%, transparent);
+    box-sizing: border-box; max-width: 100%; min-height: 40px; padding: var(--hb-s1) var(--hb-s3);
+    border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); border-radius: var(--hb-radius-m);
+    color: var(--primary-text-color); font-size: var(--hb-fs-body); font-weight: var(--hb-fw-medium);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
   }
   .bswitch.on { --c: var(--hb-good); }
   .bswitch.off { --c: var(--hb-bad); }
+  .bswitch:hover { background: color-mix(in srgb, var(--c) 18%, transparent); }
   .bswitch:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-  .pill { display: inline-flex; align-items: center; gap: 10px; min-width: 0; text-align: left; }
+  .pill { display: inline-flex; align-items: center; gap: var(--hb-s2); min-width: 0; text-align: left; }
   .pill::before {
     content: ""; flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%;
     background: var(--c);
@@ -43,48 +44,51 @@ export const DASHBOARD_STYLE = `
   }
   .knob {
     position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
-    border-radius: 50%; background: #fff; transition: transform 0.2s;
+    border-radius: 50%; background: var(--text-primary-color, #fff); transition: transform 0.2s;
   }
   .bswitch.on .knob { transform: translateX(18px); }
 
+  /* A segmented control: the pressed button is tonal. */
   .btngroup { display: flex; width: 100%; }
   .btngroup button {
-    flex: 1 1 0; min-width: 0; min-height: 40px; padding: 6px 4px; margin-left: -1px;
-    border-radius: 0; font-size: 0.95em; white-space: nowrap;
+    flex: 1 1 0; min-width: 0; padding: 0 var(--hb-s1); margin-left: -1px;
+    border-radius: 0; white-space: nowrap;
   }
-  .btngroup button:first-child { margin-left: 0; border-radius: 8px 0 0 8px; }
-  .btngroup button:last-child { border-radius: 0 8px 8px 0; }
+  .btngroup button:first-child { margin-left: 0; border-radius: var(--hb-radius-s) 0 0 var(--hb-radius-s); }
+  .btngroup button:last-child { border-radius: 0 var(--hb-radius-s) var(--hb-radius-s) 0; }
   .btngroup button.on {
-    position: relative; z-index: 1; font-weight: 600;
-    color: var(--text-primary-color); background: var(--primary-color);
+    position: relative; z-index: 1;
+    color: var(--primary-text-color); background: var(--hb-tonal);
     border-color: var(--primary-color);
   }
-  .listbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+  .listbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--hb-s2); }
   .listbar .btngroup { width: auto; }
-  .listbar .btngroup button { flex: 0 0 auto; min-width: 44px; min-height: 32px; padding: 4px 12px; }
+  .listbar .btngroup button { flex: 0 0 auto; min-width: 44px; min-height: 32px; padding: 0 var(--hb-s3); }
 
-  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--hb-s3); }
   .tile {
-    display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px;
-    border: 1px solid var(--divider-color); border-radius: 12px;
-    background: var(--card-background-color);
+    display: flex; align-items: center; gap: var(--hb-s3); min-width: 0; padding: var(--hb-s3) var(--hb-s4);
+    border-radius: var(--hb-radius-m); background: var(--hb-surface);
   }
   .chip {
     flex: 0 0 auto; display: grid; place-items: center; width: 40px; height: 40px;
-    border-radius: 12px; color: var(--c); --mdc-icon-size: 24px;
+    border-radius: var(--hb-radius-m); color: var(--c); --mdc-icon-size: 24px;
     background: color-mix(in srgb, var(--c) 18%, transparent);
   }
   .tbody { min-width: 0; }
   .tlabel, .tsub { color: var(--secondary-text-color); }
-  .tlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85em; }
-  .tsub { font-size: 0.8em; overflow-wrap: anywhere; }
-  .tvalue { font-size: 1.8em; font-weight: 700; line-height: 1.15; }
+  .tlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--hb-fs-label); }
+  .tsub { font-size: var(--hb-fs-label); overflow-wrap: anywhere; }
+  .tvalue {
+    font-size: var(--hb-fs-value); font-weight: var(--hb-fw-medium); line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
 
   .part { min-width: 0; }
-  .phead { display: flex; align-items: center; gap: 8px; }
-  .phead h3 { margin: 0; font-size: 1.05em; font-weight: 600; }
+  .phead { display: flex; align-items: center; gap: var(--hb-s2); }
+  .phead h3 { margin: 0; font-size: var(--hb-fs-title); font-weight: var(--hb-fw-medium); }
   .help {
-    flex: none; box-sizing: border-box; width: 28px; height: 28px; min-width: 28px;
+    flex: none; box-sizing: border-box; width: 32px; height: 32px; min-width: 32px; min-height: 0;
     padding: 0; border: 0; border-radius: 50%; display: inline-flex; align-items: center;
     justify-content: center; line-height: 1; --mdc-icon-size: 22px;
     color: var(--secondary-text-color);
@@ -93,12 +97,12 @@ export const DASHBOARD_STYLE = `
   .help:focus-visible { outline: 2px solid var(--primary-color); }
   .help[aria-expanded="true"] { color: var(--primary-color); }
   .info {
-    margin: 6px 0; padding: 8px 12px; border-radius: 8px; font-size: 0.9em;
-    background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    margin: var(--hb-s2) 0; padding: var(--hb-s2) var(--hb-s3); border-radius: var(--hb-radius-s);
+    font-size: var(--hb-fs-body); background: var(--hb-tonal);
   }
-  .pbody { margin-top: 8px; }
+  .pbody { margin-top: var(--hb-s2); }
 
-  .chart { min-width: 0; padding: 0 12px; }
+  .chart { min-width: 0; padding: 0; }
   .plot { position: relative; }
   svg.bars { display: block; width: 100%; height: 160px; }
   svg.bars .grid {
@@ -110,61 +114,65 @@ export const DASHBOARD_STYLE = `
     fill: color-mix(in srgb, var(--primary-text-color) 10%, transparent);
   }
   .peak {
-    position: absolute; top: 0; left: 0; padding: 0 4px; pointer-events: none;
-    font-size: 0.75em; color: var(--secondary-text-color);
+    position: absolute; top: 0; left: 0; padding: 0 var(--hb-s1); pointer-events: none;
+    font-size: var(--hb-fs-label); color: var(--secondary-text-color);
     background: color-mix(in srgb, var(--card-background-color) 70%, transparent);
   }
-  .axis { display: flex; margin-top: 4px; }
+  .axis { display: flex; margin-top: var(--hb-s1); }
   .tick {
     flex: 1 1 0; min-width: 0; display: flex; justify-content: center;
-    font-size: 0.75em; white-space: nowrap; color: var(--secondary-text-color);
+    font-size: var(--hb-fs-label); white-space: nowrap; color: var(--secondary-text-color);
   }
-  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 0.85em; }
+  .legend { display: flex; flex-wrap: wrap; gap: var(--hb-s1) var(--hb-s4); margin-top: var(--hb-s3); font-size: var(--hb-fs-label); }
   .legend .line { cursor: help; border-radius: 4px; }
   .legend .line:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-  .line { display: flex; align-items: center; gap: 6px; }
+  .line { display: flex; align-items: center; gap: var(--hb-s2); }
   .sw { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
-  .lvalue { font-weight: 600; }
-  .lshare { min-width: 3em; text-align: right; color: var(--secondary-text-color); }
+  .lvalue { font-weight: var(--hb-fw-medium); font-variant-numeric: tabular-nums; }
+  .lshare { min-width: 3em; text-align: right; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
 
-  .tops { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .tops { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--hb-s6); }
   .toplist { display: grid; gap: 2px; }
-  .trow { min-width: 0; padding: 6px 8px; border-radius: 8px; cursor: pointer; outline: none; }
-  .trow:hover { background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); }
+  .trow { min-width: 0; padding: var(--hb-s2); border-radius: var(--hb-radius-s); cursor: pointer; outline: none; }
+  .trow:hover { background: var(--hb-hover); }
+  /* A client of the list opens the Query log for it: it reads as a link. */
+  .trow.client:hover .tname { color: var(--primary-color); text-decoration: underline; }
   .trow:focus-visible { outline: 2px solid var(--primary-color); }
-  .thead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .thead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hb-s2); }
   .tname {
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-weight: 500;
+    font-weight: var(--hb-fw-medium);
   }
-  .trow:not(.client) .tname { font-family: var(--code-font-family, monospace); font-size: 0.9em; }
-  .tcount { flex: 0 0 auto; font-weight: 700; }
+  .trow:not(.client) .tname { font-family: var(--code-font-family, monospace); }
+  .tcount { flex: 0 0 auto; font-weight: var(--hb-fw-medium); font-variant-numeric: tabular-nums; }
   .taddr, .mono { font-family: var(--code-font-family, monospace); }
-  .taddr { font-size: 0.75em; color: var(--secondary-text-color); }
+  .taddr { font-size: var(--hb-fs-label); color: var(--secondary-text-color); }
   svg.mbar { display: block; width: 100%; height: 4px; margin-top: 4px; border-radius: 2px; }
   svg.mbar .track { fill: var(--divider-color); }
 
   .pop {
     position: absolute; z-index: 5; box-sizing: border-box; pointer-events: none;
-    min-width: 180px; max-width: min(320px, 100%); padding: 10px 12px;
-    border: 1px solid var(--divider-color); border-radius: 8px; font-size: 0.85em;
+    min-width: 180px; max-width: min(320px, 100%); padding: var(--hb-s3);
+    border: 1px solid var(--divider-color); border-radius: var(--hb-radius-s); font-size: var(--hb-fs-label);
     color: var(--primary-text-color); background: var(--card-background-color);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   }
-  .pop .ptitle { margin-bottom: 4px; font-weight: 600; word-break: break-all; }
+  .pop .ptitle { margin-bottom: var(--hb-s1); font-weight: var(--hb-fw-medium); word-break: break-all; }
   .pop .line { margin: 2px 0; }
   .pop .lname { flex: 1 1 auto; }
   .pop .lvalue { margin-left: 12px; text-align: right; }
   .pop .reason .lvalue { word-break: break-word; }
-  .pop .total { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--divider-color); }
+  .pop .total { margin-top: var(--hb-s1); padding-top: var(--hb-s1); border-top: 1px solid var(--divider-color); }
 
-  .dfoot { color: var(--secondary-text-color); font-size: 0.85em; text-align: center; }
+  .dfoot { color: var(--secondary-text-color); font-size: var(--hb-fs-label); text-align: center; }
 
   @container (max-width: 560px) {
-    .tiles { gap: 8px; }
-    .tile { gap: 8px; padding: 10px; }
-    .chip { width: 32px; height: 32px; border-radius: 10px; --mdc-icon-size: 20px; }
-    .tvalue { font-size: 1.5em; }
+    .tiles { gap: var(--hb-s2); }
+    .tile { gap: var(--hb-s2); padding: var(--hb-s3); }
+    .chip { width: 32px; height: 32px; border-radius: var(--hb-radius-s); --mdc-icon-size: 20px; }
+    .tvalue { font-size: 24px; }
+    .help { width: 40px; height: 40px; }
+    .listbar .btngroup button { min-height: 40px; }
     .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tops { grid-template-columns: minmax(0, 1fr); }
   }

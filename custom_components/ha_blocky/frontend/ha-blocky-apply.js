@@ -27,7 +27,7 @@ export class ApplyView {
     this._reload = reload;
     this._block = undefined;
     this._format = "app";
-    this.element = el("div");
+    this.element = el("div", { className: "stack" });
     this._build();
   }
 

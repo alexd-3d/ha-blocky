@@ -141,7 +141,7 @@ export class RequestsView {
           if (!Object.prototype.hasOwnProperty.call(ACTION_OF, name)) continue;
           const button = el("button", {
             text: this._t(`act_${name}`),
-            className: `fx-${effectOf(name)}`,
+            className: `abtn fx-${effectOf(name)}`,
           });
           button.disabled = busy;
           button.addEventListener("click", () => this._resolve(request, name));
