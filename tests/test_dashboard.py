@@ -338,13 +338,13 @@ async def test_dashboard_is_cached_for_a_short_time(
 ) -> None:
     _seed(log_url)
     calls: list[int] = []
-    original = db.QueryLogDatabase.dashboard_totals
+    original = db.QueryLogDatabase.dashboard_domains
 
     def counting(self: db.QueryLogDatabase, *args: Any) -> Any:
         calls.append(1)
         return original(self, *args)
 
-    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_totals", counting)
+    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_domains", counting)
     await _setup(hass, aioclient_mock)
     client = await hass_ws_client(hass)
 
@@ -405,13 +405,13 @@ async def test_dashboard_errors_are_not_cached_and_hide_details(
     def broken(self: db.QueryLogDatabase, *args: Any) -> Any:
         raise db.BlockyDbError("OperationalError: secret detail")
 
-    original = db.QueryLogDatabase.dashboard_totals
-    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_totals", broken)
+    original = db.QueryLogDatabase.dashboard_domains
+    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_domains", broken)
     failed = await _command(client, 2, type=KIND)
     assert failed["error"]["code"] == "database_error"
     assert "secret detail" not in json.dumps(failed)
 
-    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_totals", original)
+    monkeypatch.setattr(db.QueryLogDatabase, "dashboard_domains", original)
     recovered = await _command(client, 3, type=KIND)
     assert recovered["success"]
     assert recovered["result"]["totals"]["queries"] == 0

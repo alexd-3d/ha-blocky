@@ -21,6 +21,12 @@ Apply now, a tidier Settings tab and timing for the slow dashboard (BLO-021).
 
 ### Changed
 
+- **Faster Dashboard tab:** a round needs 6 statements instead of 10: the totals per
+  category come from the hourly query, and each top list is one statement that ranks and
+  counts per category at the same time. The answers of 7 days and 30 days stay fresh for
+  5 minutes and, for up to an hour, an older answer is shown at once while one refresh runs
+  in the background. The card shows the last answer of a period (kept in memory only)
+  immediately while the new one loads.
 - **Settings tab:** the format switch of the block to paste wraps its labels and stacks in a
   narrow card instead of overlapping; Copy block sits with the block it copies; the Setup
   check is the last part of the "Applying changes to Blocky" card.

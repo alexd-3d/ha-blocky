@@ -99,6 +99,19 @@ _RESPONSE_CATEGORY: Final = {
 }
 
 
+# The response types of each named category (for the conditional sums).
+_NAMED_CATEGORIES: Final = (
+    CATEGORY_RESOLVED,
+    CATEGORY_CACHED,
+    CATEGORY_LOCAL,
+    CATEGORY_BLOCKED,
+)
+_CATEGORY_TYPES: Final = tuple(
+    sorted(t for t, c in _RESPONSE_CATEGORY.items() if c == category)
+    for category in _NAMED_CATEGORIES
+)
+
+
 def response_category(response_type: object) -> str:
     """Return the category a response type is counted in."""
     if not isinstance(response_type, str):
@@ -698,34 +711,26 @@ class QueryLogDatabase:
             )
         return rows
 
-    def dashboard_totals(
+    def dashboard_domains(
         self, since: datetime, until: datetime
-    ) -> tuple[dict[str, int], int, float | None]:
-        """Return the counts per category, the distinct domains and the mean time.
+    ) -> tuple[int, float | None]:
+        """Return the number of distinct domains and the mean answer time.
 
         The window is ``since`` (inclusive) to ``until`` (exclusive), naive UTC.
+        The counts per category come from ``dashboard_hours``, so they cost no
+        statement of their own.
         """
         table = LOG_TABLE.c
-        in_range = (table.request_ts >= since, table.request_ts < until)
-        categories = dict.fromkeys(CATEGORIES, 0)
-        for response_type, hits in self._run(
-            select(table.response_type, func.count())
-            .where(*in_range)
-            .group_by(table.response_type),
-            one=False,
-            label="dashboard_totals.categories",
-        ):
-            categories[response_category(response_type)] += int(hits or 0)
         row = self._run(
             select(
                 func.count(distinct(table.question_name)), func.avg(table.duration_ms)
             )
-            .where(*in_range)
+            .where(table.request_ts >= since, table.request_ts < until)
             .where(table.question_name.is_not(None)),
-            label="dashboard_totals.domains_avg",
+            label="dashboard_domains",
         )
         average = float(row[1]) if row[1] is not None else None
-        return categories, int(row[0] or 0), average
+        return int(row[0] or 0), average
 
     def dashboard_hours(
         self, since: datetime, until: datetime
@@ -789,8 +794,14 @@ class QueryLogDatabase:
 
         hits = func.count().label("hits")
         newest = func.max(table.request_ts).label("newest")
+        # One statement: the rank and the queries per category (conditional
+        # sums). The category "other" is what the four named ones leave over.
+        named = [
+            func.sum(case((table.response_type.in_(types), 1), else_=0))
+            for types in _CATEGORY_TYPES
+        ]
         ranked = self._run(
-            select(column, hits, newest)
+            select(column, hits, newest, *named)
             .where(*in_range)
             .group_by(column)
             .order_by(hits.desc(), column)
@@ -798,20 +809,20 @@ class QueryLogDatabase:
             one=False,
             label="dashboard_top.ranked",
         )
-        names = [name for name, _hits, _newest in ranked if isinstance(name, str)]
+        names = [row[0] for row in ranked if isinstance(row[0], str)]
         if not names:
             return []
 
         per_name: dict[str, dict[str, int]] = {}
-        for name, response_type, count in self._run(
-            select(column, table.response_type, func.count())
-            .where(*in_range, column.in_(names))
-            .group_by(column, table.response_type),
-            one=False,
-            label="dashboard_top.rows",
-        ):
-            counts = per_name.setdefault(name, dict.fromkeys(CATEGORIES, 0))
-            counts[response_category(response_type)] += int(count or 0)
+        for name, total, _newest, *sums in ranked:
+            if not isinstance(name, str):
+                continue
+            counts = {
+                category: int(value or 0)
+                for category, value in zip(_NAMED_CATEGORIES, sums, strict=True)
+            }
+            counts[CATEGORY_OTHER] = max(0, int(total or 0) - sum(counts.values()))
+            per_name[name] = {key: counts.get(key, 0) for key in CATEGORIES}
 
         reasons: dict[str, str] = {}
         if with_reason:
@@ -832,7 +843,7 @@ class QueryLogDatabase:
 
         items: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for name, count, last in ranked:
+        for name, count, last, *_sums in ranked:
             cleaned = clean_text(name)
             if not cleaned or cleaned in seen:
                 continue

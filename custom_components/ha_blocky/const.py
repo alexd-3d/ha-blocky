@@ -47,6 +47,11 @@ MAX_LOG_HOURS: Final = 24 * 30
 DASHBOARD_PERIODS: Final = ("today", "24h", "7d", "30d")
 DASHBOARD_ROWS: Final = (5, 10, 20)
 DASHBOARD_CACHE: Final = timedelta(seconds=30)
+# The long periods (7 d, 30 d) change slowly and are the slow ones: their answer
+# is fresh for 5 minutes, and for up to an hour it is still served at once while
+# one refresh runs in the background.
+DASHBOARD_CACHE_LONG: Final = timedelta(minutes=5)
+DASHBOARD_STALE_MAX: Final = timedelta(hours=1)
 
 # The lists served to Blocky. They are fixed: the user edits their entries
 # (rules), never their names.

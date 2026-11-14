@@ -41,6 +41,9 @@ export class DashboardView {
   constructor(host, container) {
     this._host = host;
     this._period = readChoice("period", PERIODS, "24h");
+    // The last answer of each period and row count, in memory only: shown at
+    // once while a new one loads.
+    this._seen = new Map();
     this._rows = readChoice("rows", ROW_CHOICES, prefs.rows || 10);
     this._token = 0;
     this._active = false;
@@ -234,6 +237,14 @@ export class DashboardView {
       return;
     }
     const token = ++this._token;
+    const seenKey = `${this._period}:${this._rows}`;
+    const seen = this._seen.get(seenKey);
+    if (seen !== undefined && seen !== this._data) {
+      this._data = seen;
+      this._content.hidden = false;
+      this._footer.hidden = false;
+      this._render();
+    }
     try {
       const result = await this._host.hass.callWS({
         type: `${DOMAIN}/dashboard`,
@@ -247,6 +258,7 @@ export class DashboardView {
         return;
       }
       this._data = normalize(result);
+      this._seen.set(seenKey, this._data);
       this._content.hidden = false;
       this._footer.hidden = false;
       this.showMessage("", false);

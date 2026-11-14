@@ -55,6 +55,8 @@ class BlockyData:
         default_factory=dict
     )
     dashboard_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Cache keys whose background refresh is running (at most one per key).
+    dashboard_refreshing: set[tuple[str, int]] = field(default_factory=set)
     # Applying the entries to the Blocky app (apply.py): one run at a time. All
     # of it lives in memory only.
     apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
