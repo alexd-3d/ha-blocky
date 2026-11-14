@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.components import frontend
+from homeassistant.config_entries import ConfigEntryDisabler
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -101,26 +103,70 @@ async def test_the_option_turns_the_panel_off(
 
 
 @pytest.mark.usefixtures("with_frontend")
-async def test_panel_is_removed_with_the_last_entry_and_back_on_setup(
+async def test_a_reload_never_takes_the_panel_away(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The browser leaves a panel that vanishes, even for an instant."""
+    entry = await _add_entry(hass, aioclient_mock)
+    own = _panel(hass)
+    assert own is not None
+
+    with patch(
+        "homeassistant.components.frontend.async_remove_panel",
+        wraps=frontend.async_remove_panel,
+    ) as removed:
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        # A plain unload (what a reload starts with) keeps it as well.
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        assert _panel(hass) is own
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    removed.assert_not_called()
+    assert _panel(hass) is own
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_disabling_the_last_entry_removes_the_panel_and_enabling_adds_it(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     first = await _add_entry(hass, aioclient_mock)
     second = await _add_entry(hass, aioclient_mock)
     assert _panel(hass) is not None
 
-    assert await hass.config_entries.async_unload(first.entry_id)
+    await hass.config_entries.async_set_disabled_by(
+        first.entry_id, ConfigEntryDisabler.USER
+    )
+    await hass.async_block_till_done()
+    # Another entry still wants it.
     assert _panel(hass) is not None
 
-    assert await hass.config_entries.async_unload(second.entry_id)
+    await hass.config_entries.async_set_disabled_by(
+        second.entry_id, ConfigEntryDisabler.USER
+    )
+    await hass.async_block_till_done()
     assert _panel(hass) is None
 
-    # Setting up again (a reload) registers it again without an error.
-    assert await hass.config_entries.async_setup(first.entry_id)
+    await hass.config_entries.async_set_disabled_by(first.entry_id, None)
     await hass.async_block_till_done()
     assert _panel(hass) is not None
-    assert await hass.config_entries.async_reload(first.entry_id)
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_removing_the_last_entry_removes_the_panel(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    first = await _add_entry(hass, aioclient_mock)
+    second = await _add_entry(hass, aioclient_mock)
+
+    await hass.config_entries.async_remove(first.entry_id)
     await hass.async_block_till_done()
     assert _panel(hass) is not None
+
+    await hass.config_entries.async_remove(second.entry_id)
+    await hass.async_block_till_done()
+    assert _panel(hass) is None
 
 
 @pytest.mark.usefixtures("with_frontend")
@@ -131,8 +177,32 @@ async def test_an_entry_without_the_panel_does_not_keep_it_alive(
     await _add_entry(hass, aioclient_mock, {CONF_SHOW_IN_SIDEBAR: False})
     assert _panel(hass) is not None
 
-    assert await hass.config_entries.async_unload(wants.entry_id)
+    await hass.config_entries.async_set_disabled_by(
+        wants.entry_id, ConfigEntryDisabler.USER
+    )
+    await hass.async_block_till_done()
 
+    assert _panel(hass) is None
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_the_option_off_removes_the_panel_only_when_no_other_entry_wants_it(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    wants = await _add_entry(hass, aioclient_mock)
+    other = await _add_entry(hass, aioclient_mock)
+    assert _panel(hass) is not None
+
+    # One entry turns it off: the other still wants it.
+    hass.config_entries.async_update_entry(other, options={CONF_SHOW_IN_SIDEBAR: False})
+    assert await hass.config_entries.async_reload(other.entry_id)
+    await hass.async_block_till_done()
+    assert _panel(hass) is not None
+
+    # The last one turns it off: after its reload the panel is gone.
+    hass.config_entries.async_update_entry(wants, options={CONF_SHOW_IN_SIDEBAR: False})
+    assert await hass.config_entries.async_reload(wants.entry_id)
+    await hass.async_block_till_done()
     assert _panel(hass) is None
 
 
@@ -243,5 +313,30 @@ async def test_our_own_panel_is_still_removed_and_added_again(
     assert _panel(hass) is None
     await settings_ws(**{CONF_SHOW_IN_SIDEBAR: True})
     assert _panel(hass) is not None
-    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_set_disabled_by(
+        entry.entry_id, ConfigEntryDisabler.USER
+    )
+    await hass.async_block_till_done()
     assert _panel(hass) is None
+
+
+@pytest.mark.usefixtures("with_frontend")
+async def test_saving_another_option_reloads_without_the_panel_vanishing(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, settings_ws: Any
+) -> None:
+    """The bug: after Save the browser landed on the default dashboard."""
+    entry = await _add_entry(hass, aioclient_mock)
+    own = _panel(hass)
+    assert own is not None
+
+    with patch(
+        "homeassistant.components.frontend.async_remove_panel",
+        wraps=frontend.async_remove_panel,
+    ) as removed:
+        response = await settings_ws(report_existing_domains=True)
+        await hass.async_block_till_done()
+
+    assert response["result"]["reloading"] is True
+    assert entry.options["report_existing_domains"] is True
+    removed.assert_not_called()
+    assert _panel(hass) is own
