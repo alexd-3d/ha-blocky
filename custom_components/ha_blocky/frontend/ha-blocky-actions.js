@@ -8,6 +8,7 @@
  */
 
 import { DOMAIN, el } from "./ha-blocky-dom.js";
+import { preferredList } from "./ha-blocky-log-logic.js";
 
 // What a request may be resolved with; "dismiss" is a rejection.
 export const ACTION_OF = {
@@ -51,6 +52,7 @@ export const UI_ICONS = {
   tool_flush_cache: "mdi:delete-sweep",
   log_refresh: "mdi:refresh",
   log_live: "mdi:access-point",
+  log_ignore_type: "mdi:format-title",
   chevron: "mdi:chevron-right",
   rule_remove: "mdi:close",
 };
@@ -75,8 +77,10 @@ export function effectOf(action) {
 const FLASH_MS = 1000;
 
 // Highlights the row an action was done on for about a second: the row gets
-// the class `flash-good` or `flash-bad`, the style sheet fades it out. A
-// refresh that rebuilds the row picks the highlight up again by its key.
+// the class `flash-good`, `flash-bad` or `flash-info`, and the style sheet
+// fades the highlight out over that second (an animation, none with reduced
+// motion). A refresh that rebuilds the row picks the highlight up again by its
+// key, for what is left of the second.
 class Flasher {
   constructor() {
     this._marks = new Map();
@@ -175,8 +179,11 @@ export class ListPicker {
     return lists.filter((list) => list.type === type);
   }
 
-  // `context` is handed back to the done callback, so that it knows the row.
-  open(type, domain, context) {
+  // `context` is handed back to the done callback, together with the chosen
+  // list, so that it knows the row. `level` (optional) is the level of the
+  // client the action starts from: the list that changes its answers is
+  // preselected; the user can still pick another.
+  open(type, domain, context, level) {
     const lists = this.lists(type);
     if (!lists.length || typeof domain !== "string" || !domain) return;
     const t = (key) => this._host.t(key);
@@ -189,6 +196,10 @@ export class ListPicker {
         el("option", { text: t(`list_${list.name}`), attrs: { value: list.name } })
       )
     );
+    const fitting = preferredList(this._host.entry && this._host.entry.lists, type, level);
+    if (fitting !== undefined && lists.some((list) => list.name === fitting)) {
+      select.value = fitting;
+    }
     const confirm = el("button", { text: t("confirm"), className: "primary" });
     const cancel = el("button", { text: t("cancel") });
     const result = el("span");
@@ -196,16 +207,17 @@ export class ListPicker {
     cancel.addEventListener("click", () => this.close());
     confirm.addEventListener("click", async () => {
       confirm.disabled = true;
+      const chosen = select.value;
       try {
         await this._host.hass.callService(
           DOMAIN,
           type === "allow" ? "allow_domain" : "block_domain",
-          { config_entry_id: this._host.entry.entry_id, list: select.value, domain }
+          { config_entry_id: this._host.entry.entry_id, list: chosen, domain }
         );
         result.textContent = t("done");
         confirm.hidden = true;
         cancel.textContent = "×";
-        if (this._onDone) this._onDone(context);
+        if (this._onDone) this._onDone(context, chosen);
       } catch (err) {
         result.textContent = (err && err.message) || t("error");
         confirm.disabled = false;

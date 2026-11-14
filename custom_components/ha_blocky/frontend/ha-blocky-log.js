@@ -5,15 +5,14 @@
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
 import { ListPicker, STATUS_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
-import { glyphButton } from "./ha-blocky-controls.js";
 import { formatWhen, timeFormats } from "./ha-blocky-format.js";
 import { groupRows } from "./ha-blocky-group.js";
+import { LogFilters } from "./ha-blocky-log-filters.js";
+import { affectedRowIds, ipFilterOk, levelOfRow, listLevels } from "./ha-blocky-log-logic.js";
 
-const HOURS = [1, 6, 24, 168, 720];
 // Live mode: how often the log is read, and for how long at most.
 const LIVE_INTERVAL_MS = 3000;
 const LIVE_MAX_MS = 10 * 60 * 1000;
-const STATUSES = ["all", "blocked", "allowed"];
 const COLUMNS = [
   { key: "time", label: "col_time", sort: "id" },
   { key: "client", label: "col_client", sort: "client" },
@@ -59,9 +58,8 @@ export class LogView {
     this._nextBeforeId = undefined;
     this._loading = false;
     this._request = 0;
-    this._filters = { domain: "", client: "", status: "all", hours: 24 };
+    this._filters = { domain: "", ip: "", name: "", status: "all", hours: 24 };
     this._sort = { key: "id", direction: -1 };
-    this._group = true;
     this._debounce = undefined;
     this._live = false;
     this._liveTimer = undefined;
@@ -75,59 +73,15 @@ export class LogView {
   }
 
   _build(container) {
-    this._domainInput = el("input", {
-      attrs: { type: "search", maxlength: 253, placeholder: this._t("search_domain") },
+    this._bar = new LogFilters(this._host, {
+      change: (debounce) => this._filterChanged(debounce),
+      render: () => this.render(),
+      live: () => this.setLive(!this._live),
+      refresh: () => this.load(true),
     });
-    this._clientInput = el("input", {
-      attrs: { type: "search", maxlength: 64, placeholder: this._t("search_client") },
-    });
-    this._statusSelect = el(
-      "select",
-      { attrs: { "aria-label": this._t("status") } },
-      STATUSES.map((status) =>
-        el("option", { text: this._t(`status_${status}`), attrs: { value: status } })
-      )
-    );
-    this._hoursSelect = el(
-      "select",
-      { attrs: { "aria-label": this._t("period") } },
-      HOURS.map((hours) =>
-        el("option", { text: this._t(`hours_${hours}`), attrs: { value: hours } })
-      )
-    );
-    this._hoursSelect.value = "24";
-    this._refreshButton = glyphButton(this._t("refresh"), "log_refresh");
-    this._groupBox = el("input", { attrs: { type: "checkbox" } });
-    this._groupBox.checked = this._group;
-    const groupLabel = el("label", { className: "check" }, [
-      this._groupBox,
-      el("span", { text: this._t("group_repeats") }),
-    ]);
-
-    this._liveButton = glyphButton(this._t("live_button"), "log_live", "live");
-    this._liveButton.setAttribute("aria-pressed", "false");
-    this._liveButton.addEventListener("click", () => this.setLive(!this._live));
-    this._groupBox.addEventListener("change", () => {
-      this._group = this._groupBox.checked;
-      this.render();
-    });
-    this._domainInput.addEventListener("input", () => this._filterChanged(true));
-    this._clientInput.addEventListener("input", () => this._filterChanged(true));
-    this._statusSelect.addEventListener("change", () => this._filterChanged(false));
-    this._hoursSelect.addEventListener("change", () => this._filterChanged(false));
-    this._refreshButton.addEventListener("click", () => this.load(true));
-
-    container.appendChild(
-      el("div", { className: "filters" }, [
-        this._domainInput,
-        this._clientInput,
-        this._statusSelect,
-        this._hoursSelect,
-        groupLabel,
-        this._liveButton,
-        this._refreshButton,
-      ])
-    );
+    this._liveButton = this._bar.live;
+    this._refreshButton = this._bar.refresh;
+    container.appendChild(this._bar.element);
     container.appendChild(el("div", { className: "hint", text: this._t("live_hint") }));
 
     this._message = el("div", { className: "message", attrs: { hidden: "" } });
@@ -135,9 +89,16 @@ export class LogView {
 
     this._panel = el("div", { className: "panel", attrs: { hidden: "" } });
     container.appendChild(this._panel);
-    this._picker = new ListPicker(this._host, this._panel, (context) => {
-      // The row of the action is highlighted for a second.
-      if (context) flasher.mark(context.key, context.action);
+    this._picker = new ListPicker(this._host, this._panel, (context, listName) => {
+      // The row of the action, and every visible row of the same domain whose
+      // client's level that list changes, light up for a second.
+      if (context) {
+        flasher.mark(context.key, context.action);
+        const lists = this._host.entry && this._host.entry.lists;
+        for (const id of affectedRowIds(this._rows, context.domain, listLevels(lists, listName))) {
+          flasher.mark(`log:${id}`, context.action);
+        }
+      }
       this.render();
     });
 
@@ -197,6 +158,12 @@ export class LogView {
     }
   }
 
+  // Show the rows of one client address (a click on a client of the dashboard).
+  showClient(address) {
+    this._bar.setAddress(address);
+    this._filterChanged(false);
+  }
+
   hideTable() {
     this._table.hidden = true;
   }
@@ -218,12 +185,7 @@ export class LogView {
   }
 
   _filterChanged(debounce) {
-    this._filters = {
-      domain: this._domainInput.value.trim(),
-      client: this._clientInput.value.trim(),
-      status: this._statusSelect.value,
-      hours: Number(this._hoursSelect.value),
-    };
+    this._filters = this._bar.values();
     clearTimeout(this._debounce);
     if (debounce) {
       this._debounce = setTimeout(() => this.load(true), 400);
@@ -235,6 +197,11 @@ export class LogView {
   async load(reset) {
     const entry = this._host.entry;
     if (!entry || !entry.has_query_log) return;
+    // The server refuses such a value anyway; do not even ask.
+    if (!ipFilterOk(this._filters.ip)) {
+      this.showMessage("bad_ip_filter", true);
+      return;
+    }
     const request = ++this._request;
     this._loading = true;
     this._renderFooter();
@@ -247,7 +214,8 @@ export class LogView {
       limit: this._host.config.page_size,
     };
     if (this._filters.domain) message.domain = this._filters.domain;
-    if (this._filters.client) message.client = this._filters.client;
+    if (this._filters.ip) message.ip = this._filters.ip;
+    if (this._filters.name) message.name = this._filters.name;
     if (!reset && this._nextBeforeId) message.before_id = this._nextBeforeId;
 
     try {
@@ -269,7 +237,11 @@ export class LogView {
       this.showMessage(this._rows.length ? "" : "no_rows", false);
     } catch (err) {
       if (request !== this._request) return;
-      this.showMessage(err && err.code === "no_query_log" ? "no_query_log" : "error", true);
+      const known = { no_query_log: "no_query_log", invalid_ip: "bad_ip_filter", invalid_name: "bad_name_filter" };
+      this.showMessage(
+        err && Object.prototype.hasOwnProperty.call(known, err.code) ? known[err.code] : "error",
+        true
+      );
     } finally {
       if (request === this._request) {
         this._loading = false;
@@ -333,7 +305,7 @@ export class LogView {
     const canAct = this._picker.lists("allow").length || this._picker.lists("deny").length;
     const fragment = document.createDocumentFragment();
 
-    for (const { row, count } of groupRows(this._sortedRows(), this._group)) {
+    for (const { row, count, types } of groupRows(this._sortedRows(), this._bar.group, this._bar.ignoreType)) {
       const time = el("td", { text: this._formatTime(row.time), className: "time" });
       if (count > 1) {
         time.appendChild(el("span", { text: `×${count}`, className: "count" }));
@@ -355,7 +327,7 @@ export class LogView {
           className: "domain",
           attrs: { title: row.domain || "" },
         }),
-        el("td", { text: row.query_type || "", className: "type" }),
+        el("td", { text: types.join(", "), className: "type" }),
         status,
         el("td", { text: Number(row.duration_ms) || 0, className: "num ms" }),
       ];
@@ -366,7 +338,7 @@ export class LogView {
         if (action && row.domain && this._picker.lists(type).length) {
           actions.appendChild(
             iconButton(this._host, action, action, () =>
-              this._picker.open(type, row.domain, { key: `log:${row.id}`, action })
+              this._picker.open(type, row.domain, { key: `log:${row.id}`, action, domain: row.domain }, levelOfRow(row))
             )
           );
         }

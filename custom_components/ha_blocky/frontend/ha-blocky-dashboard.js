@@ -4,7 +4,8 @@
  * domains. The numbers come from one read-only command (`ha_blocky/dashboard`)
  * that aggregates in the database. Every text from the answer is written with
  * textContent; colours come from style classes only.
- * `host` offers: hass, entry, config, t(key), isEditing(), editMode.
+ * `host` offers: hass, entry, config, t(key), isEditing(), editMode,
+ * openLog(address).
  */
 
 import { UI_ICONS, haIcon } from "./ha-blocky-actions.js";
@@ -288,7 +289,7 @@ export class DashboardView {
     const fill = (body, rows, isClient) =>
       body.replaceChildren(
         rows.length
-          ? topList(ctx, this._popover, rows, isClient)
+          ? topList(ctx, this._popover, rows, isClient, (address) => this._host.openLog(address))
           : el("div", { className: "sub", text: this._t("dash_none") })
       );
     fill(this._clients, data.clients, true);

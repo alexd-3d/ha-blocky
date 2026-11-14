@@ -116,16 +116,35 @@ export const STYLE = `
   button.fx-bad { color: var(--hb-bad); border-color: var(--hb-bad); }
   button.fx-good:hover { background: color-mix(in srgb, var(--hb-good) 15%, transparent); }
   button.fx-bad:hover { background: color-mix(in srgb, var(--hb-bad) 15%, transparent); }
-  /* The row an action was done on lights up and fades out. */
-  tr, .knownrow { transition: background-color 0.9s ease-out; }
-  tr.flash-good, .knownrow.flash-good {
-    background-color: color-mix(in srgb, var(--hb-good) 28%, transparent);
+  /* The row an action was done on, or a new live row, lights up and fades out
+     over a second. The card removes the class when the second is over. */
+  tr.flash-good, .knownrow.flash-good { animation: hbfade-good 1s ease-out; }
+  tr.flash-bad, .knownrow.flash-bad { animation: hbfade-bad 1s ease-out; }
+  tr.flash-info { animation: hbfade-info 1s ease-out; }
+  @keyframes hbfade-good {
+    from { background-color: color-mix(in srgb, var(--hb-good) 28%, transparent); }
+    to { background-color: transparent; }
   }
-  tr.flash-bad, .knownrow.flash-bad {
-    background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent);
+  @keyframes hbfade-bad {
+    from { background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent); }
+    to { background-color: transparent; }
   }
+  @keyframes hbfade-info {
+    from { background-color: color-mix(in srgb, var(--primary-color) 22%, transparent); }
+    to { background-color: transparent; }
+  }
+  /* No motion: the highlight stays as it is for that second, then goes. */
   @media (prefers-reduced-motion: reduce) {
-    tr, .knownrow { transition: none; }
+    tr.flash-good, .knownrow.flash-good, tr.flash-bad, .knownrow.flash-bad, tr.flash-info {
+      animation: none;
+    }
+    tr.flash-good, .knownrow.flash-good {
+      background-color: color-mix(in srgb, var(--hb-good) 28%, transparent);
+    }
+    tr.flash-bad, .knownrow.flash-bad {
+      background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent);
+    }
+    tr.flash-info { background-color: color-mix(in srgb, var(--primary-color) 22%, transparent); }
   }
   .iconbtn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
   td.actions, td.buttons { white-space: nowrap; }

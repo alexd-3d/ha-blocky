@@ -32,13 +32,15 @@ const FIELD_LABELS = {
   show_in_sidebar: "set_sidebar",
   rows: "set_rows_default",
 };
-const RELOAD_DELAY_MS = 4000;
 
 export class SettingsView {
   constructor(host, container) {
     this._host = host;
     this._rows = undefined;
     this._rowsTouched = false;
+    // True from saving options until the reloaded instance answers again.
+    this._reloading = false;
+    this._active = false;
     this._inputs = {};
     this._options = new OptionsForm(host);
     this._protection = new ProtectionView(host);
@@ -186,6 +188,9 @@ export class SettingsView {
   }
 
   async load() {
+    // While the instance reloads its commands answer "not found": that is no
+    // error, so nothing is asked and the tab keeps what it shows.
+    if (this._reloading) return;
     const entry = this._host.entry;
     this._protection.load();
     try {
@@ -205,6 +210,7 @@ export class SettingsView {
 
   // Leaving the tab drops a preview that was not saved.
   setActive(active) {
+    this._active = active;
     if (active) {
       this.load();
     } else {
@@ -262,7 +268,14 @@ export class SettingsView {
     const result = await this._send(payload, this._opsMessage);
     if (!result) return;
     this._say(this._opsMessage, result.reloading ? "set_saved_reload" : "set_saved", false);
+    if (!result.reloading) return;
     // The integration reloads; look again once it is back.
-    setTimeout(() => this._host.reloadEntry(), RELOAD_DELAY_MS);
+    this._reloading = true;
+    try {
+      await this._host.reloadEntry(true);
+    } finally {
+      this._reloading = false;
+    }
+    if (this._active) await this.load();
   }
 }

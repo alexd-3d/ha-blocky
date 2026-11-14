@@ -9,11 +9,11 @@ export const TABS_STYLE = `
   .ibtn {
     display: inline-grid; place-items: center; flex: 0 0 auto; box-sizing: border-box;
     width: 38px; height: 38px; min-width: 38px; padding: 0; border-radius: 8px;
-    --mdc-icon-size: 22px; transition: background-color 0.9s ease-out;
+    --mdc-icon-size: 22px;
   }
   .ibtn:focus-visible, .ksum:focus-visible { outline: 2px solid var(--primary-color); }
-  .tbtn.flash-good { background-color: color-mix(in srgb, var(--hb-good) 28%, transparent); }
-  .tbtn.flash-bad { background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent); }
+  .tbtn.flash-good { animation: hbfade-good 1s ease-out; }
+  .tbtn.flash-bad { animation: hbfade-bad 1s ease-out; }
 
   .dtools { display: grid; gap: 6px; min-width: 0; }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
@@ -72,7 +72,9 @@ export const TABS_STYLE = `
   .gtitle { margin: 0 0 8px; font-size: 0.95em; font-weight: 600; }
 
   @media (prefers-reduced-motion: reduce) {
-    .ibtn { transition: none; }
+    .tbtn.flash-good, .tbtn.flash-bad { animation: none; }
+    .tbtn.flash-good { background-color: color-mix(in srgb, var(--hb-good) 28%, transparent); }
+    .tbtn.flash-bad { background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent); }
     .karrow { transition: none; }
   }
 `;

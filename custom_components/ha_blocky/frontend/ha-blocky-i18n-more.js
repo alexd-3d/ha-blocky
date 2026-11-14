@@ -20,7 +20,17 @@ export const MORE_EN = {
   "cat_hint_other": "Other: any other kind of answer, for example an error or a special rule.",
   "set_group_defaults": "Dashboard defaults",
   "set_group_intervals": "Polling intervals",
-  "set_group_general": "Reporting and sidebar"
+  "set_group_general": "Reporting and sidebar",
+  "search_ip": "IP address",
+  "search_name": "Client name",
+  "ignore_type": "Ignore query type: merge rows that differ only by type (A, AAAA, HTTPS)",
+  "bad_ip_filter": "The IP filter may hold only digits, the letters a-f, dots and colons (45 characters at most).",
+  "bad_name_filter": "That client name filter is not valid.",
+  "dash_open_log": "Show this client's queries in the Query log",
+  "perr_invalid_name": "The name must be 1 to 64 characters without control characters.",
+  "perr_too_many_names": "Too many client names are stored already.",
+  "perr_invalid_ip": "That is not a valid IP address.",
+  "prot_base_default_warning": "The list groups of the Standard level are still the built-in default (default). If your Blocky uses other names for its list groups, Standard clients lose their lists. Enter your names below and save."
 };
 /* i18n:end */
 
@@ -40,6 +50,16 @@ export const MORE_UK = {
   "cat_hint_other": "Інше: будь-який інший тип відповіді, наприклад помилка чи особливе правило.",
   "set_group_defaults": "Типові значення панелі",
   "set_group_intervals": "Інтервали опитування",
-  "set_group_general": "Звіти та бічна панель"
+  "set_group_general": "Звіти та бічна панель",
+  "search_ip": "IP-адреса",
+  "search_name": "Назва клієнта",
+  "ignore_type": "Ігнорувати тип запиту: об'єднувати рядки, що відрізняються лише типом (A, AAAA, HTTPS)",
+  "bad_ip_filter": "Фільтр IP може містити лише цифри, літери a-f, крапки та двокрапки (не більше 45 символів).",
+  "bad_name_filter": "Недійсний фільтр за назвою клієнта.",
+  "dash_open_log": "Показати запити цього клієнта в журналі запитів",
+  "perr_invalid_name": "Назва має містити від 1 до 64 символів без керівних символів.",
+  "perr_too_many_names": "Уже збережено забагато назв клієнтів.",
+  "perr_invalid_ip": "Це не коректна IP-адреса.",
+  "prot_base_default_warning": "Групи списків рівня «Стандартний» досі мають вбудоване значення (default). Якщо ваш Blocky називає свої групи списків інакше, клієнти зі Стандартним рівнем втратять свої списки. Введіть свої назви нижче та збережіть."
 };
 /* i18n:end */
