@@ -114,7 +114,7 @@ export class ProtectionView {
     const save = el("button", { text: t("set_save"), className: "primary" });
     save.addEventListener("click", () => this._saveBase());
     this._baseWarning = el("div", {
-      className: "banner waiting",
+      className: "basewarning banner waiting",
       text: t("prot_base_default_warning"),
       attrs: { hidden: "" },
     });
