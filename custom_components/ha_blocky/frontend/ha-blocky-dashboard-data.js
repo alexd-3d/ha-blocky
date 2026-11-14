@@ -52,5 +52,6 @@ export function normalize(result) {
     version: text(meta.version, 32),
     blockyVersion: text(meta.blocky_version, 32),
     generated: new Date(meta.generated_at),
+    stale: meta.stale === true,
   };
 }

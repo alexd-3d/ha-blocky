@@ -9,7 +9,9 @@ into a DNS query) and is cleaned before it leaves this module.
 from __future__ import annotations
 
 import importlib.util
+import logging
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,6 +39,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import URL, Engine
 from sqlalchemy.exc import NoSuchTableError, SQLAlchemyError
+
+_LOGGER = logging.getLogger(__name__)
+
+# Most index columns the diagnostics read from the log table.
+MAX_INDEX_ROWS: Final = 100
 
 LOG_TABLE_NAME: Final = "log_entries"
 
@@ -90,6 +97,19 @@ _RESPONSE_CATEGORY: Final = {
     "SYNTHESIZED": CATEGORY_LOCAL,
     **dict.fromkeys(BLOCKED_RESPONSE_TYPES, CATEGORY_BLOCKED),
 }
+
+
+# The response types of each named category (for the conditional sums).
+_NAMED_CATEGORIES: Final = (
+    CATEGORY_RESOLVED,
+    CATEGORY_CACHED,
+    CATEGORY_LOCAL,
+    CATEGORY_BLOCKED,
+)
+_CATEGORY_TYPES: Final = tuple(
+    sorted(t for t, c in _RESPONSE_CATEGORY.items() if c == category)
+    for category in _NAMED_CATEGORIES
+)
 
 
 def response_category(response_type: object) -> str:
@@ -354,12 +374,18 @@ class QueryLogDatabase:
             self._engine.dispose()
             self._engine = None
 
-    def _run(self, statement, *, one: bool = True):  # type: ignore[no-untyped-def]
-        """Execute a read statement with a bounded run time."""
+    def _run(self, statement, *, label: str, one: bool = True):  # type: ignore[no-untyped-def]
+        """Execute a read statement with a bounded run time.
+
+        ``label`` is a fixed literal of the caller. One DEBUG line per statement
+        says the label, the milliseconds and the row count: never the statement
+        text or its parameters, which may hold domains and client addresses.
+        """
         self.connect()
         engine = self._engine
         if engine is None:
             raise BlockyDbError("not connected")
+        started = time.perf_counter()
         try:
             with engine.connect() as connection:
                 if self.dialect == "mysql":
@@ -371,16 +397,67 @@ class QueryLogDatabase:
                     except SQLAlchemyError:
                         # Not MariaDB; run without a statement timeout.
                         connection.rollback()
+                started = time.perf_counter()
                 result = connection.execute(statement)
-                return result.one() if one else result.all()
+                rows = result.one() if one else result.all()
         except SQLAlchemyError as err:
             # Drop the engine so the next call reconnects and re-validates.
             self.close()
             raise BlockyDbError(type(err).__name__) from err
+        _LOGGER.debug(
+            "query %s: %d ms, %d rows",
+            label,
+            round((time.perf_counter() - started) * 1000),
+            1 if one else len(rows),
+        )
+        return rows
+
+    def table_info(self) -> dict[str, Any] | None:
+        """Describe the log table's indexes and size, for the diagnostics.
+
+        MySQL and MariaDB only (``information_schema`` of the current database);
+        other dialects answer None. Read-only, parameterised and bounded. The
+        row count is the server's estimate, not an exact count. Text is cleaned.
+        """
+        if self.dialect != "mysql":
+            return None
+        index_rows = self._run(
+            text(
+                "SELECT index_name, column_name, non_unique FROM "
+                "information_schema.statistics "
+                "WHERE table_schema = DATABASE() AND table_name = :table "
+                "ORDER BY index_name, seq_in_index LIMIT :limit"
+            ).bindparams(table=LOG_TABLE_NAME, limit=MAX_INDEX_ROWS),
+            one=False,
+            label="table_info.indexes",
+        )
+        size_rows = self._run(
+            text(
+                "SELECT table_rows FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name = :table LIMIT 1"
+            ).bindparams(table=LOG_TABLE_NAME),
+            one=False,
+            label="table_info.size",
+        )
+        indexes: dict[str, dict[str, Any]] = {}
+        for name, column, non_unique in index_rows:
+            entry = indexes.setdefault(
+                clean_text(name), {"columns": [], "unique": str(non_unique) == "0"}
+            )
+            entry["columns"].append(clean_text(column))
+        estimate = size_rows[0][0] if size_rows else None
+        return {
+            "indexes": [{"name": name, **entry} for name, entry in indexes.items()],
+            "estimated_rows": (
+                int(estimate)
+                if isinstance(estimate, (int, float)) and not isinstance(estimate, bool)
+                else None
+            ),
+        }
 
     def max_id(self) -> int:
         """Return the highest row id, or 0 for an empty table."""
-        row = self._run(select(func.max(LOG_TABLE.c.id)))
+        row = self._run(select(func.max(LOG_TABLE.c.id)), label="max_id")
         return int(row[0] or 0)
 
     def counts_since(self, last_id: int) -> Counts:
@@ -394,6 +471,7 @@ class QueryLogDatabase:
             .where(LOG_TABLE.c.id > last_id)
             .group_by(LOG_TABLE.c.response_type),
             one=False,
+            label="counts_since",
         )
         categories = dict.fromkeys(CATEGORIES, 0)
         max_id = last_id
@@ -424,7 +502,7 @@ class QueryLogDatabase:
         )
         rows: list[LogRow] = []
         for row_id, client, domain, response_type, requested in self._run(
-            statement, one=False
+            statement, one=False, label="rows_after"
         ):
             if isinstance(requested, str):
                 try:
@@ -461,7 +539,7 @@ class QueryLogDatabase:
         )
         return [
             name if isinstance(name, str) else None
-            for (name,) in self._run(statement, one=False)
+            for (name,) in self._run(statement, one=False, label="client_domains")
         ]
 
     def summary(self, since: datetime) -> Summary:
@@ -476,7 +554,8 @@ class QueryLogDatabase:
                 func.count(distinct(LOG_TABLE.c.client_ip)),
                 func.avg(LOG_TABLE.c.duration_ms),
                 func.max(LOG_TABLE.c.request_ts),
-            ).where(LOG_TABLE.c.request_ts >= since)
+            ).where(LOG_TABLE.c.request_ts >= since),
+            label="summary",
         )
         latest = row[4]
         if isinstance(latest, str):
@@ -506,7 +585,9 @@ class QueryLogDatabase:
             .limit(max(1, min(int(limit), 5000)))
         )
         counts: list[tuple[str, int, int]] = []
-        for address, queries, blocked_queries in self._run(statement, one=False):
+        for address, queries, blocked_queries in self._run(
+            statement, one=False, label="client_counts"
+        ):
             cleaned = clean_text(address)
             if cleaned:
                 counts.append((cleaned, int(queries or 0), int(blocked_queries or 0)))
@@ -528,7 +609,7 @@ class QueryLogDatabase:
                 LOG_TABLE.c.response_type.in_(BLOCKED_RESPONSE_TYPES)
             )
         items = []
-        for name, hits in self._run(statement, one=False):
+        for name, hits in self._run(statement, one=False, label="top"):
             cleaned = clean_text(name)
             if cleaned:
                 items.append(TopItem(cleaned, int(hits)))
@@ -605,7 +686,7 @@ class QueryLogDatabase:
         statement = statement.order_by(table.id.desc()).limit(limit)
 
         rows: list[dict[str, Any]] = []
-        for row in self._run(statement, one=False):
+        for row in self._run(statement, one=False, label="query_log"):
             requested = row[1]
             if isinstance(requested, str):
                 requested = datetime.fromisoformat(requested)
@@ -630,32 +711,26 @@ class QueryLogDatabase:
             )
         return rows
 
-    def dashboard_totals(
+    def dashboard_domains(
         self, since: datetime, until: datetime
-    ) -> tuple[dict[str, int], int, float | None]:
-        """Return the counts per category, the distinct domains and the mean time.
+    ) -> tuple[int, float | None]:
+        """Return the number of distinct domains and the mean answer time.
 
         The window is ``since`` (inclusive) to ``until`` (exclusive), naive UTC.
+        The counts per category come from ``dashboard_hours``, so they cost no
+        statement of their own.
         """
         table = LOG_TABLE.c
-        in_range = (table.request_ts >= since, table.request_ts < until)
-        categories = dict.fromkeys(CATEGORIES, 0)
-        for response_type, hits in self._run(
-            select(table.response_type, func.count())
-            .where(*in_range)
-            .group_by(table.response_type),
-            one=False,
-        ):
-            categories[response_category(response_type)] += int(hits or 0)
         row = self._run(
             select(
                 func.count(distinct(table.question_name)), func.avg(table.duration_ms)
             )
-            .where(*in_range)
-            .where(table.question_name.is_not(None))
+            .where(table.request_ts >= since, table.request_ts < until)
+            .where(table.question_name.is_not(None)),
+            label="dashboard_domains",
         )
         average = float(row[1]) if row[1] is not None else None
-        return categories, int(row[0] or 0), average
+        return int(row[0] or 0), average
 
     def dashboard_hours(
         self, since: datetime, until: datetime
@@ -676,7 +751,9 @@ class QueryLogDatabase:
             .limit(MAX_DASHBOARD_HOURS)
         )
         result: list[tuple[datetime, str, int]] = []
-        for y, mo, d, h, response_type, hits in self._run(statement, one=False):
+        for y, mo, d, h, response_type, hits in self._run(
+            statement, one=False, label="dashboard_hours"
+        ):
             try:
                 start = datetime(int(y), int(mo), int(d), int(h))
             except (TypeError, ValueError):
@@ -717,27 +794,35 @@ class QueryLogDatabase:
 
         hits = func.count().label("hits")
         newest = func.max(table.request_ts).label("newest")
+        # One statement: the rank and the queries per category (conditional
+        # sums). The category "other" is what the four named ones leave over.
+        named = [
+            func.sum(case((table.response_type.in_(types), 1), else_=0))
+            for types in _CATEGORY_TYPES
+        ]
         ranked = self._run(
-            select(column, hits, newest)
+            select(column, hits, newest, *named)
             .where(*in_range)
             .group_by(column)
             .order_by(hits.desc(), column)
             .limit(limit),
             one=False,
+            label="dashboard_top.ranked",
         )
-        names = [name for name, _hits, _newest in ranked if isinstance(name, str)]
+        names = [row[0] for row in ranked if isinstance(row[0], str)]
         if not names:
             return []
 
         per_name: dict[str, dict[str, int]] = {}
-        for name, response_type, count in self._run(
-            select(column, table.response_type, func.count())
-            .where(*in_range, column.in_(names))
-            .group_by(column, table.response_type),
-            one=False,
-        ):
-            counts = per_name.setdefault(name, dict.fromkeys(CATEGORIES, 0))
-            counts[response_category(response_type)] += int(count or 0)
+        for name, total, _newest, *sums in ranked:
+            if not isinstance(name, str):
+                continue
+            counts = {
+                category: int(value or 0)
+                for category, value in zip(_NAMED_CATEGORIES, sums, strict=True)
+            }
+            counts[CATEGORY_OTHER] = max(0, int(total or 0) - sum(counts.values()))
+            per_name[name] = {key: counts.get(key, 0) for key in CATEGORIES}
 
         reasons: dict[str, str] = {}
         if with_reason:
@@ -749,6 +834,7 @@ class QueryLogDatabase:
                 .order_by(reason_hits.desc())
                 .limit(limit * MAX_REASON_GROUPS_PER_ITEM),
                 one=False,
+                label="dashboard_top.reasons",
             ):
                 cleaned_reason = clean_text(reason)[:MAX_REASON_LENGTH]
                 # Most frequent first: keep the first non-empty one of a name.
@@ -757,7 +843,7 @@ class QueryLogDatabase:
 
         items: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for name, count, last in ranked:
+        for name, count, last, *_sums in ranked:
             cleaned = clean_text(name)
             if not cleaned or cleaned in seen:
                 continue

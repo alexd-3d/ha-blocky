@@ -9,6 +9,8 @@ do not multiply the load on the database.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
@@ -16,11 +18,18 @@ from typing import TYPE_CHECKING, Any, Final
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .const import DASHBOARD_CACHE
-from .db import CATEGORIES, QueryLogDatabase
+from .const import (
+    DASHBOARD_CACHE,
+    DASHBOARD_CACHE_LONG,
+    DASHBOARD_STALE_MAX,
+    DOMAIN,
+)
+from .db import CATEGORIES, BlockyDbError, QueryLogDatabase
 
 if TYPE_CHECKING:
     from .coordinator import BlockyData
+
+_LOGGER = logging.getLogger(__name__)
 
 PERIOD_TODAY: Final = "today"
 PERIOD_24H: Final = "24h"
@@ -94,11 +103,26 @@ def collect(
     database: QueryLogDatabase, window: Window, period: str, rows: int
 ) -> dict[str, Any]:
     """Run the dashboard queries. Executor only."""
+    started = time.perf_counter()
+    result = _collect(database, window, period, rows)
+    _LOGGER.debug(
+        "dashboard round for %s: %d ms",
+        period,
+        round((time.perf_counter() - started) * 1000),
+    )
+    return result
+
+
+def _collect(
+    database: QueryLogDatabase, window: Window, period: str, rows: int
+) -> dict[str, Any]:
     since, until = _naive(window.since), _naive(window.until)
-    categories, unique_domains, average = database.dashboard_totals(since, until)
+    unique_domains, average = database.dashboard_domains(since, until)
 
     buckets = {start: dict.fromkeys(CATEGORIES, 0) for start in window.starts}
+    categories = dict.fromkeys(CATEGORIES, 0)
     for hour, category, count in database.dashboard_hours(since, until):
+        categories[category] += count
         stamp = hour.replace(tzinfo=dt_util.UTC)
         key = (
             max(_local_day_start(stamp), window.starts[0])
@@ -136,6 +160,48 @@ def collect(
     }
 
 
+def _fresh_for(period: str) -> timedelta:
+    return DASHBOARD_CACHE_LONG if period in _DAYS else DASHBOARD_CACHE
+
+
+async def _round(
+    hass: HomeAssistant,
+    data: BlockyData,
+    database: QueryLogDatabase,
+    period: str,
+    rows: int,
+) -> dict[str, Any]:
+    """Run one database round and cache its answer. The caller holds the lock."""
+    now = dt_util.utcnow()
+    result = await hass.async_add_executor_job(
+        collect, database, build_window(period, now), period, rows
+    )
+    result["generated_at"] = _iso(now)
+    data.dashboard_cache[(period, rows)] = (now, result)
+    return result
+
+
+async def _background_refresh(
+    hass: HomeAssistant,
+    data: BlockyData,
+    database: QueryLogDatabase,
+    period: str,
+    rows: int,
+) -> None:
+    """Refresh a stale long-period answer; one round at a time, errors are kept
+    out of the cache (the old answer stays until it is too old)."""
+    key = (period, rows)
+    try:
+        async with data.dashboard_lock:
+            cached = data.dashboard_cache.get(key)
+            if cached is None or dt_util.utcnow() - cached[0] >= _fresh_for(period):
+                await _round(hass, data, database, period, rows)
+    except BlockyDbError as err:
+        _LOGGER.debug("dashboard background refresh failed (%s)", type(err).__name__)
+    finally:
+        data.dashboard_refreshing.discard(key)
+
+
 async def async_dashboard(
     hass: HomeAssistant,
     data: BlockyData,
@@ -146,17 +212,41 @@ async def async_dashboard(
     """Return the dashboard answer, from the cache while it is fresh.
 
     The lock makes callers that arrive together wait for one database round.
-    The returned dict is shared: callers must copy it before changing it.
+    An answer that is stale but under an hour old is returned at once, marked
+    ``"stale": True``, while one background round refreshes it. The cache holds at
+    most one answer per (period, rows). The returned dict is shared: callers
+    must copy it before changing it.
     """
     key = (period, rows)
+    cached = data.dashboard_cache.get(key)
+    if cached is not None:
+        age = dt_util.utcnow() - cached[0]
+        if age < _fresh_for(period):
+            _LOGGER.debug("dashboard cache hit for %s", period)
+            return cached[1]
+        if age < DASHBOARD_STALE_MAX:
+            _LOGGER.debug("dashboard stale hit for %s, refreshing", period)
+            if key not in data.dashboard_refreshing:
+                data.dashboard_refreshing.add(key)
+                hass.async_create_background_task(
+                    _background_refresh(hass, data, database, period, rows),
+                    f"{DOMAIN} dashboard refresh",
+                )
+            # A copy: the cached answer itself is never marked.
+            return {**cached[1], "stale": True}
     async with data.dashboard_lock:
         now = dt_util.utcnow()
         cached = data.dashboard_cache.get(key)
-        if cached is not None and now - cached[0] < DASHBOARD_CACHE:
+        if cached is not None and now - cached[0] < _fresh_for(period):
+            _LOGGER.debug("dashboard cache hit for %s", period)
             return cached[1]
-        result = await hass.async_add_executor_job(
-            collect, database, build_window(period, now), period, rows
-        )
-        result["generated_at"] = _iso(now)
-        data.dashboard_cache[key] = (now, result)
-        return result
+        _LOGGER.debug("dashboard cache miss for %s", period)
+        if not data.table_logged and _LOGGER.isEnabledFor(logging.DEBUG):
+            data.table_logged = True
+            try:
+                facts = await hass.async_add_executor_job(database.table_info)
+            except BlockyDbError:
+                facts = None
+            # Schema facts only: index names, their columns, a row estimate.
+            _LOGGER.debug("query log table facts: %s", facts)
+        return await _round(hass, data, database, period, rows)

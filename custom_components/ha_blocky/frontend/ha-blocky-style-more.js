@@ -79,8 +79,41 @@ export const MORE_STYLE = `
     width: 100%; margin-top: var(--hb-s2);
     font-family: var(--code-font-family, monospace); font-size: var(--hb-fs-label);
   }
-  table.setupcheck td { padding-top: var(--hb-s2); padding-bottom: var(--hb-s2); }
+  /* The format switch and the Copy button sit together above the text. Here the
+     labels may wrap, and in a narrow card the two options stack. */
+  .blockbox .blockhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hb-s2); }
+  .blockbox .blockhead .btngroup { flex: 1 1 22rem; width: auto; max-width: none; margin: 0; }
+  .blockbox .blockhead .btngroup button {
+    white-space: normal; text-align: center; line-height: 1.25;
+    min-height: 40px; padding: var(--hb-s1) var(--hb-s3);
+  }
+  .blockbox .blockhead > button { flex: 0 0 auto; margin-left: auto; }
+  /* The last part of a card, set off from the part above it. */
+  .scard .subsec { margin-top: var(--hb-s4); padding-top: var(--hb-s4); border-top: 1px solid var(--divider-color); }
+  .scard .subsec h4 { margin: 0 0 var(--hb-s1); font-size: var(--hb-fs-body, 1rem); font-weight: var(--hb-fw-medium); }
+  /* The setup check never grows beyond its card: both cells may wrap. */
+  table.setupcheck { width: 100%; table-layout: fixed; }
+  table.setupcheck td {
+    padding-top: var(--hb-s2); padding-bottom: var(--hb-s2);
+    white-space: normal; overflow-wrap: anywhere; vertical-align: top;
+  }
+  table.setupcheck td:first-child { width: 55%; }
   table.setupcheck td:last-child { text-align: right; font-weight: var(--hb-fw-medium); }
+  /* Nothing inside a settings card may push it wider than its column. */
+  .scard { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .scard .hint, .scard .message, .scard .banner { overflow-wrap: anywhere; }
+  /* An opt-in row: the label at the left, the switch at the right. */
+  .optrow { display: flex; align-items: center; justify-content: space-between; gap: var(--hb-s3); }
+  .optrow .optlabel { flex: 1 1 auto; min-width: 0; font-weight: var(--hb-fw-medium); overflow-wrap: anywhere; }
+  button.tswitch {
+    --c: var(--disabled-text-color, #9e9e9e);
+    flex: 0 0 auto; min-height: 0; padding: 4px; border: 0; border-radius: 16px; background: none;
+  }
+  /* A span is inline: without this the track has no size and only the knob shows. */
+  button.tswitch .track { display: block; }
+  button.tswitch[aria-checked="true"] { --c: var(--hb-good); }
+  button.tswitch[aria-checked="true"] .knob { transform: translateX(18px); }
+  button.tswitch:disabled { opacity: 0.5; cursor: not-allowed; }
   table.compare th, table.compare td {
     white-space: normal; vertical-align: top; min-width: 9rem; line-height: 1.35;
   }
@@ -117,5 +150,10 @@ export const MORE_STYLE = `
   @container (max-width: 560px) {
     .btnrow button { min-height: 40px; }
     table.prot select { min-height: 40px; }
+    .blockbox .blockhead .btngroup { flex-direction: column; flex-basis: 100%; }
+    .blockbox .blockhead .btngroup button { margin-left: 0; margin-top: -1px; border-radius: 0; }
+    .blockbox .blockhead .btngroup button:first-child { margin-top: 0; border-radius: var(--hb-radius-s) var(--hb-radius-s) 0 0; }
+    .blockbox .blockhead .btngroup button:last-child { border-radius: 0 0 var(--hb-radius-s) var(--hb-radius-s); }
+    .blockbox .blockhead > button { margin-left: 0; }
   }
 `;

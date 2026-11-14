@@ -21,6 +21,7 @@ from .const import (
     CONF_DB_USERNAME,
 )
 from .coordinator import BlockyConfigEntry
+from .db import BlockyDbError
 
 TO_REDACT = {
     CONF_URL,
@@ -89,6 +90,14 @@ async def async_get_config_entry_diagnostics(
         # Counts only: no client address and no domain.
         if data.requests is not None:
             query_log["requests"] = data.requests.diagnostics()
+        # Index and size facts for the slow-dashboard question (MariaDB only);
+        # a database error here must not break the download.
+        try:
+            query_log["table"] = await hass.async_add_executor_job(
+                data.stats.database.table_info
+            )
+        except BlockyDbError:
+            query_log["table"] = None
         diagnostics["query_log"] = query_log
 
     return diagnostics

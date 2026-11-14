@@ -1777,6 +1777,8 @@ globalThis.document = { createElement: (tag) => new Node(tag), createDocumentFra
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (t) => { globalThis.copied = t; } } } });
 
 const calls = [];
+const auto = { auto_apply: false, apply_available: true, last_apply: null };
+let applyError = "";
 const rules = {
   allow_default: ["ok.example.com"], deny_default: [], restricted_deny: [], lockdown_allow: ["tv.example.com"],
 };
@@ -1792,7 +1794,14 @@ const hass = {
         ],
         status: { applied: false, waiting: 2, fetched_since_start: false, lists: { unfiltered: { fetched: false, current: false }, restricted: { fetched: true, current: true }, lockdown: { fetched: true, current: false } } },
         setup: { api_ok: true, log_ok: null },
+        ...auto,
       };
+    }
+    if (msg.type === "ha_blocky/set_auto_apply") { auto.auto_apply = msg.enabled; return { auto_apply: msg.enabled }; }
+    if (msg.type === "ha_blocky/apply_now") {
+      if (applyError) { const e = new Error("secret server text"); e.code = applyError; throw e; }
+      auto.last_apply = { result: "ok", at: "2026-11-14T10:00:00+00:00" };
+      return { result: "ok", last_apply: auto.last_apply };
     }
     if (msg.type === "ha_blocky/rules") {
       return { lists: Object.entries(rules).map(([name, entries]) => ({ name, type: "x", exact_only: name === "lockdown_allow", total: entries.length, entries })) };
@@ -1836,6 +1845,38 @@ out.copied = globalThis.copied;
 // check now
 await buttons(host.t("prot_check"))[0].fire("click");
 out.pressed = calls.find((c) => c.service === "press");
+// the opt-in: off by default, a confirmation before it is turned on
+const autoBox = () =>
+  all((n) => n.tagName === "button" && n.attrs["aria-label"] === host.t("prot_auto_label"))[0];
+const confirmRow = () => all((n) => n.className === "banner waiting" && n.children.length === 2)[0];
+out.applyHiddenOff = buttons(host.t("prot_apply_now"))[0].hidden;
+out.lastNever = all((n) => n.className === "setupcheck")[0].textContent.includes(host.t("prot_never"));
+out.role = autoBox().attrs.role;
+await autoBox().fire("click");
+out.confirmShown = confirmRow().hidden === false;
+out.noCallYet = calls.some((c) => c.type === "ha_blocky/set_auto_apply");
+out.boxStillOff = autoBox().attrs["aria-checked"];
+await buttons(host.t("prot_auto_confirm_yes"))[0].fire("click");
+out.autoCall = calls.find((c) => c.type === "ha_blocky/set_auto_apply");
+out.applyHiddenOn = buttons(host.t("prot_apply_now"))[0].hidden;
+out.boxOn = autoBox().attrs["aria-checked"];
+// apply now: a result, then a refusal with the card's own words
+const message = () => all((n) => n.className.startsWith("message"));
+await buttons(host.t("prot_apply_now"))[0].fire("click");
+out.applyCall = calls.find((c) => c.type === "ha_blocky/apply_now");
+out.applyMessage = message().map((n) => n.textContent).filter(Boolean).at(-1);
+out.lastShown = all((n) => n.className === "setupcheck")[0].textContent;
+applyError = "apply_busy";
+await buttons(host.t("prot_apply_now"))[0].fire("click");
+out.busyMessage = message().map((n) => n.textContent).filter(Boolean).at(-1);
+// turning it off needs no confirmation
+await autoBox().fire("click");
+out.offCall = calls.filter((c) => c.type === "ha_blocky/set_auto_apply").at(-1);
+// no Supervisor: the switch is disabled with a reason
+auto.apply_available = false;
+await view.load();
+out.unavailableDisabled = autoBox().disabled;
+out.unavailableText = view.element.textContent.includes(host.t("prot_auto_unavailable"));
 console.log(JSON.stringify(out));
 """
 
@@ -1847,6 +1888,9 @@ def test_protection_modules_talk_to_the_level_commands_only() -> None:
     for command in ("levels", "set_client_level", "set_base_groups", "set_notify"):
         assert f"`${{DOMAIN}}/{command}`" in protection, command
     assert "`${DOMAIN}/get_block`" in apply_js
+    for command in ("set_auto_apply", "apply_now"):
+        assert f"`${{DOMAIN}}/{command}`" in apply_js, command
+    assert "window.confirm" not in apply_js
     assert '"button", "press"' in apply_js
     assert "`${DOMAIN}/rules`" in rules and "`${DOMAIN}/rules_${kind}`" in rules
     # The level comes from a fixed list; the server's words are never shown.
@@ -1935,10 +1979,44 @@ def test_the_protection_view_draws_from_text_only(tmp_path: Any) -> None:
     # A name now lives in an input (value or placeholder), never in markup.
     assert "<b>" not in out["text"]
     assert out["selectValues"] == ["standard", "lockdown"]
-    assert out["checkboxes"] == [True]
+    assert out["checkboxes"] == [True]  # Lockdown's "ask" only; the opt-in is a switch
     assert out["base"] == "default, ads"
     assert out["banner"].startswith("2 changes waiting")
     assert out["setCall"]["level"] == "restricted"
     assert out["askCall"]["ask"] is False and out["askCall"]["level"] == "lockdown"
     assert out["block"] == out["copied"] == "APP-TEXT"
     assert out["pressed"]["data"] == {"entity_id": "button.refresh"}
+    # The opt-in is off by default and asks before it is turned on.
+    assert out["applyHiddenOff"] is True and out["lastNever"] is True
+    assert out["role"] == "switch"
+    assert out["confirmShown"] is True and out["boxStillOff"] == "false"
+    assert out["noCallYet"] is False
+    assert out["autoCall"]["enabled"] is True and out["autoCall"]["entry_id"] == "e1"
+    assert out["applyHiddenOn"] is False and out["boxOn"] == "true"
+    assert out["applyCall"]["entry_id"] == "e1"
+    assert out["applyMessage"].startswith("Applied")
+    # A short result, then " · " and the time: no sentence, no comma.
+    assert "Applied · " in out["lastShown"]
+    assert "." not in out["lastShown"].split("Applied")[1].split("·")[0]
+    assert out["busyMessage"] == "An apply is running already."
+    assert "secret server text" not in out["busyMessage"]
+    assert out["offCall"]["enabled"] is False
+    assert out["unavailableDisabled"] is True and out["unavailableText"] is True
+
+
+def test_the_apply_card_never_overflows_and_the_opt_in_is_one_row() -> None:
+    style = SOURCES["ha-blocky-style-more.js"]
+    apply_js = SOURCES["ha-blocky-apply.js"]
+
+    assert "table.setupcheck { width: 100%; table-layout: fixed; }" in style
+    assert "overflow-wrap: anywhere" in style.split("table.setupcheck td {")[1][:200]
+    assert ".scard { min-width: 0; max-width: 100%;" in style
+    assert 'button.tswitch[aria-checked="true"] .knob' in style
+    assert 'role: "switch"' in apply_js and '"aria-checked"' in apply_js
+    assert 'className: "optrow"' in apply_js
+    # The setup check shows a short result and the time after a separator.
+    assert "apply_short_${last.result}" in apply_js and "\u00b7" in apply_js
+    english = _texts("en")
+    for result in ("ok", "unchanged", "restored", "restore_failed"):
+        assert not english[f"apply_short_{result}"].endswith(".")
+        assert english[f"apply_result_{result}"].endswith(".")

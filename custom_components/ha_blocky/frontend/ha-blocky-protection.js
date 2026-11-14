@@ -157,7 +157,7 @@ export class ProtectionView {
       }
       // Never saved: the built-in default may not match the names in Blocky.
       this._baseWarning.hidden = result.base_groups_saved !== false;
-      this._apply.update(result.status, result.setup);
+      this._apply.update(result.status, result.setup, result);
       this._say(this._clientsMessage, "", false);
     } catch (err) {
       if (token !== this._token) return;

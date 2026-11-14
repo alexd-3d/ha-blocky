@@ -15,7 +15,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.network import NoURLAvailableError, get_url
+from homeassistant.helpers.hassio import is_hassio
 from homeassistant.util import dt as dt_util
 
 from .client_names import client_name_map, get_client_names
@@ -24,6 +24,7 @@ from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DOMAIN,
     ATTR_LIST,
+    CONF_AUTO_APPLY,
     DEFAULT_BASE_GROUPS,
     DEFAULT_NOTIFY,
     DOMAIN,
@@ -31,17 +32,16 @@ from .const import (
     EXACT_ONLY_LISTS,
     LEVEL_LOCKDOWN,
     LEVELS,
-    LIST_LOCKDOWN_ALLOW,
-    LIST_RESTRICTED_DENY,
-    LIST_UNFILTERED_EMPTY,
     RULE_LISTS,
 )
 from .coordinator import BlockyConfigEntry
 from .db import BlockyDbError
 from .levels import (
+    LEVEL_LIST,
     LevelError,
     apply_options,
     base_groups_saved,
+    list_urls,
     render_block,
     with_base_groups,
     with_client,
@@ -54,13 +54,6 @@ from .validation import normalize_client
 SEEN_WINDOW: Final = timedelta(days=7)
 MAX_CLIENTS_LISTED: Final = 200
 MAX_RULES_LISTED: Final = 500
-
-# The served list each level's group is built from.
-LEVEL_LIST: Final = {
-    "restricted": LIST_RESTRICTED_DENY,
-    "lockdown": LIST_LOCKDOWN_ALLOW,
-    "unfiltered": LIST_UNFILTERED_EMPTY,
-}
 
 # Fixed texts for the reasons a change is refused (never contain input).
 LEVEL_ERRORS: Final = {
@@ -240,6 +233,10 @@ async def ws_levels(
             "notify": dict(levels.notify),
             "clients": clients,
             "status": level_status(entry),
+            # The opt-in to write Blocky's options (see apply.py).
+            "auto_apply": entry.options.get(CONF_AUTO_APPLY) is True,
+            "apply_available": is_hassio(hass),
+            "last_apply": data.last_apply,
             "setup": {
                 "api_ok": data.coordinator.last_update_success,
                 "log_ok": log_ok,
@@ -364,14 +361,8 @@ def ws_get_block(
     if entry is None:
         return
     data = entry.runtime_data
-    try:
-        base = get_url(hass, allow_external=False, allow_cloud=False, allow_ip=True)
-    except NoURLAvailableError:
-        base = ""
     rev = data.levels.rev
-    urls = {
-        name: f"{base}{data.lists.path(name)}?r={rev}" for name in LEVEL_LIST.values()
-    }
+    base, urls = list_urls(hass, data.lists, rev)
     block = render_block(data.levels.base_groups, data.levels.clients, urls)
     connection.send_result(
         msg["id"],

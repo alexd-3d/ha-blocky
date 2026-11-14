@@ -56,6 +56,7 @@ export function levelSections(t, section) {
       {},
       STEPS.map((step) => el("li", { text: t(`help_apply_${step}`) }))
     ),
+    el("p", { text: t("help_apply_auto") }),
   ]);
   return [levels, uses, apply];
 }

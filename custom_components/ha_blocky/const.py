@@ -47,6 +47,11 @@ MAX_LOG_HOURS: Final = 24 * 30
 DASHBOARD_PERIODS: Final = ("today", "24h", "7d", "30d")
 DASHBOARD_ROWS: Final = (5, 10, 20)
 DASHBOARD_CACHE: Final = timedelta(seconds=30)
+# The long periods (7 d, 30 d) change slowly and are the slow ones: their answer
+# is fresh for 5 minutes, and for up to an hour it is still served at once while
+# one refresh runs in the background.
+DASHBOARD_CACHE_LONG: Final = timedelta(minutes=5)
+DASHBOARD_STALE_MAX: Final = timedelta(hours=1)
 
 # The lists served to Blocky. They are fixed: the user edits their entries
 # (rules), never their names.
@@ -92,6 +97,13 @@ TRACKED_LEVELS: Final = (LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
 CONF_CLIENTS: Final = "clients"
 CONF_BASE_GROUPS: Final = "base_groups"
 CONF_NOTIFY: Final = "notify"
+# Opt-in: HA-Blocky writes its entries into the Blocky app's options itself.
+CONF_AUTO_APPLY: Final = "auto_apply"
+# After an apply finishes, the next one waits this long.
+APPLY_MIN_INTERVAL: Final = timedelta(seconds=60)
+# After the restart, Blocky's API is polled this often, for this long.
+APPLY_POLL_SECONDS: Final = 3
+APPLY_WAIT_SECONDS: Final = 90
 # The list groups the Blocky fallback client group ("default") uses.
 DEFAULT_BASE_GROUPS: Final = ("default",)
 MAX_BASE_GROUPS: Final = 16
