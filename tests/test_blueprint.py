@@ -100,6 +100,7 @@ def test_callback_branch_checks_user_command_and_request_id() -> None:
         "ha_blocky.approve_request",
         "ha_blocky.reject_request",
         "ha_blocky.block_request",
+        "telegram_bot.edit_replymarkup",
         "telegram_bot.answer_callback_query",
     }
 

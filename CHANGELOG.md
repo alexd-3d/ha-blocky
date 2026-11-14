@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.16.0
+
+Query log on the narrowest cards and the Telegram blueprint (BLO-020).
+
+### Changed
+
+- **Query log on a narrow card:** each row has a bar at the left edge in the colour
+  of its status. Up to 420 px the status badge is hidden, because the bar tells the
+  status, and the domain gets the whole second line.
+- **Telegram blueprint:** after a button is pressed, the buttons are removed from
+  the message, so it is clear that the command was sent and it cannot be sent twice.
+  The confirmation says what was sent (Approved, Rejected or Blocked).
+
 ## 0.15.0
 
 Visual redesign of the card: more space, less clutter, one look in light and dark
