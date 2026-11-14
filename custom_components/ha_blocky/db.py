@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -550,6 +551,8 @@ class QueryLogDatabase:
         *,
         since: datetime,
         client: str | None = None,
+        client_part: str | None = None,
+        addresses: Sequence[str] | None = None,
         domain: str | None = None,
         blocked: bool | None = None,
         before_id: int | None = None,
@@ -557,9 +560,15 @@ class QueryLogDatabase:
     ) -> list[dict[str, Any]]:
         """Return log rows, newest first, as plain cleaned values.
 
-        ``domain`` matches anywhere in the name; the pattern characters ``%``
-        and ``_`` in it are escaped, so it is always a literal search.
+        ``client`` is one exact address, ``client_part`` a fragment that
+        matches anywhere in the address, ``addresses`` a set of exact
+        addresses (an empty set matches nothing). ``domain`` matches anywhere
+        in the name. The pattern characters ``%`` and ``_`` in a fragment are
+        escaped, so it is always a literal search. All filters are bound
+        parameters and are combined with AND.
         """
+        if addresses is not None and not addresses:
+            return []
         table = LOG_TABLE.c
         is_blocked = table.response_type.in_(BLOCKED_RESPONSE_TYPES)
         statement = select(
@@ -577,6 +586,12 @@ class QueryLogDatabase:
             statement = statement.where(table.id < before_id)
         if client:
             statement = statement.where(table.client_ip == client)
+        if client_part:
+            statement = statement.where(
+                table.client_ip.contains(client_part, autoescape=True)
+            )
+        if addresses is not None:
+            statement = statement.where(table.client_ip.in_(list(addresses)))
         if domain:
             statement = statement.where(
                 table.question_name.contains(domain, autoescape=True)

@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.hass_dict import HassKey
 
-from .const import DOMAIN, MAX_CLIENT_NAMES
+from .const import DOMAIN, MAX_CLIENT_NAMES, MAX_NAME_MATCHES
 from .requests import normalize_client
 from .validation import InvalidClientNameError, validate_client_name
 
@@ -84,6 +84,10 @@ class ClientNames:
                 chosen[address] = None
         return {address: name for address, name in chosen.items() if name is not None}
 
+    def manual_names(self) -> dict[str, str]:
+        """Return a copy of the address -> manual name map."""
+        return dict(self._manual)
+
     def name_map(self) -> Mapping[str, str]:
         """Return the address -> name map; build it once per answer or batch."""
         names = self._tracker_names()
@@ -114,3 +118,16 @@ def client_name_map(hass: HomeAssistant) -> Mapping[str, str]:
     """Return the current name map; empty when nothing is set up."""
     names = get_client_names(hass)
     return names.name_map() if names is not None else {}
+
+
+def addresses_with_name(names: Mapping[str, str], text: str) -> list[str]:
+    """Return the addresses whose name contains ``text``, ignoring case.
+
+    Sorted, so that the answer is deterministic, and cut at MAX_NAME_MATCHES.
+    The text is only compared in Python, it never becomes part of a query.
+    """
+    needle = text.casefold()
+    found = sorted(
+        address for address, name in names.items() if needle in name.casefold()
+    )
+    return found[:MAX_NAME_MATCHES]
