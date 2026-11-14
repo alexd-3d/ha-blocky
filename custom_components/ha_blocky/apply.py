@@ -226,7 +226,11 @@ async def _write_and_restart(
     """
     try:
         await client.addons.set_addon_options(slug, _models()(config=config))
-        await client.addons.restart_addon(slug)
+        # The restart call has no time limit of its own: a Supervisor that
+        # never answers must not hold the apply lock for ever.
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(APPLY_WAIT_SECONDS):
+                await client.addons.restart_addon(slug)
     except Exception as err:
         _LOGGER.warning("Blocky apply: the Supervisor failed (%s)", type(err).__name__)
         return False
