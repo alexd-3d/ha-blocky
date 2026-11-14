@@ -1721,7 +1721,7 @@ class Node {
   set title(v) { this.attrs.title = v; }
 }
 globalThis.document = { createElement: (tag) => new Node(tag), createDocumentFragment: () => new Node("#frag") };
-globalThis.navigator = { clipboard: { writeText: async (t) => { globalThis.copied = t; } } };
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (t) => { globalThis.copied = t; } } } });
 
 const calls = [];
 const rules = {
