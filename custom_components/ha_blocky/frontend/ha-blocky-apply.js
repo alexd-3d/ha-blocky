@@ -75,9 +75,8 @@ export class ApplyView {
     this._copy.addEventListener("click", () => this._copyBlock());
     this._notes = el("div", { className: "hint" });
     this._blockBox = el("div", { className: "blockbox", attrs: { hidden: "" } }, [
-      this._formats,
+      el("div", { className: "blockhead" }, [this._formats, this._copy]),
       this._text,
-      el("div", { className: "btnrow" }, [this._copy]),
       this._notes,
     ]);
 
@@ -91,13 +90,16 @@ export class ApplyView {
       this._message,
     ]);
 
+    // The setup check is the last part of the same card.
     this._setup = el("div");
-    const setup = el("section", { className: "scard" }, [
-      el("h3", { text: t("prot_setup_title") }),
-      el("div", { className: "hint", text: t("prot_setup_hint") }),
-      this._setup,
-    ]);
-    this.element.append(apply, setup);
+    apply.append(
+      el("div", { className: "subsec" }, [
+        el("h4", { text: t("prot_setup_title") }),
+        el("div", { className: "hint", text: t("prot_setup_hint") }),
+        this._setup,
+      ])
+    );
+    this.element.append(apply);
   }
 
   // Draw the status and the setup check from the latest answer.
