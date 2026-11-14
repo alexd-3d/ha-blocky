@@ -90,11 +90,13 @@ export const STYLE = `
   /* Long values (a domain, a level, a client) are cut with an ellipsis; the
      whole text is the title of the cell. */
   td.domain {
-    width: 40%; max-width: 0; overflow: hidden; text-overflow: ellipsis;
+    width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis;
     font-family: var(--code-font-family, monospace);
   }
   td.level { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
-  td.client { max-width: 14rem; }
+  td.client { max-width: 10rem; }
+  /* Only for screen readers: the header of a column of icons. */
+  th.vh { width: 1px; padding: 0; overflow: hidden; font-size: 0; }
   .main, .sub { min-width: 0; }
   td.client .main, td.client .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td.num, th.num { text-align: right; }
@@ -206,15 +208,15 @@ export const STYLE = `
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--code-font-family, monospace);
   }
-  /* Narrow card (a phone, or a narrow column). The Query log shows two lines
+  /* Narrow log (a phone, or a narrow column). The Query log shows two lines
      per entry, the same cells as on a wide card:
      line 1: client (its name, or the address) and the time;
      line 2: status badge and domain. The action icon sits at the right, over
      both lines. The badge column has a fixed width, so the domains line up. */
-  @container (max-width: 560px) {
-    .body { padding: 0 var(--hb-s3) var(--hb-s3); }
-    button, .filters input, .filters select, .panel select { min-height: 40px; }
-    .iconbtn { width: 40px; height: 40px; }
+  /* Below 760 px the table cannot give the domain enough room (it needs about
+     14rem next to the time, client, type, status and duration), so the log
+     drops to two lines earlier than the rest of the card (560 px). */
+  @container (max-width: 760px) {
     table.log thead { display: none; }
     table.log, table.log tbody { display: block; }
     table.log tr {
@@ -241,6 +243,11 @@ export const STYLE = `
     table.log td.actions button, table.log td.actions .iconbtn { margin: 0; }
     table.log td.type, table.log td.ms { display: none; }
     table.log td.client .sub { display: none; }
+  }
+  @container (max-width: 560px) {
+    .body { padding: 0 var(--hb-s3) var(--hb-s3); }
+    button, .filters input, .filters select, .panel select { min-height: 40px; }
+    .iconbtn { width: 40px; height: 40px; }
     .scroll { overflow-x: visible; }
     /* The requests: client, domain, then level and age, then the buttons. */
     table.req thead { display: none; }

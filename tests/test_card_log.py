@@ -238,7 +238,13 @@ def test_the_log_row_has_the_cells_of_a_two_line_mobile_row() -> None:
     assert 'className: "when"' in log and 'className: "count"' in log
     assert "`statustext badge c-${kind}`" in log
     assert "statusicon" not in log
-    narrow = style[style.index("@container (max-width: 560px)") :]
+    narrow = style[style.index("@container (max-width: 760px)") :]
+    # The table needs about 14rem for the domain: the log drops to two lines at 760 px,
+    # the rest of the card (tab labels, requests) at 560 px.
+    assert narrow.index("table.log thead") < narrow.index(
+        "@container (max-width: 560px)"
+    )
+    assert "th.vh {" in style and "width: 100%; max-width: 0" in style
     # Line 1: client (name, or the address) and the time; line 2: badge and
     # domain; the action icon over both lines.
     assert (
@@ -339,3 +345,13 @@ def test_the_saved_message_does_not_outlive_the_reload() -> None:
     assert (
         "if (message === this._opsMessage) clearTimeout(this._clearTimer);" in settings
     )
+
+
+def test_settings_groups_are_stacked_with_a_gap() -> None:
+    assert 'className: "stack"' in SOURCES["ha-blocky-protection.js"]
+    assert 'className: "stack"' in SOURCES["ha-blocky-apply.js"]
+    assert (
+        ".stack { display: grid; gap: var(--hb-s4);"
+        in SOURCES["ha-blocky-style-tabs.js"]
+    )
+    assert 'className: "plain vh"' in SOURCES["ha-blocky-log.js"]

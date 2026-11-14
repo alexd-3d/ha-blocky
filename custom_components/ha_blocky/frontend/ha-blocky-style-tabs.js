@@ -65,6 +65,9 @@ export const TABS_STYLE = `
     grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   }
   .settings > * { min-width: 0; }
+  /* The sections of a group are separated by the 16 px token. */
+  .stack { display: grid; gap: var(--hb-s4); min-width: 0; }
+  .stack > * { min-width: 0; }
   .scard {
     box-sizing: border-box; min-width: 0; padding: var(--hb-s4); border-radius: var(--hb-radius-m);
     border: 1px solid var(--divider-color); background: var(--card-background-color);

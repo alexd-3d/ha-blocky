@@ -283,7 +283,7 @@ export class LogView {
     }
     if (this._picker.lists("allow").length || this._picker.lists("deny").length) {
       this._headRow.appendChild(
-        el("th", { text: this._t("col_actions"), className: "plain" })
+        el("th", { text: this._t("col_actions"), className: "plain vh" })
       );
     }
   }
