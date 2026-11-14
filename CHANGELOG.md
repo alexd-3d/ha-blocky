@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.13.0
+
+Clients with four protection levels replace zones and free lists (BLO-017).
+
+### Breaking changes
+
+- **Zones and free lists are removed.** The options `zones` and `lists`, the list
+  names, the exact-only flag and the three zone modes (filter, learning,
+  allowlist-only) no longer exist. A client (one IP address) now has one of four
+  levels: Unfiltered, Standard, Restricted or Lockdown. Standard is the absence of a
+  setting. The migration below converts what can be converted.
+- **Four fixed lists** replace the free lists: `allow_default` (Always allow),
+  `deny_default` (Always block), `restricted_deny` and `lockdown_allow`. The `list`
+  argument of the actions `allow_domain`, `block_domain`, `remove_domain` and
+  `get_list` accepts only these names; `get_list` no longer returns `exact_only`.
+  `lockdown_allow` refuses wildcard entries when they are added.
+- **Entity ids of the per-zone sensors change to per-level sensors:** "Zone X queries
+  (24 h)" and "Zone X blocked queries (24 h)" become "Unfiltered/Restricted/Lockdown
+  queries (24 h)" and "... blocked queries (24 h)" (none for Standard). The sensor of a
+  free list is gone; the four fixed lists have one each. The problem sensor "Zone leak"
+  is now "Lockdown leak" (same unique id, so its entity id is kept).
+- **Event payloads:** the field `zone` is now `level` (`unfiltered`, `restricted` or
+  `lockdown`) in `ha_blocky_new_domain`, `ha_blocky_unexpected_domain` and
+  `ha_blocky_new_domains_summary`. The event `ha_blocky_zone_leak` is now
+  `ha_blocky_lockdown_leak`. The Telegram blueprint is updated; copy the new version.
+  The requests answer, the known-domains answer and the query log rows carry `level`
+  instead of `zone` (and no `mode`).
+- **Phase becomes "ask".** The service `set_client_phase` (`learning` / `locked`) is
+  replaced by `set_client_ask` with a boolean `ask` (on = the old learning phase:
+  a blocked new domain becomes a request; off = the old locked phase: only an
+  unexpected-domain event). The `clients` part of `get_requests` and of the `requests`
+  command is gone. `approve_request` no longer takes `list`: approving always adds the
+  domain to `lockdown_allow`; `block_request` always uses `restricted_deny`.
+- **Options dialog:** the steps "List addresses for Blocky", "Zones" and "Zone
+  configuration for Blocky" are removed. The dialog keeps the database and the clients
+  that may download lists; the list addresses are inside the block shown in the card.
+- **Notifications are per level:** Restricted defaults to Off, Lockdown to Each. Off
+  fires no new-domain, unexpected-domain or summary event for that level; leaks are
+  always reported.
+
+### Added
+
+- **Protection part of the Settings tab** of the card: the clients seen in the query log
+  with a level dropdown and, for Lockdown, "Ask me about new domains"; notifications Off
+  or Each; the Standard list groups; the Rules (view, add and remove the entries of the
+  four lists); "Applying changes to Blocky" with a "N changes waiting" banner, the block to
+  paste, a copy button and "Check now"; and a read-only setup check. Every control has a
+  short plain-words hint.
+- **The block for Blocky**, rendered on the server from validated data only, in the
+  format of the Blocky app (robocopklaus 5.3.0) and in plain Blocky YAML. It defines the
+  groups `restricted`, `lockdown` and `unfiltered` and one client line per client that is
+  not at Standard, and it says to add the entries, not to replace the whole option.
+- **Applied marker.** Every list address in the block ends with `?r=<rev>` (the first 8
+  hex characters of the SHA-256 of the base groups and the sorted client lines). The list
+  endpoint serves the same body whatever `r` is, records `(list, rev, time)` in memory only
+  for a valid `r` (exactly 8 lower-case hex characters) on an entitled request, and the
+  status is "applied" when Blocky fetched every list with the current rev. Not yet verified
+  live: that Blocky fetches the lists again after a restart and keeps the query string.
+- **Option `base_groups`:** the ordered list of Blocky list groups that make up the
+  Standard level (1 to 16 names, default `default`). A Restricted client line is
+  `base_groups` plus `restricted`. Editable in the card; changing it changes the rev.
+- **Level comparison, use cases and the steps of applying a change** in the README and in
+  the Help tab; a FAQ entry about waiting changes.
+- Administrator-only commands for the card: `ha_blocky/levels`, `set_client_level`,
+  `set_base_groups`, `set_notify`, `get_block`, `rules`, `rules_add`, `rules_remove`.
+  Client addresses are normalised IP addresses, levels and list names come from fixed
+  sets, and at most 64 clients can have a level.
+- A translation test now also fails on a translation text that nothing uses.
+
+### Changed
+
+- **One-time migration** (entry version 1.1 to 1.2, runs when the entry loads): a zone
+  whose networks are all single hosts becomes one client per host, learning to Restricted
+  and allowlist-only to Lockdown (a locked client gets "ask" off, a learning one "ask" on);
+  the stored per-client state, with its known domains, is kept under the same address.
+  `lockdown_allow` receives a copy of the entries of the allow lists linked to the migrated
+  allowlist-only zones (the originals stay); `restricted_deny` starts empty. If a learning
+  zone was migrated, the Restricted notification is set to Each, which keeps the old
+  behaviour. Zones with a wider network, filter zones and malformed zones are dropped, with
+  one log line that carries only a count and reason codes. The old options and the registry
+  entries of the zone sensors and the free list sensors are removed.
+- The query log card shows a client's level instead of its zone; the Requests tab no longer
+  has the phase table.
+
 ## 0.12.1
 
 ### Fixed

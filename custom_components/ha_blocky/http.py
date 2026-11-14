@@ -4,6 +4,11 @@ This is the integration's only unauthenticated endpoint. Blocky cannot log
 in to Home Assistant, so access is granted by a 256-bit token in the path
 and limited to configured client networks. The lists it serves contain
 domain names only.
+
+The optional query value ``r`` is the revision marker of the configuration the
+list address was rendered for. It is recorded (in memory, fixed list names
+only) when it is exactly 8 lower-case hex characters and otherwise ignored:
+never echoed, never logged, and it changes neither the body nor the status.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN
+from .levels import valid_rev
 from .lists import find_list_body
 
 
@@ -35,7 +41,8 @@ class BlockyListView(HomeAssistantView):
             for entry in hass.config_entries.async_entries(DOMAIN)
             if entry.state is ConfigEntryState.LOADED
         ]
-        body = find_list_body(managers, request.remote, token, filename)
+        rev = valid_rev(request.query.get("r"))
+        body = find_list_body(managers, request.remote, token, filename, rev)
         if body is None:
             return web.Response(status=404)
         return web.Response(

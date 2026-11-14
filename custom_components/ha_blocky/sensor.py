@@ -15,11 +15,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import ATTR_ITEMS
+from .const import ATTR_ITEMS, CLIENT_LEVELS, RULE_LISTS
 from .coordinator import BlockyConfigEntry
 from .db import TopItem
 from .entity import BlockyEntity, BlockyStatsEntity, device_info
@@ -34,8 +33,7 @@ UNIT_CLIENTS = "clients"
 UNIT_ENTRIES = "entries"
 UNIT_REQUESTS = "requests"
 LIST_SENSOR_PREFIX = "list_"
-ZONE_SENSOR_PREFIX = "zone_"
-ZONE_SENSOR_SUFFIXES = ("queries_24h", "blocked_24h")
+LEVEL_SENSOR_SUFFIXES = ("queries_24h", "blocked_24h")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -177,49 +175,16 @@ async def async_setup_entry(
             BlockyTopSensor(data.stats, description) for description in TOP_SENSORS
         )
         entities.extend(
-            BlockyZoneSensor(data.stats, zone, blocked)
-            for zone in data.zones
+            BlockyLevelSensor(data.stats, level, blocked)
+            for level in CLIENT_LEVELS
             for blocked in (False, True)
         )
     if data.requests is not None:
         entities.append(PendingRequestsSensor(entry.entry_id, data.requests))
     entities.extend(
-        BlockyListSensor(entry.entry_id, data.lists, name)
-        for name in data.lists.definitions
+        BlockyListSensor(entry.entry_id, data.lists, name) for name in RULE_LISTS
     )
-    _remove_sensors_of_deleted_lists(hass, entry.entry_id, set(data.lists.definitions))
-    _remove_sensors_of_deleted_zones(hass, entry.entry_id, set(data.zones))
     async_add_entities(entities)
-
-
-def _remove_sensors_of_deleted_zones(
-    hass: HomeAssistant, entry_id: str, current: set[str]
-) -> None:
-    """Drop the registry entries of zones that no longer exist."""
-    registry = er.async_get(hass)
-    prefix = f"{entry_id}_{ZONE_SENSOR_PREFIX}"
-    keep = {
-        f"{prefix}{name}_{suffix}"
-        for name in current
-        for suffix in ZONE_SENSOR_SUFFIXES
-    }
-    for registered in er.async_entries_for_config_entry(registry, entry_id):
-        if registered.unique_id.startswith(prefix) and registered.unique_id not in keep:
-            registry.async_remove(registered.entity_id)
-
-
-def _remove_sensors_of_deleted_lists(
-    hass: HomeAssistant, entry_id: str, current: set[str]
-) -> None:
-    """Drop the registry entries of lists that are no longer defined."""
-    registry = er.async_get(hass)
-    prefix = f"{entry_id}_{LIST_SENSOR_PREFIX}"
-    for registered in er.async_entries_for_config_entry(registry, entry_id):
-        if (
-            registered.unique_id.startswith(prefix)
-            and registered.unique_id.removeprefix(prefix) not in current
-        ):
-            registry.async_remove(registered.entity_id)
 
 
 class BlockyListSensor(SensorEntity):
@@ -236,14 +201,10 @@ class BlockyListSensor(SensorEntity):
         """Initialize the sensor for one list."""
         self._lists = lists
         self._list_name = name
-        definition = lists.definitions[name]
         self._attr_unique_id = f"{entry_id}_{LIST_SENSOR_PREFIX}{name}"
         self._attr_translation_placeholders = {"name": name}
         self._attr_device_info = device_info(entry_id)
-        self._attr_extra_state_attributes = {
-            "list_type": definition.list_type,
-            "exact_only": definition.exact_only,
-        }
+        self._attr_extra_state_attributes = {"list_type": RULE_LISTS[name]}
 
     async def async_added_to_hass(self) -> None:
         """Follow changes of the list."""
@@ -316,29 +277,27 @@ class BlockyStatsSensor(BlockyStatsEntity, SensorEntity):
         return self.entity_description.value_fn(self.coordinator.data)
 
 
-class BlockyZoneSensor(BlockyStatsEntity, SensorEntity):
-    """Queries of the clients of one zone in the last 24 hours."""
+class BlockyLevelSensor(BlockyStatsEntity, SensorEntity):
+    """Queries of the clients of one level in the last 24 hours."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UNIT_QUERIES
 
     def __init__(
-        self, coordinator: BlockyStatsCoordinator, zone: str, blocked: bool
+        self, coordinator: BlockyStatsCoordinator, level: str, blocked: bool
     ) -> None:
-        """Initialize the sensor for one zone; ``blocked`` picks the counter."""
-        suffix = ZONE_SENSOR_SUFFIXES[1 if blocked else 0]
-        super().__init__(coordinator, f"zone_{suffix}")
-        self._zone = zone
+        """Initialize the sensor for one level; ``blocked`` picks the counter."""
+        suffix = LEVEL_SENSOR_SUFFIXES[1 if blocked else 0]
+        super().__init__(coordinator, f"{level}_{suffix}")
+        self._level = level
         self._blocked = blocked
-        self._attr_unique_id = (
-            f"{coordinator.config_entry.entry_id}_{ZONE_SENSOR_PREFIX}{zone}_{suffix}"
-        )
-        self._attr_translation_placeholders = {"zone": zone}
+        entry_id = coordinator.config_entry.entry_id
+        self._attr_unique_id = f"{entry_id}_level_{level}_{suffix}"
 
     @property
     def native_value(self) -> int:
-        """Return the count; a zone without traffic reports 0."""
-        queries, blocked = self.coordinator.data.zone_counts.get(self._zone, (0, 0))
+        """Return the count; a level without traffic reports 0."""
+        queries, blocked = self.coordinator.data.level_counts.get(self._level, (0, 0))
         return blocked if self._blocked else queries
 
 

@@ -30,12 +30,13 @@ from .const import (
     MAX_LOG_HOURS,
     MAX_LOG_ROWS,
     REQUEST_ACTIONS,
+    RULE_LISTS,
 )
 from .coordinator import BlockyConfigEntry
 from .dashboard import async_dashboard
 from .db import CATEGORIES, BlockyDbError, TopItem
 from .display import get_display, valid_color, valid_rows
-from .requests import RequestError, RequestTracker, normalize_client
+from .requests import RequestError, RequestTracker
 from .settings import (
     OPERATIONAL_KEYS,
     SettingError,
@@ -45,10 +46,10 @@ from .settings import (
 from .validation import (
     InvalidClientNameError,
     InvalidDomainError,
+    normalize_client,
     normalize_domain,
     validate_client_name,
 )
-from .zones import zone_for_address
 
 STATUS_ALL = "all"
 STATUS_BLOCKED = "blocked"
@@ -97,7 +98,7 @@ def ws_config(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Describe the configured Blocky instances and their manual lists."""
+    """Describe the configured Blocky instances and their fixed rule lists."""
     registry = er.async_get(hass)
     connection.send_result(
         msg["id"],
@@ -122,20 +123,8 @@ def ws_config(
                         "button", DOMAIN, f"{entry.entry_id}_flush_cache"
                     ),
                     "lists": [
-                        {
-                            "name": definition.name,
-                            "type": definition.list_type,
-                            "exact_only": definition.exact_only,
-                        }
-                        for definition in entry.runtime_data.lists.definitions.values()
-                    ],
-                    "zones": [
-                        {
-                            "name": zone.name,
-                            "mode": zone.mode,
-                            "lists": list(zone.lists),
-                        }
-                        for zone in entry.runtime_data.zones.values()
+                        {"name": name, "type": list_type}
+                        for name, list_type in RULE_LISTS.items()
                     ],
                 }
                 for entry in _loaded_entries(hass)
@@ -210,10 +199,10 @@ async def ws_query_log(
         )
         return
 
-    zones = entries[0].runtime_data.zones
+    levels = entries[0].runtime_data.levels
     names = client_name_map(hass)
     for row in rows:
-        row["zone"] = zone_for_address(row.get("client"), zones)
+        row["level"] = levels.level_of(row.get("client")) or "standard"
         address = normalize_client(row.get("client"))
         row["client_name"] = names.get(address) if address else None
 
@@ -257,7 +246,7 @@ def ws_requests(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """List the requests waiting for a decision and the client phases."""
+    """List the requests waiting for a decision and the tracked clients."""
     found = _tracker_of(hass, connection, msg)
     if found is None:
         return
@@ -267,7 +256,6 @@ def ws_requests(
         {
             "entry_id": entry.entry_id,
             "requests": tracker.describe_requests(),
-            "clients": tracker.describe_clients(),
             "tracked": tracker.describe_tracked(),
         },
     )
@@ -550,7 +538,7 @@ def ws_block_known(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Block a known domain of a learning-zone client (first deny list)."""
+    """Block a known domain of a Restricted client (Restricted block list)."""
     found = _tracker_of(hass, connection, msg)
     if found is None:
         return
@@ -571,7 +559,6 @@ def ws_block_known(
         vol.Optional("entry_id"): str,
         vol.Required("request_id"): vol.All(str, vol.Length(min=1, max=64)),
         vol.Required("action"): vol.In(REQUEST_ACTIONS),
-        vol.Optional("list"): vol.All(str, vol.Length(min=1, max=32)),
     }
 )
 @websocket_api.require_admin
@@ -587,9 +574,7 @@ def ws_resolve_request(
         return
     _entry, tracker = found
     try:
-        tracker.async_resolve(
-            msg["request_id"], msg["action"], msg.get("list"), connection.context(msg)
-        )
+        tracker.async_resolve(msg["request_id"], msg["action"], connection.context(msg))
     except RequestError as err:
         connection.send_error(msg["id"], err.code, err.message)
         return

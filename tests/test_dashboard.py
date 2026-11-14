@@ -128,14 +128,14 @@ async def utc(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
 
 
 @pytest.fixture
-def utc_zone() -> Any:
+def utc_clock() -> Any:
     original = dt_util.DEFAULT_TIME_ZONE
     dt_util.set_default_time_zone(ZoneInfo("UTC"))
     yield
     dt_util.set_default_time_zone(original)
 
 
-@pytest.mark.usefixtures("utc_zone")
+@pytest.mark.usefixtures("utc_clock")
 def test_windows_in_utc() -> None:
     today = build_window("today", NOW)
     assert today.unit == "hour"
@@ -158,14 +158,14 @@ def test_windows_in_utc() -> None:
 
 
 def test_day_buckets_start_at_local_midnight_across_summer_time() -> None:
-    zone = ZoneInfo("Europe/Kyiv")
+    tz = ZoneInfo("Europe/Kyiv")
     original = dt_util.DEFAULT_TIME_ZONE
-    dt_util.set_default_time_zone(zone)
+    dt_util.set_default_time_zone(tz)
     try:
         window = build_window("30d", NOW)
         assert len(window.starts) == 30
         for start in window.starts:
-            assert start.astimezone(zone).time() == time(0, 0)
+            assert start.astimezone(tz).time() == time(0, 0)
         gaps = {
             (later - earlier)
             for earlier, later in zip(window.starts, window.starts[1:], strict=False)

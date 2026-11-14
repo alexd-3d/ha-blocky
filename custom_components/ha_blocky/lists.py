@@ -1,9 +1,10 @@
-"""Manual allow and deny lists served to Blocky.
+"""The rule lists served to Blocky.
 
-List definitions (name, type, whether wildcards are allowed) live in the
-entry options. Their entries and the access token live in a store. Nothing
-read back from either is trusted: definitions, entries and the token are
-re-validated on load.
+The lists are fixed (see ``RULE_LISTS``); their entries, the access token and
+the last applied configuration live in a store. Nothing read back from it is
+trusted: entries, the token and the snapshot are re-validated on load. The
+fetches of Blocky are only remembered in memory, and only as (list, revision,
+time) for the fixed list names.
 """
 
 from __future__ import annotations
@@ -11,8 +12,8 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
+import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 
@@ -21,26 +22,31 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    CLIENT_LEVELS,
     CONF_LIST_NETWORKS,
-    CONF_LISTS,
     DEFAULT_LIST_NETWORKS,
     DOMAIN,
+    EXACT_ONLY_LISTS,
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
-    LIST_TYPES,
+    LIST_UNFILTERED_EMPTY,
+    MAX_BASE_GROUPS,
+    MAX_CLIENTS,
     MAX_LIST_ENTRIES,
-    MAX_LISTS,
     REFRESH_DEBOUNCE_SECONDS,
+    RULE_LISTS,
+    SERVED_LISTS,
 )
 from .validation import (
     InvalidDomainError,
-    InvalidListNameError,
+    InvalidGroupNameError,
     InvalidNetworkError,
     IPNetwork,
     address_in_networks,
+    normalize_client,
     normalize_domain,
     parse_networks,
-    validate_list_name,
+    validate_group_name,
 )
 
 if TYPE_CHECKING:
@@ -61,41 +67,9 @@ class ListError(Exception):
     """A list operation was refused."""
 
 
-@dataclass(frozen=True, slots=True)
-class ListDefinition:
-    """A manual list as configured by the user."""
-
-    name: str
-    list_type: str
-    exact_only: bool
-
-
 def storage_key(entry_id: str) -> str:
     """Return the store key of an entry's lists."""
     return f"{DOMAIN}.{entry_id}.lists"
-
-
-def read_definitions(options: Mapping[str, Any]) -> dict[str, ListDefinition]:
-    """Read the list definitions from the options, dropping invalid ones."""
-    raw = options.get(CONF_LISTS)
-    definitions: dict[str, ListDefinition] = {}
-    if not isinstance(raw, Mapping):
-        return definitions
-    for name, spec in raw.items():
-        if len(definitions) >= MAX_LISTS:
-            break
-        try:
-            valid_name = validate_list_name(name)
-        except InvalidListNameError:
-            continue
-        if not isinstance(spec, Mapping) or spec.get("type") not in LIST_TYPES:
-            continue
-        definitions[valid_name] = ListDefinition(
-            name=valid_name,
-            list_type=spec["type"],
-            exact_only=spec.get("exact_only") is True,
-        )
-    return definitions
 
 
 def read_networks(options: Mapping[str, Any]) -> tuple[IPNetwork, ...]:
@@ -132,9 +106,12 @@ class ListManager:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, storage_key(entry.entry_id)
         )
-        self.definitions = read_definitions(entry.options)
         self._networks = read_networks(entry.options)
-        self._entries: dict[str, set[str]] = {name: set() for name in self.definitions}
+        self._entries: dict[str, set[str]] = {name: set() for name in RULE_LISTS}
+        # In memory only: the latest (revision, time) Blocky fetched, per list.
+        self._fetched: dict[str, tuple[str, float]] = {}
+        # What was last known to be applied: base groups and client levels.
+        self._applied: dict[str, Any] | None = None
         self._token = _new_token()
         self._listeners: list[Callable[[], None]] = []
         self._cancel_refresh: CALLBACK_TYPE | None = None
@@ -153,7 +130,7 @@ class ListManager:
                 dirty = False
             lists = stored.get("lists")
             if isinstance(lists, dict):
-                for name, definition in self.definitions.items():
+                for name in RULE_LISTS:
                     raw_entries = lists.get(name)
                     if not isinstance(raw_entries, list):
                         continue
@@ -161,14 +138,15 @@ class ListManager:
                         try:
                             self._entries[name].add(
                                 normalize_domain(
-                                    raw, allow_wildcard=not definition.exact_only
+                                    raw, allow_wildcard=name not in EXACT_ONLY_LISTS
                                 )
                             )
                         except InvalidDomainError:
                             dirty = True
-                if set(lists) - set(self.definitions):
-                    # Entries of lists that are no longer defined are dropped.
+                if set(lists) - set(RULE_LISTS):
+                    # Entries of lists that no longer exist are dropped.
                     dirty = True
+            self._applied = _read_applied(stored.get("applied"))
         if dirty:
             await self._store.async_save(self._data())
 
@@ -176,6 +154,7 @@ class ListManager:
         return {
             "token": self._token,
             "lists": {name: sorted(entries) for name, entries in self._entries.items()},
+            "applied": self._applied,
         }
 
     def _changed(self) -> None:
@@ -216,7 +195,12 @@ class ListManager:
         return sorted(self._entries[name])
 
     def render(self, name: str) -> str | None:
-        """Return the list as Blocky reads it, or None for an unknown list."""
+        """Return the list as Blocky reads it, or None for an unknown list.
+
+        The list of the Unfiltered level is always served empty.
+        """
+        if name == LIST_UNFILTERED_EMPTY:
+            return ""
         if name not in self._entries:
             return None
         return "".join(f"{entry}\n" for entry in sorted(self._entries[name]))
@@ -225,25 +209,53 @@ class ListManager:
         """Return the URL path Blocky fetches a list from."""
         return f"/api/{DOMAIN}/lists/{self._token}/{name}.txt"
 
+    # --- what Blocky fetched, and what was applied ---------------------------
+
+    def record_fetch(self, name: str, rev: str) -> None:
+        """Remember that Blocky fetched ``name`` with revision ``rev``.
+
+        Only the fixed served lists are recorded, one entry each; ``rev`` must
+        already be validated by the caller.
+        """
+        if name in SERVED_LISTS:
+            self._fetched[name] = (rev, time.time())
+
+    def fetched(self, name: str) -> tuple[str, float] | None:
+        """Return the latest (revision, time) Blocky fetched for a list."""
+        return self._fetched.get(name)
+
+    @property
+    def applied(self) -> dict[str, Any] | None:
+        """Return the base groups and client levels last known to be applied."""
+        return self._applied
+
+    def set_applied(self, snapshot: dict[str, Any]) -> None:
+        """Remember what is applied now (saved with the next store write)."""
+        if snapshot != self._applied:
+            self._applied = snapshot
+            self._store.async_delay_save(self._data, SAVE_DELAY_SECONDS)
+
     # --- changing -----------------------------------------------------------
 
-    def _definition(self, name: object, expected_type: str | None) -> ListDefinition:
-        if not isinstance(name, str) or name not in self.definitions:
+    @staticmethod
+    def _checked(name: object, expected_type: str | None) -> str:
+        if not isinstance(name, str) or name not in RULE_LISTS:
             raise ListError("unknown list")
-        definition = self.definitions[name]
-        if expected_type is not None and definition.list_type != expected_type:
+        if expected_type is not None and RULE_LISTS[name] != expected_type:
             raise ListError(f"list is not a {expected_type} list")
-        return definition
+        return name
 
     @callback
     def async_add(self, name: object, domain: object, expected_type: str) -> str | None:
         """Add an entry; return it, or None when it was already present."""
-        definition = self._definition(name, expected_type)
+        checked = self._checked(name, expected_type)
         try:
-            entry = normalize_domain(domain, allow_wildcard=not definition.exact_only)
+            entry = normalize_domain(
+                domain, allow_wildcard=checked not in EXACT_ONLY_LISTS
+            )
         except InvalidDomainError as err:
             raise ListError(f"invalid domain: {err}") from err
-        entries = self._entries[definition.name]
+        entries = self._entries[checked]
         if entry in entries:
             return None
         if len(entries) >= MAX_LIST_ENTRIES:
@@ -256,12 +268,12 @@ class ListManager:
     @callback
     def async_remove(self, name: object, domain: object) -> str | None:
         """Remove an entry; return it, or None when it was not present."""
-        definition = self._definition(name, None)
+        checked = self._checked(name, None)
         try:
             entry = normalize_domain(domain)
         except InvalidDomainError as err:
             raise ListError(f"invalid domain: {err}") from err
-        entries = self._entries[definition.name]
+        entries = self._entries[checked]
         if entry not in entries:
             return None
         entries.remove(entry)
@@ -317,13 +329,42 @@ class ListManager:
         )
 
 
+def _read_applied(raw: object) -> dict[str, Any] | None:
+    """Validate a stored applied snapshot; anything off means unknown."""
+    if not isinstance(raw, dict):
+        return None
+    groups = raw.get("base_groups")
+    clients = raw.get("clients")
+    if not isinstance(groups, list) or not isinstance(clients, dict):
+        return None
+    if len(groups) > MAX_BASE_GROUPS or len(clients) > MAX_CLIENTS:
+        return None
+    try:
+        names = [validate_group_name(name) for name in groups]
+    except InvalidGroupNameError:
+        return None
+    levels: dict[str, str] = {}
+    for key, level in clients.items():
+        address = normalize_client(key)
+        if address is None or level not in CLIENT_LEVELS:
+            return None
+        levels[address] = level
+    return {"base_groups": names, "clients": levels}
+
+
 def find_list_body(
-    managers: list[ListManager], remote: object, token: str, filename: str
+    managers: list[ListManager],
+    remote: object,
+    token: str,
+    filename: str,
+    rev: str | None = None,
 ) -> str | None:
     """Return the list a request is entitled to, or None.
 
     Every reason for refusal yields the same None, and every manager's token
-    is compared, so a response does not reveal which check failed.
+    is compared, so a response does not reveal which check failed. ``rev`` is
+    already validated (8 hex characters) or None; it is only recorded, after
+    the request was found entitled, and never changes the body.
     """
     name = filename.removesuffix(".txt")
     name_ok = filename.endswith(".txt") and bool(name)
@@ -333,17 +374,17 @@ def find_list_body(
         client_ok = manager.client_allowed(remote)
         if token_ok and client_ok and name_ok and body is None:
             body = manager.render(name)
+            if body is not None and rev is not None:
+                manager.record_fetch(name, rev)
     return body
 
 
 __all__ = [
     "LIST_TYPE_ALLOW",
     "LIST_TYPE_DENY",
-    "ListDefinition",
     "ListError",
     "ListManager",
     "find_list_body",
-    "read_definitions",
     "read_networks",
     "storage_key",
 ]

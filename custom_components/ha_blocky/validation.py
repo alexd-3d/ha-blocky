@@ -14,14 +14,14 @@ import unicodedata
 from collections.abc import Iterable
 from typing import Final
 
-from .const import MAX_CLIENT_NAME_LENGTH, MAX_ZONE_NETWORKS
+from .const import MAX_CLIENT_NAME_LENGTH
 
 MAX_DOMAIN_LENGTH: Final = 253
-MAX_LIST_NAME_LENGTH: Final = 32
 MAX_NETWORKS: Final = 16
+_MAX_ADDRESS_LENGTH: Final = 64
 
 _LABEL_RE: Final = re.compile(r"[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?")
-_LIST_NAME_RE: Final = re.compile(r"[a-z0-9][a-z0-9_]{0,31}")
+_GROUP_NAME_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
 type IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -31,12 +31,8 @@ class InvalidDomainError(ValueError):
     """The value is not an acceptable list entry."""
 
 
-class InvalidListNameError(ValueError):
-    """The value is not an acceptable list name."""
-
-
-class InvalidZoneNameError(ValueError):
-    """The value is not an acceptable zone name."""
+class InvalidGroupNameError(ValueError):
+    """The value is not an acceptable Blocky list group name."""
 
 
 class InvalidClientNameError(ValueError):
@@ -98,18 +94,35 @@ def normalize_domain(value: object, *, allow_wildcard: bool = True) -> str:
     return f"*.{text}" if wildcard else text
 
 
-def validate_list_name(value: object) -> str:
-    """Return a valid list name or raise InvalidListNameError."""
-    if not isinstance(value, str) or _LIST_NAME_RE.fullmatch(value) is None:
-        raise InvalidListNameError("list name")
+def validate_group_name(value: object) -> str:
+    """Return a valid Blocky list group name or raise InvalidGroupNameError.
+
+    Letters, digits, underscore, hyphen and dot, 1 to 64 characters, starting
+    with a letter or digit. Nothing else ever reaches the rendered configuration.
+    """
+    if not isinstance(value, str) or _GROUP_NAME_RE.fullmatch(value) is None:
+        raise InvalidGroupNameError("group name")
     return value
 
 
-def validate_zone_name(value: object) -> str:
-    """Return a valid zone name (same rule as list names) or raise."""
-    if not isinstance(value, str) or _LIST_NAME_RE.fullmatch(value) is None:
-        raise InvalidZoneNameError("zone name")
-    return value
+def normalize_client(value: object) -> str | None:
+    """Return the canonical text of an IP address, or None if it is not one.
+
+    Scoped IPv6 addresses are refused; an IPv4-mapped IPv6 address becomes the
+    IPv4 address.
+    """
+    if not isinstance(value, str) or not 0 < len(value) <= _MAX_ADDRESS_LENGTH:
+        return None
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.scope_id is not None:
+            return None
+        if address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+    return str(address)
 
 
 def validate_client_name(value: object) -> str:
@@ -154,37 +167,6 @@ def parse_networks(values: object) -> tuple[IPNetwork, ...]:
         if len(networks) > MAX_NETWORKS:
             raise InvalidNetworkError("too many networks")
     return tuple(networks)
-
-
-def parse_zone_networks(values: object) -> tuple[IPNetwork, ...]:
-    """Parse the networks of a zone: addresses or CIDR, 1 to 8 of them.
-
-    A network that matches every address (prefix length 0) is refused.
-    """
-    if isinstance(values, str) or not isinstance(values, Iterable):
-        raise InvalidNetworkError("not a list")
-    networks: list[IPNetwork] = []
-    for value in values:
-        if not isinstance(value, str) or not value.strip():
-            raise InvalidNetworkError("not a string")
-        if len(networks) >= MAX_ZONE_NETWORKS:
-            raise InvalidNetworkError("too many networks")
-        try:
-            network = ipaddress.ip_network(value.strip(), strict=False)
-        except ValueError as err:
-            raise InvalidNetworkError("not a network") from err
-        if network.prefixlen == 0:
-            raise InvalidNetworkError("matches every address")
-        networks.append(network)
-    if not networks:
-        raise InvalidNetworkError("no network")
-    return tuple(networks)
-
-
-def networks_overlap(first: Iterable[IPNetwork], second: Iterable[IPNetwork]) -> bool:
-    """Return whether any network of ``first`` overlaps one of ``second``."""
-    others = list(second)
-    return any(a.version == b.version and a.overlaps(b) for a in first for b in others)
 
 
 def address_in_networks(address: object, networks: Iterable[IPNetwork]) -> bool:

@@ -24,22 +24,23 @@ from homeassistant.helpers.service import async_register_admin_service
 from .api import MAX_DISABLE_SECONDS, BlockyError, validate_group_names
 from .const import (
     ATTR_ACTION,
+    ATTR_ASK,
     ATTR_CLIENT,
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DOMAIN,
     ATTR_DURATION,
     ATTR_GROUPS,
     ATTR_LIST,
-    ATTR_PHASE,
     ATTR_REQUEST_ID,
     DOMAIN,
     EVENT_LIST_CHANGED,
+    LEVEL_LOCKDOWN,
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
-    PHASES,
     REQUEST_ACTION_APPROVE,
     REQUEST_ACTION_BLOCK,
     REQUEST_ACTION_REJECT,
+    RULE_LISTS,
     SERVICE_ALLOW_DOMAIN,
     SERVICE_APPROVE_REQUEST,
     SERVICE_BLOCK_DOMAIN,
@@ -50,11 +51,15 @@ from .const import (
     SERVICE_REJECT_REQUEST,
     SERVICE_REMOVE_DOMAIN,
     SERVICE_ROTATE_LIST_TOKEN,
-    SERVICE_SET_CLIENT_PHASE,
+    SERVICE_SET_CLIENT_ASK,
 )
 from .coordinator import BlockyConfigEntry
+from .levels import apply_options, with_client
 from .lists import ListError
 from .requests import RequestError, RequestTracker
+from .validation import normalize_client
+
+_LIST_NAME = vol.In(tuple(RULE_LISTS))
 
 DISABLE_BLOCKING_SCHEMA = vol.Schema(
     {
@@ -67,7 +72,7 @@ DISABLE_BLOCKING_SCHEMA = vol.Schema(
 LIST_ENTRY_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
-        vol.Required(ATTR_LIST): cv.string,
+        vol.Required(ATTR_LIST): _LIST_NAME,
         vol.Required(ATTR_DOMAIN): cv.string,
     }
 )
@@ -75,7 +80,7 @@ LIST_ENTRY_SCHEMA = vol.Schema(
 GET_LIST_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
-        vol.Required(ATTR_LIST): cv.string,
+        vol.Required(ATTR_LIST): _LIST_NAME,
     }
 )
 
@@ -87,7 +92,6 @@ APPROVE_REQUEST_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
         vol.Required(ATTR_REQUEST_ID): _REQUEST_ID,
-        vol.Optional(ATTR_LIST): cv.string,
     }
 )
 
@@ -98,11 +102,11 @@ REQUEST_ID_SCHEMA = vol.Schema(
     }
 )
 
-SET_CLIENT_PHASE_SCHEMA = vol.Schema(
+SET_CLIENT_ASK_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
         vol.Required(ATTR_CLIENT): vol.All(cv.string, vol.Length(max=64)),
-        vol.Required(ATTR_PHASE): vol.In(PHASES),
+        vol.Required(ATTR_ASK): cv.boolean,
     }
 )
 
@@ -197,11 +201,9 @@ async def _async_get_list(call: ServiceCall) -> ServiceResponse:
         entries = lists.entries(name)
     except ListError as err:
         raise ServiceValidationError(str(err)) from err
-    definition = lists.definitions[name]
     return {
         "list": name,
-        "type": definition.list_type,
-        "exact_only": definition.exact_only,
+        "type": RULE_LISTS[name],
         "entries": entries,
     }
 
@@ -232,12 +234,7 @@ def _make_resolve_handler(action: str) -> Any:
     async def _async_resolve(call: ServiceCall) -> None:
         _entry, tracker = _get_tracker(call)
         try:
-            tracker.async_resolve(
-                call.data[ATTR_REQUEST_ID],
-                action,
-                call.data.get(ATTR_LIST),
-                call.context,
-            )
+            tracker.async_resolve(call.data[ATTR_REQUEST_ID], action, call.context)
         except RequestError as err:
             raise _request_failure(err) from err
 
@@ -249,17 +246,22 @@ async def _async_get_requests(call: ServiceCall) -> ServiceResponse:
     _entry, tracker = _get_tracker(call)
     return {
         "requests": tracker.describe_requests(),
-        "clients": tracker.describe_clients(),
     }
 
 
-async def _async_set_client_phase(call: ServiceCall) -> None:
-    """Switch a client of an allowlist-only zone between learning and locked."""
-    _entry, tracker = _get_tracker(call)
-    try:
-        tracker.async_set_client_phase(call.data[ATTR_CLIENT], call.data[ATTR_PHASE])
-    except RequestError as err:
-        raise _request_failure(err) from err
+async def _async_set_client_ask(call: ServiceCall) -> None:
+    """Switch whether a Lockdown client asks about new domains."""
+    entry = _get_entry(call.hass, call)
+    address = normalize_client(call.data[ATTR_CLIENT])
+    if address is None:
+        raise _request_failure(RequestError("invalid_client"))
+    if entry.runtime_data.levels.level_of(address) != LEVEL_LOCKDOWN:
+        raise _request_failure(RequestError("client_not_lockdown"))
+    apply_options(
+        call.hass,
+        entry,
+        with_client(entry.options, address, LEVEL_LOCKDOWN, call.data[ATTR_ASK]),
+    )
 
 
 @callback
@@ -340,7 +342,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async_register_admin_service(
         hass,
         DOMAIN,
-        SERVICE_SET_CLIENT_PHASE,
-        _async_set_client_phase,
-        schema=SET_CLIENT_PHASE_SCHEMA,
+        SERVICE_SET_CLIENT_ASK,
+        _async_set_client_ask,
+        schema=SET_CLIENT_ASK_SCHEMA,
     )

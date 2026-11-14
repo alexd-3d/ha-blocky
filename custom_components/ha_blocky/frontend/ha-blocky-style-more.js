@@ -51,6 +51,38 @@ export const MORE_STYLE = `
     font-size: 0.85em; word-break: break-all; user-select: all;
   }
 
+  /* Protection: clients and levels, rules, the block and the status. */
+  table.prot td { vertical-align: middle; }
+  table.prot select { min-height: 36px; max-width: 100%; font: inherit; }
+  table.prot td.askcell { white-space: normal; }
+  .levellegend { margin: 8px 0; padding-left: 20px; line-height: 1.45; }
+  .flabel input.widefield { max-width: 100%; }
+  .rulerow { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+  .rulerow .domain {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-family: var(--code-font-family, monospace);
+  }
+  details.sec .btnrow input[type="text"] {
+    flex: 1 1 200px; min-width: 0; box-sizing: border-box; min-height: 40px; padding: 8px;
+    font: inherit; color: var(--primary-text-color); background: var(--card-background-color);
+    border: 1px solid var(--divider-color); border-radius: 6px;
+  }
+  .banner { margin: 12px 0; padding: 10px 12px; border-radius: 6px; font-weight: 500; }
+  .banner.ok { color: var(--hb-good); border: 1px solid var(--hb-good); }
+  .banner.waiting { color: var(--primary-text-color); border: 1px solid var(--warning-color, #f5a623); }
+  .blockbox textarea {
+    box-sizing: border-box; width: 100%; margin-top: 8px; padding: 8px;
+    font-family: var(--code-font-family, monospace); font-size: 0.85em;
+    color: var(--primary-text-color); background: var(--card-background-color);
+    border: 1px solid var(--divider-color); border-radius: 6px;
+  }
+  table.setupcheck td:last-child { text-align: right; font-weight: 500; }
+  table.compare th, table.compare td {
+    white-space: normal; vertical-align: top; min-width: 9rem; line-height: 1.35;
+  }
+  table.compare th.levelname { white-space: nowrap; min-width: 0; color: var(--primary-text-color); }
+  table.compare td.wrap { max-width: 16rem; }
+
   button.live.on {
     color: var(--hb-good); border-color: var(--hb-good);
     background: color-mix(in srgb, var(--hb-good) 16%, transparent);

@@ -64,7 +64,7 @@ def test_all_events_trigger_it() -> None:
     assert {t["event_type"] for t in triggers} == {
         "ha_blocky_new_domain",
         "ha_blocky_unexpected_domain",
-        "ha_blocky_zone_leak",
+        "ha_blocky_lockdown_leak",
         "ha_blocky_new_domains_summary",
         "telegram_callback",
     }

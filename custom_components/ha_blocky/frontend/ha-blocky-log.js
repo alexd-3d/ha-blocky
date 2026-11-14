@@ -349,7 +349,7 @@ export class LogView {
       );
       const cells = [
         time,
-        clientCell(this._host, row.client, row.client_name, row.zone),
+        clientCell(this._host, row.client, row.client_name, row.level),
         el("td", {
           text: row.domain || "",
           className: "domain",

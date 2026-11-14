@@ -62,3 +62,24 @@ export function field(labelText, control, hintText) {
   };
   return box;
 }
+
+// The text of a refusal from the server: the card's own words for its code
+// (a key `perr_<code>`), or the card's own `fallbackKey`. The server's message
+// is never shown.
+export function refusalText(host, err, fallbackKey) {
+  const code = err && typeof err.code === "string" ? err.code : "";
+  const text = host.t(`perr_${code}`);
+  return text !== `perr_${code}` ? text : host.t(fallbackKey);
+}
+
+// Write text to the clipboard; false when the browser does not allow it.
+export async function copyText(text) {
+  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+  if (!clipboard || typeof clipboard.writeText !== "function") return false;
+  try {
+    await clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}

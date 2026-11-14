@@ -1,6 +1,6 @@
 /*
  * The operational half of the Settings tab: the update intervals, the
- * new-domain reporting, the sidebar entry and the names of the manual lists.
+ * new-domain reporting and the sidebar entry.
  * These are options of the integration; saving them reloads it. The server
  * validates every value again and names the field it refuses.
  * `host` offers: t(key).
@@ -16,17 +16,8 @@ const INTERVALS = [
 ];
 const BOOLEANS = [
   ["report_existing_domains", "set_report", "set_report_hint"],
-  ["show_in_sidebar", "set_sidebar", ""],
+  ["show_in_sidebar", "set_sidebar", "set_sidebar_hint"],
 ];
-const LISTS = [
-  ["allow_lists", "set_allow_lists"],
-  ["deny_lists", "set_deny_lists"],
-  ["exact_only_lists", "set_exact_lists"],
-];
-
-function names(value) {
-  return Array.isArray(value) ? value.filter((name) => typeof name === "string") : [];
-}
 
 function whole(value) {
   const number = Number(value);
@@ -50,10 +41,9 @@ export class OptionsForm {
     const source = entry && typeof entry === "object" ? entry : {};
     const intervals =
       source.intervals && typeof source.intervals === "object" ? source.intervals : {};
-    this._loaded = { intervals: {}, booleans: {}, lists: {} };
+    this._loaded = { intervals: {}, booleans: {} };
     const intervalBoxes = [];
     const generalBoxes = [];
-    const listBoxes = [];
 
     for (const [key, label] of INTERVALS) {
       const spec = intervals[key] || {};
@@ -83,18 +73,6 @@ export class OptionsForm {
       generalBoxes.push(box);
     }
 
-    for (const [key, label] of LISTS) {
-      const current = names(source[key]);
-      this._loaded.lists[key] = current;
-      const input = el("input", {
-        attrs: { type: "text", maxlength: 700, autocomplete: "off" },
-      });
-      input.value = current.join(", ");
-      this._inputs[key] = input;
-      this._fields[key] = field(t(label), input, "");
-      listBoxes.push(this._fields[key]);
-    }
-    listBoxes.push(el("div", { className: "hint", text: t("set_lists_hint") }));
     // One titled group per kind of option; they are saved together.
     const group = (titleKey, children) =>
       el("div", { className: "group" }, [
@@ -103,8 +81,7 @@ export class OptionsForm {
       ]);
     this.element.replaceChildren(
       group("set_group_intervals", intervalBoxes),
-      group("set_group_general", generalBoxes),
-      group("set_group_lists", listBoxes)
+      group("set_group_general", generalBoxes)
     );
   }
 
@@ -120,13 +97,6 @@ export class OptionsForm {
       if (this._inputs[key].checked !== this._loaded.booleans[key]) {
         out[key] = this._inputs[key].checked;
       }
-    }
-    for (const [key] of LISTS) {
-      const value = this._inputs[key].value
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name !== "");
-      if (value.join("\n") !== this._loaded.lists[key].join("\n")) out[key] = value;
     }
     return out;
   }

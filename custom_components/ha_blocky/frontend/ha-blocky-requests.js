@@ -1,23 +1,21 @@
 /*
- * The "Requests" tab: requests for new domains waiting for a decision and the
- * phase of the clients of allowlist-only zones, then the known domains of
- * every tracked client.
+ * The "Requests" tab: requests for new domains waiting for a decision (from
+ * Restricted and Lockdown clients), then the known domains of every tracked
+ * client.
  * `host` offers: hass, entry, t(key), refresh(), isEditing().
  */
 
 import { ACTION_OF } from "./ha-blocky-actions.js";
 import { effectOf, flashPause, flasher } from "./ha-blocky-actions.js";
-import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
+import { DOMAIN, clientCell, el, levelLabel } from "./ha-blocky-dom.js";
 import { KnownView } from "./ha-blocky-known.js";
 
-const PHASES = ["learning", "locked"];
 const SENSOR_FALLBACK = "sensor.ha_blocky_pending_domain_requests";
 
 export class RequestsView {
   constructor(host, container) {
     this._host = host;
     this._reqs = [];
-    this._phases = [];
     this._busy = new Set();
     this._errors = new Map();
     this._token = 0;
@@ -86,7 +84,6 @@ export class RequestsView {
       });
       if (token !== this._token) return;
       this._reqs = Array.isArray(result.requests) ? result.requests : [];
-      this._phases = Array.isArray(result.clients) ? result.clients : [];
       this._known.update(result.tracked);
       this._message.hidden = true;
     } catch (err) {
@@ -123,26 +120,6 @@ export class RequestsView {
     await this.load();
   }
 
-  async _setPhase(client, phase) {
-    if (!PHASES.includes(phase) || typeof client !== "string") return;
-    const key = `phase:${client}`;
-    this._busy.add(key);
-    this._errors.delete(key);
-    this._render();
-    try {
-      await this._host.hass.callService(DOMAIN, "set_client_phase", {
-        config_entry_id: this._host.entry.entry_id,
-        client,
-        phase,
-      });
-    } catch (err) {
-      this._errors.set(key, (err && err.message) || this._t("error"));
-    } finally {
-      this._busy.delete(key);
-    }
-    await this.load();
-  }
-
   _render() {
     const fragment = document.createDocumentFragment();
     if (!this._reqs.length) {
@@ -150,7 +127,7 @@ export class RequestsView {
     } else {
       const head = el("tr", {}, [
         el("th", { text: this._t("req_client"), className: "plain" }),
-        el("th", { text: this._t("req_zone"), className: "plain" }),
+        el("th", { text: this._t("req_level"), className: "plain" }),
         el("th", { text: this._t("req_domain"), className: "plain" }),
         el("th", { text: this._t("req_age"), className: "plain" }),
         el("th", { className: "plain" }),
@@ -175,9 +152,8 @@ export class RequestsView {
         const line = el("tr", {}, [
           clientCell(this._host, request.client, request.client_name, ""),
           el("td", {
-            text: request.zone || "",
-            className: "zone",
-            attrs: { title: request.zone || "" },
+            text: levelLabel(this._host, request.level),
+            className: "level",
           }),
           el("td", {
             text: request.domain || "",
@@ -197,33 +173,6 @@ export class RequestsView {
       );
     }
 
-    if (this._phases.length) {
-      fragment.appendChild(el("h3", { text: this._t("req_phases") }));
-      const body = el("tbody");
-      for (const entry of this._phases) {
-        const key = `phase:${entry.client}`;
-        const select = el(
-          "select",
-          { attrs: { "aria-label": this._t("req_phases") } },
-          PHASES.map((phase) =>
-            el("option", { text: this._t(`phase_${phase}`), attrs: { value: phase } })
-          )
-        );
-        select.value = PHASES.includes(entry.phase) ? entry.phase : "learning";
-        select.disabled = this._busy.has(key);
-        select.addEventListener("change", () => this._setPhase(entry.client, select.value));
-        const control = el("td", {}, [select]);
-        const error = this._errors.get(key);
-        if (error) control.appendChild(el("div", { text: error, className: "rowerror" }));
-        body.appendChild(
-          el("tr", {}, [
-            clientCell(this._host, entry.client, entry.client_name, entry.zone),
-            control,
-          ])
-        );
-      }
-      fragment.appendChild(el("div", { className: "scroll" }, [el("table", {}, [body])]));
-    }
     this._body.replaceChildren(fragment);
   }
 }

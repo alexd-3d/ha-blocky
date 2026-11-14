@@ -4,6 +4,7 @@
  */
 
 import { HELP_EN, HELP_UK } from "./ha-blocky-i18n-help.js";
+import { LEVELS_EN, LEVELS_UK } from "./ha-blocky-i18n-levels.js";
 import { MORE_EN, MORE_UK } from "./ha-blocky-i18n-more.js";
 
 /* i18n:en */
@@ -50,16 +51,12 @@ export const TEXT_EN = {
   "req_none": "No requests are waiting.",
   "req_error": "Could not load the requests.",
   "req_client": "Client",
-  "req_zone": "Zone",
   "req_domain": "Domain",
   "req_age": "Age",
-  "req_phases": "Clients of allowlist-only zones",
   "act_approve": "Approve",
   "act_reject": "Reject",
   "act_block": "Block",
   "act_dismiss": "Dismiss",
-  "phase_learning": "Learning",
-  "phase_locked": "Locked",
   "unit_min": "min",
   "unit_h": "h",
   "client_edit": "Click to name this client",
@@ -75,7 +72,7 @@ export const TEXT_EN = {
   "known_title": "Known domains",
   "known_error": "Could not load the known domains.",
   "known_none": "No known domains.",
-  "known_readonly": "Read-only: the known domains of this zone are on its allow lists.",
+  "known_readonly": "Read-only: the known domains of a Lockdown client are on the Lockdown allow list (see Rules in Settings).",
   "known_blocked": "Blocked",
   "tab_dashboard": "Dashboard",
   "dash_blocking_active": "Blocking active",
@@ -149,21 +146,12 @@ export const TEXT_EN = {
   "set_default": "default",
   "set_interval_note": "Blocky writes its query log in batches, by default every 30 seconds, so polling faster than that shows nothing new.",
   "set_report": "Report existing history as new",
-  "set_report_hint": "Off: domains already in the query log when tracking starts are taken as known in learning zones. On: they raise requests like new domains.",
+  "set_report_hint": "Off: domains already in the query log when tracking starts are taken as known for Restricted clients. On: they raise requests like new domains.",
   "set_sidebar": "Show in sidebar",
-  "set_allow_lists": "Allow lists",
-  "set_deny_lists": "Deny lists",
-  "set_exact_lists": "Lists without wildcards",
-  "set_lists_hint": "Comma-separated names: lower-case letters, digits and underscores, up to 32 characters, up to 20 lists in all. Removing a name deletes that list and its entries. The clients that may download lists and the list addresses are in the Configure menu of the integration.",
   "serr_invalid_color": "Use the form #rrggbb.",
   "serr_invalid_rows": "Choose 5, 10 or 20.",
   "serr_out_of_range": "This number is outside the allowed range.",
   "serr_invalid_type": "This value is not valid.",
-  "serr_invalid_list_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
-  "serr_duplicate_list_name": "Every list name must be used only once.",
-  "serr_too_many_lists": "Too many lists.",
-  "serr_unknown_list_name": "This name is not among the allow or deny lists.",
-  "serr_list_in_use": "A zone uses a list that this change would remove or make unsuitable. Edit or delete the zone first.",
   "serr_nothing_to_change": "Nothing to change.",
   "serr_entry_not_found": "The Blocky instance was not found.",
   "serr_not_ready": "The settings are not available yet."
@@ -214,16 +202,12 @@ export const TEXT_UK = {
   "req_none": "Немає запитів, що очікують.",
   "req_error": "Не вдалося завантажити запити.",
   "req_client": "Клієнт",
-  "req_zone": "Зона",
   "req_domain": "Домен",
   "req_age": "Вік",
-  "req_phases": "Клієнти зон «лише дозволені»",
   "act_approve": "Схвалити",
   "act_reject": "Відхилити",
   "act_block": "Заблокувати",
   "act_dismiss": "Закрити",
-  "phase_learning": "Навчання",
-  "phase_locked": "Заблоковано",
   "unit_min": "хв",
   "unit_h": "год",
   "client_edit": "Натисніть, щоб назвати цього клієнта",
@@ -239,7 +223,7 @@ export const TEXT_UK = {
   "known_title": "Відомі домени",
   "known_error": "Не вдалося завантажити відомі домени.",
   "known_none": "Немає відомих доменів.",
-  "known_readonly": "Лише перегляд: відомі домени цієї зони є в її списках дозволених.",
+  "known_readonly": "Лише перегляд: відомі домени клієнта рівня «Лише дозволене» є у списку дозволених цього рівня (див. «Правила» в Налаштуваннях).",
   "known_blocked": "Заблоковано",
   "tab_dashboard": "Панель",
   "dash_blocking_active": "Блокування активне",
@@ -313,21 +297,12 @@ export const TEXT_UK = {
   "set_default": "типово",
   "set_interval_note": "Blocky записує журнал запитів пакетами, типово кожні 30 секунд, тому опитування частіше нічого нового не покаже.",
   "set_report": "Повідомляти наявну історію як нову",
-  "set_report_hint": "Вимкнено: домени, що вже є в журналі на початку відстеження, вважаються відомими в зонах навчання. Увімкнено: вони створюють запити, як нові домени.",
+  "set_report_hint": "Вимкнено: домени, що вже є в журналі на початку відстеження, вважаються відомими для клієнтів рівня «Обмежений». Увімкнено: вони створюють запити, як нові домени.",
   "set_sidebar": "Показувати в бічній панелі",
-  "set_allow_lists": "Списки дозволених",
-  "set_deny_lists": "Списки заборонених",
-  "set_exact_lists": "Списки без шаблонів",
-  "set_lists_hint": "Назви через кому: малі літери, цифри та підкреслення, до 32 символів, разом не більше 20 списків. Видалення назви видаляє список і його записи. Клієнти, що можуть завантажувати списки, та адреси списків - у меню «Налаштувати» інтеграції.",
   "serr_invalid_color": "Використайте вигляд #rrggbb.",
   "serr_invalid_rows": "Виберіть 5, 10 або 20.",
   "serr_out_of_range": "Це число поза допустимим діапазоном.",
   "serr_invalid_type": "Це значення недійсне.",
-  "serr_invalid_list_name": "Використовуйте малі літери, цифри та підкреслення, починаючи з літери або цифри, до 32 символів.",
-  "serr_duplicate_list_name": "Кожну назву списку можна використати лише раз.",
-  "serr_too_many_lists": "Забагато списків.",
-  "serr_unknown_list_name": "Цієї назви немає серед списків дозволених або заборонених.",
-  "serr_list_in_use": "Зона використовує список, який ця зміна видалила б або зробила непридатним. Спершу змініть або видаліть зону.",
   "serr_nothing_to_change": "Нічого змінювати.",
   "serr_entry_not_found": "Екземпляр Blocky не знайдено.",
   "serr_not_ready": "Налаштування ще недоступні."
@@ -335,8 +310,8 @@ export const TEXT_UK = {
 /* i18n:end */
 
 const TEXTS = {
-  en: { ...TEXT_EN, ...HELP_EN, ...MORE_EN },
-  uk: { ...TEXT_UK, ...HELP_UK, ...MORE_UK },
+  en: { ...TEXT_EN, ...HELP_EN, ...MORE_EN, ...LEVELS_EN },
+  uk: { ...TEXT_UK, ...HELP_UK, ...MORE_UK, ...LEVELS_UK },
 };
 
 // The text for a key in the language of Home Assistant, else in English.
@@ -344,5 +319,5 @@ export function translate(hass, key) {
   const language =
     (hass && hass.locale && hass.locale.language) || (hass && hass.language) || "en";
   const table = TEXTS[language] || TEXTS[language.split("-")[0]] || TEXT_EN;
-  return table[key] || TEXT_EN[key] || HELP_EN[key] || MORE_EN[key] || key;
+  return table[key] || TEXT_EN[key] || HELP_EN[key] || MORE_EN[key] || LEVELS_EN[key] || key;
 }

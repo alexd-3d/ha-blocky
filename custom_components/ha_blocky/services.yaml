@@ -25,7 +25,12 @@ allow_domain:
     list:
       required: true
       selector:
-        text:
+        select:
+          options:
+            - allow_default
+            - deny_default
+            - restricted_deny
+            - lockdown_allow
     domain:
       required: true
       selector:
@@ -41,7 +46,12 @@ block_domain:
     list:
       required: true
       selector:
-        text:
+        select:
+          options:
+            - allow_default
+            - deny_default
+            - restricted_deny
+            - lockdown_allow
     domain:
       required: true
       selector:
@@ -57,7 +67,12 @@ remove_domain:
     list:
       required: true
       selector:
-        text:
+        select:
+          options:
+            - allow_default
+            - deny_default
+            - restricted_deny
+            - lockdown_allow
     domain:
       required: true
       selector:
@@ -73,7 +88,12 @@ get_list:
     list:
       required: true
       selector:
-        text:
+        select:
+          options:
+            - allow_default
+            - deny_default
+            - restricted_deny
+            - lockdown_allow
 
 rotate_list_token:
   fields:
@@ -92,10 +112,6 @@ approve_request:
           integration: ha_blocky
     request_id:
       required: true
-      selector:
-        text:
-    list:
-      required: false
       selector:
         text:
 
@@ -131,7 +147,7 @@ get_requests:
         config_entry:
           integration: ha_blocky
 
-set_client_phase:
+set_client_ask:
   fields:
     config_entry_id:
       required: false
@@ -142,10 +158,7 @@ set_client_phase:
       required: true
       selector:
         text:
-    phase:
+    ask:
       required: true
       selector:
-        select:
-          options:
-            - learning
-            - locked
+        boolean:

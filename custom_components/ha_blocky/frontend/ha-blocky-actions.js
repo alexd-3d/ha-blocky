@@ -52,6 +52,7 @@ export const UI_ICONS = {
   log_refresh: "mdi:refresh",
   log_live: "mdi:access-point",
   chevron: "mdi:chevron-right",
+  rule_remove: "mdi:close",
 };
 
 // The effect of each action: "good" actions let something through, "bad" ones
@@ -184,7 +185,9 @@ export class ListPicker {
     const select = el(
       "select",
       { attrs: { "aria-label": t("choose_list") } },
-      lists.map((list) => el("option", { text: list.name, attrs: { value: list.name } }))
+      lists.map((list) =>
+        el("option", { text: t(`list_${list.name}`), attrs: { value: list.name } })
+      )
     );
     const confirm = el("button", { text: t("confirm"), className: "primary" });
     const cancel = el("button", { text: t("cancel") });

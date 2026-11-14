@@ -131,7 +131,7 @@ async def test_entities_are_created(
     assert hass.states.get(FLUSH_BUTTON) is not None
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6
+    assert len(entities) == 6 + 4
     assert all(e.unique_id.startswith(f"{entry.entry_id}_") for e in entities)
 
     devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)

@@ -48,17 +48,29 @@ DASHBOARD_PERIODS: Final = ("today", "24h", "7d", "30d")
 DASHBOARD_ROWS: Final = (5, 10, 20)
 DASHBOARD_CACHE: Final = timedelta(seconds=30)
 
-# Manual lists served to Blocky.
-CONF_LISTS: Final = "lists"
-CONF_LIST_NETWORKS: Final = "list_networks"
-# Fields of the options form that defines the lists.
-CONF_ALLOW_LISTS: Final = "allow_lists"
-CONF_DENY_LISTS: Final = "deny_lists"
-CONF_EXACT_ONLY_LISTS: Final = "exact_only_lists"
+# The lists served to Blocky. They are fixed: the user edits their entries
+# (rules), never their names.
 LIST_TYPE_ALLOW: Final = "allow"
 LIST_TYPE_DENY: Final = "deny"
-LIST_TYPES: Final = (LIST_TYPE_ALLOW, LIST_TYPE_DENY)
-MAX_LISTS: Final = 20
+LIST_ALLOW_DEFAULT: Final = "allow_default"
+LIST_DENY_DEFAULT: Final = "deny_default"
+LIST_RESTRICTED_DENY: Final = "restricted_deny"
+LIST_LOCKDOWN_ALLOW: Final = "lockdown_allow"
+# The list of the editable rules and the type of each. allow_default and
+# deny_default are global (Standard, and through the base list groups also
+# Restricted); the other two belong to one level.
+RULE_LISTS: Final = {
+    LIST_ALLOW_DEFAULT: LIST_TYPE_ALLOW,
+    LIST_DENY_DEFAULT: LIST_TYPE_DENY,
+    LIST_RESTRICTED_DENY: LIST_TYPE_DENY,
+    LIST_LOCKDOWN_ALLOW: LIST_TYPE_ALLOW,
+}
+# The list that is always served empty: the group of the Unfiltered level.
+LIST_UNFILTERED_EMPTY: Final = "unfiltered_empty"
+SERVED_LISTS: Final = (*RULE_LISTS, LIST_UNFILTERED_EMPTY)
+# Lists that refuse wildcard entries when an entry is added.
+EXACT_ONLY_LISTS: Final = (LIST_LOCKDOWN_ALLOW,)
+CONF_LIST_NETWORKS: Final = "list_networks"
 MAX_LIST_ENTRIES: Final = 5000
 # Only these clients may fetch lists. The default is the network Home
 # Assistant Supervisor puts apps (add-ons) on; it is the same on every
@@ -67,15 +79,25 @@ DEFAULT_LIST_NETWORKS: Final = ("172.30.32.0/23",)
 # Blocky is asked to reload this long after the last change to a list.
 REFRESH_DEBOUNCE_SECONDS: Final = 10
 
-# Zones: user-defined client groups, used only to tell which policy applies to
-# a client address seen in the query log. Blocky's own config is never changed.
-CONF_ZONES: Final = "zones"
-ZONE_MODE_FILTER: Final = "filter"
-ZONE_MODE_LEARNING: Final = "learning"
-ZONE_MODE_ALLOWLIST_ONLY: Final = "allowlist_only"
-ZONE_MODES: Final = (ZONE_MODE_FILTER, ZONE_MODE_LEARNING, ZONE_MODE_ALLOWLIST_ONLY)
-MAX_ZONES: Final = 16
-MAX_ZONE_NETWORKS: Final = 8
+# Protection levels of a client. Standard is the absence of an entry.
+LEVEL_UNFILTERED: Final = "unfiltered"
+LEVEL_STANDARD: Final = "standard"
+LEVEL_RESTRICTED: Final = "restricted"
+LEVEL_LOCKDOWN: Final = "lockdown"
+LEVELS: Final = (LEVEL_UNFILTERED, LEVEL_STANDARD, LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
+# The levels that need a client line in Blocky's configuration.
+CLIENT_LEVELS: Final = (LEVEL_UNFILTERED, LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
+# The levels whose clients are watched for new domains.
+TRACKED_LEVELS: Final = (LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
+CONF_CLIENTS: Final = "clients"
+CONF_BASE_GROUPS: Final = "base_groups"
+CONF_NOTIFY: Final = "notify"
+# The list groups the Blocky fallback client group ("default") uses.
+DEFAULT_BASE_GROUPS: Final = ("default",)
+MAX_BASE_GROUPS: Final = 16
+MAX_CLIENTS: Final = 64
+# Notifications (events for new domains) per level: Restricted off, Lockdown on.
+DEFAULT_NOTIFY: Final = {LEVEL_RESTRICTED: False, LEVEL_LOCKDOWN: True}
 
 EVENT_LIST_CHANGED: Final = f"{DOMAIN}_list_changed"
 SERVICE_ALLOW_DOMAIN: Final = "allow_domain"
@@ -116,21 +138,21 @@ INTERVALS: Final = {
 # The window of the summary and top-list sensors.
 STATS_WINDOW: Final = timedelta(hours=24)
 
-# Requests for new domains: what the clients of "learning" and
-# "allowlist_only" zones ask for, read from the query log.
+# Requests for new domains: what the Restricted and Lockdown clients ask for,
+# read from the query log.
 CONF_REPORT_EXISTING_DOMAINS: Final = "report_existing_domains"
 EVENT_NEW_DOMAIN: Final = f"{DOMAIN}_new_domain"
 EVENT_UNEXPECTED_DOMAIN: Final = f"{DOMAIN}_unexpected_domain"
-EVENT_ZONE_LEAK: Final = f"{DOMAIN}_zone_leak"
+EVENT_LOCKDOWN_LEAK: Final = f"{DOMAIN}_lockdown_leak"
 EVENT_NEW_DOMAINS_SUMMARY: Final = f"{DOMAIN}_new_domains_summary"
 SERVICE_APPROVE_REQUEST: Final = "approve_request"
 SERVICE_REJECT_REQUEST: Final = "reject_request"
 SERVICE_BLOCK_REQUEST: Final = "block_request"
 SERVICE_GET_REQUESTS: Final = "get_requests"
-SERVICE_SET_CLIENT_PHASE: Final = "set_client_phase"
+SERVICE_SET_CLIENT_ASK: Final = "set_client_ask"
 ATTR_REQUEST_ID: Final = "request_id"
 ATTR_CLIENT: Final = "client"
-ATTR_PHASE: Final = "phase"
+ATTR_ASK: Final = "ask"
 REQUEST_ACTION_APPROVE: Final = "approve"
 REQUEST_ACTION_REJECT: Final = "reject"
 REQUEST_ACTION_BLOCK: Final = "block"
@@ -139,12 +161,6 @@ REQUEST_ACTIONS: Final = (
     REQUEST_ACTION_REJECT,
     REQUEST_ACTION_BLOCK,
 )
-# A client of an allowlist-only zone is either still being learned (blocked
-# domains become requests) or locked (blocked domains are only reported).
-PHASE_LEARNING: Final = "learning"
-PHASE_LOCKED: Final = "locked"
-PHASES: Final = (PHASE_LEARNING, PHASE_LOCKED)
-
 # Hard caps; the state is kept in memory and in one store.
 MAX_REQUEST_CLIENTS: Final = 256
 MAX_KNOWN_PAIRS_PER_CLIENT: Final = 1000
@@ -155,7 +171,7 @@ MAX_REJECTED_PAIRS_PER_CLIENT: Final = 500
 MAX_LEAKS_PER_CLIENT: Final = 200
 # Log rows read per statistics round.
 REQUEST_WINDOW_ROWS: Final = 5000
-# Silent baseline of a new client in a learning zone: its names of this long
+# Silent baseline of a new Restricted client: its names of this long
 # ago are taken as known, for at most this many clients per round.
 BASELINE_WINDOW: Final = timedelta(days=7)
 MAX_BASELINE_CLIENTS_PER_ROUND: Final = 10

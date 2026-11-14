@@ -1,22 +1,22 @@
 /*
  * The "Known domains" part of the Requests tab: one native <details> per
  * tracked client (the summary shows the client and the number of known
- * domains), loaded on the first opening. Clients of learning zones get a Block icon
- * per domain; the list of a client of an allowlist-only zone is read-only
- * (its known domains are on an allow list, which this card does not edit).
+ * domains), loaded on the first opening. Restricted clients get a Block icon
+ * per domain; the list of a Lockdown client is read-only (its known domains
+ * are on the Lockdown allow list, which is edited under Rules in Settings).
  * `host` offers: hass, entry, t(key), refresh().
  */
 
-import { DOMAIN, clientLines, el } from "./ha-blocky-dom.js";
+import { DOMAIN, clientLines, el, levelLabel } from "./ha-blocky-dom.js";
 import { UI_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
 
-const LEARNING = "learning";
+const RESTRICTED = "restricted";
 
 export class KnownView {
   constructor(host) {
     this._host = host;
     this._clients = [];
-    // Address -> { open, loaded, loading, domains, total, mode, error, blocked, body }.
+    // Address -> { open, loaded, loading, domains, total, level, error, blocked, body }.
     this._state = new Map();
     this.element = el("div");
   }
@@ -46,7 +46,7 @@ export class KnownView {
         loading: false,
         domains: [],
         total: 0,
-        mode: "",
+        level: "",
         blocked: new Set(),
         body: undefined,
       };
@@ -82,7 +82,7 @@ export class KnownView {
         ? result.domains.filter((domain) => typeof domain === "string")
         : [];
       state.total = Number(result.total) || 0;
-      state.mode = typeof result.mode === "string" ? result.mode : "";
+      state.level = typeof result.level === "string" ? result.level : "";
       state.loaded = true;
     } catch (err) {
       state.error = this._t("known_error");
@@ -116,7 +116,7 @@ export class KnownView {
       box.appendChild(el("div", { text: this._t("loading"), className: "sub" }));
     }
     if (!state.loaded) return box;
-    const canBlock = state.mode === LEARNING;
+    const canBlock = state.level === RESTRICTED;
     if (!canBlock) {
       box.appendChild(el("div", { text: this._t("known_readonly"), className: "sub" }));
     }
@@ -154,7 +154,7 @@ export class KnownView {
       const known = Number(item.known) || 0;
       const summary = el("summary", { className: "ksum" }, [
         haIcon(UI_ICONS, "chevron", "karrow"),
-        el("div", { className: "kname" }, clientLines(address, item.client_name, item.zone)),
+        el("div", { className: "kname" }, clientLines(address, item.client_name, levelLabel(this._host, item.level))),
         el("span", {
           text: String(known),
           className: "kcount",
