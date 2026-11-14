@@ -140,8 +140,10 @@ def test_windows_in_utc() -> None:
     today = build_window("today", NOW)
     assert today.unit == "hour"
     assert today.since == datetime(2026, 11, 10, tzinfo=UTC)
-    assert len(today.starts) == 13
-    assert today.starts[-1] == datetime(2026, 11, 10, 12, tzinfo=UTC)
+    # Always 24 slots: the hours still to come are empty buckets.
+    assert len(today.starts) == 24
+    assert today.starts[0] == datetime(2026, 11, 10, tzinfo=UTC)
+    assert today.starts[-1] == datetime(2026, 11, 10, 23, tzinfo=UTC)
     assert today.until == datetime(2026, 11, 10, 13, tzinfo=UTC)
 
     day = build_window("24h", NOW)
@@ -268,9 +270,14 @@ async def test_dashboard_periods_and_rows(
 
     today = (await _command(client, 1, type=KIND, period="today"))["result"]
     assert today["totals"]["queries"] == 8  # without late.example and old.example
-    assert len(today["buckets"]["items"]) == 13
+    items = today["buckets"]["items"]
+    assert len(items) == 24
+    assert all(sum(item["categories"].values()) == 0 for item in items[13:])
+    assert sum(sum(item["categories"].values()) for item in items) == 8
+    # The other periods keep their own slot counts.
 
     week = (await _command(client, 2, type=KIND, period="7d"))["result"]
+    assert len(week["buckets"]["items"]) == 7
     assert week["totals"]["queries"] == 10
     assert week["buckets"]["unit"] == "day"
     days = week["buckets"]["items"]
