@@ -60,6 +60,8 @@ class BlockyData:
     apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     apply_finished: datetime | None = None
     last_apply: dict[str, str] | None = None
+    # The log table facts are written to the DEBUG log once per run.
+    table_logged: bool = False
 
 
 type BlockyConfigEntry = ConfigEntry[BlockyData]

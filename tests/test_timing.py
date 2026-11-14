@@ -121,6 +121,8 @@ async def test_dashboard_logs_cache_hit_and_miss(
     messages = _ours(caplog)
     assert "dashboard cache miss for 7d" in messages
     assert "dashboard cache hit for 7d" in messages
+    # The table facts are logged once, not on every round.
+    assert messages.count("query log table facts: None") == 1
 
 
 def test_table_info_is_none_outside_mysql(database: QueryLogDatabase) -> None:

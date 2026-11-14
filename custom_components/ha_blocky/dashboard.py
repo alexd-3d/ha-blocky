@@ -19,7 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import DASHBOARD_CACHE
-from .db import CATEGORIES, QueryLogDatabase
+from .db import CATEGORIES, BlockyDbError, QueryLogDatabase
 
 if TYPE_CHECKING:
     from .coordinator import BlockyData
@@ -173,6 +173,14 @@ async def async_dashboard(
             _LOGGER.debug("dashboard cache hit for %s", period)
             return cached[1]
         _LOGGER.debug("dashboard cache miss for %s", period)
+        if not data.table_logged and _LOGGER.isEnabledFor(logging.DEBUG):
+            data.table_logged = True
+            try:
+                facts = await hass.async_add_executor_job(database.table_info)
+            except BlockyDbError:
+                facts = None
+            # Schema facts only: index names, their columns, a row estimate.
+            _LOGGER.debug("query log table facts: %s", facts)
         result = await hass.async_add_executor_job(
             collect, database, build_window(period, now), period, rows
         )
