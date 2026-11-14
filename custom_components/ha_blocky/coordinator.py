@@ -55,6 +55,11 @@ class BlockyData:
         default_factory=dict
     )
     dashboard_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Applying the entries to the Blocky app (apply.py): one run at a time. All
+    # of it lives in memory only.
+    apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    apply_finished: datetime | None = None
+    last_apply: dict[str, str] | None = None
 
 
 type BlockyConfigEntry = ConfigEntry[BlockyData]

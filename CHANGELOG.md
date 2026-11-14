@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.17.0
+
+Apply now, a tidier Settings tab and timing for the slow dashboard (BLO-021).
+
+### Added
+
+- **Apply now (opt-in):** the switch "Let HA-Blocky change Blocky's configuration"
+  (off by default, administrators only, asks before it is turned on) lets the integration
+  write its list groups and client lines into the options of the Blocky app through the
+  Home Assistant Supervisor, validate them, and restart Blocky. If Blocky does not answer
+  again within 90 seconds, the previous options are written back. Only for the Blocky app
+  without Custom Config Mode; one run at a time, at least 60 seconds apart. The options pass
+  through memory only and are never logged or shown. New commands `ha_blocky/set_auto_apply`
+  and `ha_blocky/apply_now` (no entity, no action); the levels answer carries `auto_apply`,
+  `apply_available` and `last_apply`. The Setup check shows the last automatic apply.
+- **Timing:** every query-log statement and every dashboard round logs one DEBUG line (a
+  fixed label, milliseconds, row count; never the statement or its values). The diagnostics
+  list the indexes and the estimated row count of the log table (MariaDB).
+
+### Changed
+
+- **Settings tab:** the format switch of the block to paste wraps its labels and stacks in a
+  narrow card instead of overlapping; Copy block sits with the block it copies; the Setup
+  check is the last part of the "Applying changes to Blocky" card.
+- `hassio` is an optional dependency (`after_dependencies`); without a Supervisor
+  everything works as before and Apply now is not offered.
+
 ## 0.16.0
 
 Query log on the narrowest cards and the Telegram blueprint (BLO-020).

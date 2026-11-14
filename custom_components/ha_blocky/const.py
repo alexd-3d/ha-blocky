@@ -92,6 +92,13 @@ TRACKED_LEVELS: Final = (LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
 CONF_CLIENTS: Final = "clients"
 CONF_BASE_GROUPS: Final = "base_groups"
 CONF_NOTIFY: Final = "notify"
+# Opt-in: HA-Blocky writes its entries into the Blocky app's options itself.
+CONF_AUTO_APPLY: Final = "auto_apply"
+# After an apply finishes, the next one waits this long.
+APPLY_MIN_INTERVAL: Final = timedelta(seconds=60)
+# After the restart, Blocky's API is polled this often, for this long.
+APPLY_POLL_SECONDS: Final = 3
+APPLY_WAIT_SECONDS: Final = 90
 # The list groups the Blocky fallback client group ("default") uses.
 DEFAULT_BASE_GROUPS: Final = ("default",)
 MAX_BASE_GROUPS: Final = 16

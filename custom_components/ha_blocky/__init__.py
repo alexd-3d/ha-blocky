@@ -45,6 +45,7 @@ from .requests import storage_key as requests_storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
 from .websocket_api import async_register_commands
+from .websocket_apply import async_register_apply_commands
 from .websocket_levels import async_register_level_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_view(hass)
     async_register_commands(hass)
     async_register_level_commands(hass)
+    async_register_apply_commands(hass)
     await async_register_card(hass)
     return True
 

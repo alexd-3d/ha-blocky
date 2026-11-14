@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .const import (
     CLIENT_LEVELS,
@@ -57,6 +58,13 @@ from .validation import (
 _LOGGER = logging.getLogger(__name__)
 
 REV_RE: Final = re.compile(r"[0-9a-f]{8}")
+# The served list each level's group is built from.
+LEVEL_LIST: Final = {
+    LEVEL_RESTRICTED: LIST_RESTRICTED_DENY,
+    LEVEL_LOCKDOWN: LIST_LOCKDOWN_ALLOW,
+    LEVEL_UNFILTERED: LIST_UNFILTERED_EMPTY,
+}
+
 # Group names this integration defines in Blocky; a base group may not use them.
 RESERVED_GROUPS: Final = (LEVEL_UNFILTERED, LEVEL_RESTRICTED, LEVEL_LOCKDOWN)
 
@@ -304,6 +312,21 @@ def render_block(
         plain.append(f"    {_quote(address)}:")
         plain.extend(f"      - {_quote(name)}" for name in names)
     return {"app": "\n".join(app) + "\n", "plain": "\n".join(plain) + "\n"}
+
+
+def list_urls(hass: HomeAssistant, lists: Any, rev: str) -> tuple[str, dict[str, str]]:
+    """Return Home Assistant's internal base URL ("" if unknown) and the full
+    address of each served list, including the ``r`` marker and the secret token.
+
+    The result goes to administrators and to the apply step only.
+    """
+    try:
+        base = get_url(hass, allow_external=False, allow_cloud=False, allow_ip=True)
+    except NoURLAvailableError:
+        base = ""
+    return base, {
+        name: f"{base}{lists.path(name)}?r={rev}" for name in LEVEL_LIST.values()
+    }
 
 
 def with_client(

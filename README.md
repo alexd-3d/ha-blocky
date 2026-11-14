@@ -120,8 +120,8 @@ list (exact domains only: a wildcard entry is refused when you add it). An entry
 its own domain and its subdomains; `*.example.com` covers subdomains only. Blocky is asked
 to reload its lists a few seconds after a change.
 
-**How a change gets applied.** Home Assistant never writes Blocky's configuration, so a
-change of levels needs these steps:
+**How a change gets applied.** By default Home Assistant does not write Blocky's
+configuration, so a change of levels needs these steps (or the opt-in switch described below):
 
 1. Change a device's level. A banner shows "N changes waiting".
 2. Press "Show block to paste", then "Copy block". The block lists the list groups and one
@@ -131,6 +131,27 @@ change of levels needs these steps:
 4. Restart Blocky.
 5. Press "Check now". It asks Blocky to refresh its lists and reads the status again.
 6. The banner changes to "Applied".
+
+**Apply now (opt-in).** The switch "Let HA-Blocky change Blocky's configuration" (Settings,
+"Applying changes to Blocky") is off by default and turning it on asks for a confirmation. When
+it is on and Home Assistant Supervisor is present, the button "Apply now" does steps 2 to 5 for
+you: it finds the Blocky app by comparing the host of the configured Blocky address with the
+installed apps, reads the app's options, replaces only this integration's entries in them (the
+list groups `restricted`, `unfiltered`, `lockdown` and the client lines of the IP addresses it
+manages; every other entry and option stays untouched), has the Supervisor validate the result,
+writes it and restarts the app. DNS pauses for a few seconds. When Blocky does not answer
+again within 90 seconds, the previous options are written back and Blocky is restarted once
+more; the card says which of `ok`, `unchanged`, `restored` or `restore_failed` happened.
+Limits: only the Blocky app (not Docker), without Custom Config Mode (then the block has to be
+pasted), a Home Assistant internal address must be set, one run at a time and at least a minute
+between runs. The switch and the button are administrator-only commands of the card; there is no
+entity and no action for them, so an automation cannot start an apply.
+
+*Security meaning.* Turning the switch on lets this integration write the options of the Blocky
+app through the Supervisor: those options also hold the query log database credentials. They
+pass through Home Assistant's memory for the run only; they are never logged, stored, shown in
+the card or put into an error, and nothing outside the Supervisor receives them. Leave the
+switch off to keep pasting the block yourself.
 
 The block contains the secret list addresses, so it is shown to administrators only. Every
 list address carries `?r=<rev>`, where `rev` is the first 8 hex characters of the SHA-256 of
@@ -524,6 +545,9 @@ cards:
 
 Blocky's HTTP API has no authentication. Do not expose the Blocky HTTP port
 outside a trusted network segment.
+
+The opt-in "Apply now" lets this integration write the options of the Blocky app through the
+Supervisor (see above); keep it off if you do not want Home Assistant to have that power.
 
 ## License
 
