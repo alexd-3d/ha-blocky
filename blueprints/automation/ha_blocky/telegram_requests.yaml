@@ -172,8 +172,21 @@ actions:
                     data:
                       request_id: "{{ trigger.event.data.args[0] }}"
                     continue_on_error: true
+          # Remove the buttons of the message, so a second press is not possible
+          # and it is clear that the command was sent.
+          - action: telegram_bot.edit_replymarkup
+            data:
+              chat_id: "{{ trigger.event.data.chat_id }}"
+              message_id: "{{ trigger.event.data.message.message_id }}"
+              inline_keyboard: []
+            continue_on_error: true
           - action: telegram_bot.answer_callback_query
             data:
               callback_query_id: "{{ trigger.event.data.id }}"
-              message: Sent to Home Assistant.
+              message: >-
+                {{ {'/blocky_approve': 'Approved.',
+                    '/blocky_reject': 'Rejected.',
+                    '/blocky_block': 'Blocked.'}[trigger.event.data.command] }}
+                Sent to Home Assistant.
               show_alert: false
+            continue_on_error: true

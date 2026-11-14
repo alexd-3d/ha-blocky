@@ -356,7 +356,7 @@ export class LogView {
         cells.push(actions);
       }
       const title = row.reason ? { title: row.reason } : {};
-      const line = el("tr", { className: row.blocked ? "blocked" : "", attrs: title }, cells);
+      const line = el("tr", { className: row.blocked ? `blocked c-${kind}` : `c-${kind}`, attrs: title }, cells);
       flasher.apply(`log:${row.id}`, line);
       fragment.appendChild(line);
     }

@@ -267,6 +267,19 @@ def test_the_log_row_has_the_cells_of_a_two_line_mobile_row() -> None:
     assert "font-size: var(--hb-fs-label)" in count
 
 
+def test_the_narrow_log_row_shows_the_status_as_a_bar_and_drops_the_badge() -> None:
+    log = SOURCES["ha-blocky-log.js"]
+    style = SOURCES["ha-blocky-style.js"]
+    # The row carries the category class: --c is the colour of the palette.
+    assert "`blocked c-${kind}` : `c-${kind}`" in log
+    assert "table.log tr::before {" in style
+    assert "background: var(--c, var(--divider-color))" in style
+    # On the narrowest card the badge is hidden and the domain takes line 2.
+    narrowest = style[style.index("@container (max-width: 420px)") :]
+    assert '"domain domain actions"' in narrowest
+    assert "table.log td.status { display: none; }" in narrowest
+
+
 def test_the_heading_is_the_name_of_the_integration() -> None:
     view = SOURCES["ha-blocky-card-view.js"]
     assert 'const PRODUCT_NAME = "HA-Blocky";' in view
