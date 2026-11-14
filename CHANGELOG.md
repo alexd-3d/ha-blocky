@@ -23,9 +23,10 @@ Apply now, a tidier Settings tab and timing for the slow dashboard (BLO-021).
 
 - **Faster Dashboard tab:** a round needs 6 statements instead of 10: the totals per
   category come from the hourly query, and each top list is one statement that ranks and
-  counts per category at the same time. The answers of 7 days and 30 days stay fresh for
-  5 minutes and, for up to an hour, an older answer is shown at once while one refresh runs
-  in the background. The card shows the last answer of a period (kept in memory only)
+  counts per category at the same time. Answers stay fresh for 30 seconds (Today, 24 hours) or
+  5 minutes (7 and 30 days); for up to an hour an older answer is shown at once, marked
+  stale, while one refresh runs in the background, and the card asks again after a few
+  seconds (at most 5 times) and redraws. The card shows the last answer of a period (kept in memory only)
   immediately while the new one loads.
 - **Settings tab:** the format switch of the block to paste wraps its labels and stacks in a
   narrow card instead of overlapping; Copy block sits with the block it copies; the Setup

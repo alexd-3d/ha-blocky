@@ -362,8 +362,15 @@ async def test_dashboard_is_cached_for_a_short_time(
     assert len(calls) == 3
 
     freezer.tick(timedelta(seconds=31))
-    refreshed = await _command(client, 6, type=KIND, period="24h", rows=10)
+    # Stale: the old answer comes at once, marked; one refresh runs behind it.
+    stale = await _command(client, 6, type=KIND, period="24h", rows=10)
+    assert stale["result"]["meta"]["stale"] is True
+    assert stale["result"]["totals"]["queries"] == 9
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(calls) == 4
+    refreshed = await _command(client, 7, type=KIND, period="24h", rows=10)
+    assert len(calls) == 4
+    assert refreshed["result"]["meta"]["stale"] is False
     assert refreshed["result"]["totals"]["queries"] == 10
     assert refreshed["result"]["meta"]["generated_at"] == "2026-11-10T12:30:31+00:00"
 

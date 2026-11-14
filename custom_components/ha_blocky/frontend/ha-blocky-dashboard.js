@@ -30,6 +30,9 @@ import { Toolbar } from "./ha-blocky-toolbar.js";
 import { topList } from "./ha-blocky-toplist.js";
 
 const DEFAULT_REFRESH_SECONDS = 60;
+// After a stale answer: ask again after this long, at most this many times.
+const STALE_RETRY_MS = 4000;
+const STALE_RETRIES = 5;
 const TILES = [
   { id: "total", icon: "tile_total", label: "dash_total", tone: "c-total" },
   { id: "blocked", icon: "tile_blocked", label: "dash_blocked", tone: "c-blocked" },
@@ -49,6 +52,9 @@ export class DashboardView {
     this._active = false;
     this._data = undefined;
     this._timer = undefined;
+    // The pending "ask again" after a stale answer, and how often it was tried.
+    this._retry = undefined;
+    this._staleTries = 0;
     this._build(container);
   }
 
@@ -225,11 +231,30 @@ export class DashboardView {
   // Whether the tab is the one shown; only then does it reload on its own.
   setActive(active) {
     this._active = active;
+    if (!active) this._clearRetry();
     this._restartTimer();
     if (active) this.load();
   }
 
-  async load() {
+  _clearRetry() {
+    clearTimeout(this._retry);
+    this._retry = undefined;
+  }
+
+  // A stale answer was shown: ask again in a few seconds, a few times only.
+  _retryLater() {
+    this._clearRetry();
+    if (this._staleTries >= STALE_RETRIES || !this._active || !this._host.isConnected) return;
+    this._staleTries += 1;
+    this._retry = setTimeout(() => {
+      this._retry = undefined;
+      if (this._active && this._host.isConnected) this.load(true);
+    }, STALE_RETRY_MS);
+  }
+
+  async load(retry = false) {
+    if (!retry) this._staleTries = 0;
+    this._clearRetry();
     const entry = this._host.entry;
     if (!entry) return;
     if (!entry.has_query_log) {
@@ -259,6 +284,7 @@ export class DashboardView {
       }
       this._data = normalize(result);
       this._seen.set(seenKey, this._data);
+      if (this._data.stale) this._retryLater();
       this._content.hidden = false;
       this._footer.hidden = false;
       this.showMessage("", false);
@@ -317,6 +343,7 @@ export class DashboardView {
   }
 
   stop() {
+    this._clearRetry();
     clearInterval(this._timer);
     this._timer = undefined;
     this._popover.hide();

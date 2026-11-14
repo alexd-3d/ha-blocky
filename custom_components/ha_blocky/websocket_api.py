@@ -415,6 +415,8 @@ async def ws_dashboard(
         for item in shared["top_clients"]
     ]
     meta["generated_at"] = result.pop("generated_at")
+    # True while a newer answer is being prepared: the card asks again shortly.
+    meta["stale"] = result.pop("stale", False) is True
     result["meta"] = meta
     connection.send_result(msg["id"], result)
 

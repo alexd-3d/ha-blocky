@@ -1,4 +1,4 @@
-"""The faster dashboard: fewer statements per round and a stale long-period cache."""
+"""The faster dashboard: fewer statements per round and a stale answers."""
 
 from __future__ import annotations
 
@@ -130,11 +130,12 @@ async def test_a_stale_long_period_is_served_while_one_refresh_runs(
 
     freezer.tick(timedelta(seconds=200))  # 400 s: stale, served at once
     stale = await _command(client, 3, type=KIND, period="7d", rows=10)
+    assert stale["result"]["meta"]["stale"] is True
     assert (
         stale["result"]["meta"]["generated_at"]
         == (first["result"]["meta"]["generated_at"])
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(calls) == 2  # the background round ran, once
     fresh = await _command(client, 4, type=KIND, period="7d", rows=10)
     assert (
@@ -148,13 +149,16 @@ async def test_a_stale_long_period_is_served_while_one_refresh_runs(
     await _command(client, 5, type=KIND, period="7d", rows=10)
     assert len(calls) == 3
 
-    # The short periods are never served stale.
+    # The short periods go stale after 30 seconds, too.
     await _command(client, 6, type=KIND, period="24h", rows=10)
     assert len(calls) == 4
     freezer.tick(timedelta(seconds=40))
-    await _command(client, 7, type=KIND, period="24h", rows=10)
-    await hass.async_block_till_done()
+    short = await _command(client, 7, type=KIND, period="24h", rows=10)
+    assert short["result"]["meta"]["stale"] is True
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(calls) == 5
+    fresh = await _command(client, 8, type=KIND, period="24h", rows=10)
+    assert fresh["result"]["meta"]["stale"] is False and len(calls) == 5
 
 
 @pytest.mark.usefixtures("utc")
@@ -177,7 +181,7 @@ async def test_stale_refresh_failure_keeps_the_old_answer(
     monkeypatch.setattr(db.QueryLogDatabase, "dashboard_domains", broken)
     freezer.tick(timedelta(minutes=6))
     stale = await _command(client, 2, type=KIND, period="30d", rows=10)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     again = await _command(client, 3, type=KIND, period="30d", rows=10)
 
     assert stale["success"] and again["success"]
@@ -201,3 +205,21 @@ def test_the_card_shows_the_last_answer_of_a_period_from_memory_only() -> None:
     # Memory only: the answers are never written to the browser's storage.
     assert "localStorage.setItem(seenKey" not in source
     assert "sessionStorage" not in source
+
+
+def test_the_card_asks_again_after_a_stale_answer_with_bounded_retries() -> None:
+    root = Path(__file__).resolve().parent.parent / "custom_components" / "ha_blocky"
+    source = (root / "frontend" / "ha-blocky-dashboard.js").read_text(encoding="utf-8")
+    data = (root / "frontend" / "ha-blocky-dashboard-data.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "stale: meta.stale === true" in data
+    assert "if (this._data.stale) this._retryLater();" in source
+    assert "const STALE_RETRIES = 5;" in source and "STALE_RETRY_MS = 4000" in source
+    # One timer at a time (setTimeout, not a loop), cleared on stop and on leaving.
+    assert source.count("setTimeout(") == 1
+    stop = source[source.index("  stop() {") :]
+    assert "this._clearRetry();" in stop.split("}")[0]
+    assert "if (!active) this._clearRetry();" in source
+    assert "this._staleTries >= STALE_RETRIES" in source

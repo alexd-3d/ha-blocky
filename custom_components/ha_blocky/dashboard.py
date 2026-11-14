@@ -212,16 +212,16 @@ async def async_dashboard(
     """Return the dashboard answer, from the cache while it is fresh.
 
     The lock makes callers that arrive together wait for one database round.
-    An answer of a long period (7 d, 30 d) that is stale but under an hour old is
-    returned at once while one background round refreshes it. The cache holds at
+    An answer that is stale but under an hour old is returned at once, marked
+    ``"stale": True``, while one background round refreshes it. The cache holds at
     most one answer per (period, rows). The returned dict is shared: callers
     must copy it before changing it.
     """
     key = (period, rows)
     cached = data.dashboard_cache.get(key)
-    if cached is not None and period in _DAYS:
+    if cached is not None:
         age = dt_util.utcnow() - cached[0]
-        if age < DASHBOARD_CACHE_LONG:
+        if age < _fresh_for(period):
             _LOGGER.debug("dashboard cache hit for %s", period)
             return cached[1]
         if age < DASHBOARD_STALE_MAX:
@@ -232,7 +232,8 @@ async def async_dashboard(
                     _background_refresh(hass, data, database, period, rows),
                     f"{DOMAIN} dashboard refresh",
                 )
-            return cached[1]
+            # A copy: the cached answer itself is never marked.
+            return {**cached[1], "stale": True}
     async with data.dashboard_lock:
         now = dt_util.utcnow()
         cached = data.dashboard_cache.get(key)
