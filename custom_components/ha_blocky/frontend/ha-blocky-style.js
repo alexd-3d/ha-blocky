@@ -224,6 +224,13 @@ export const STYLE = `
       grid-template-areas: "client client time actions" "status domain domain actions";
       align-items: center; gap: var(--hb-s1) var(--hb-s2); padding: var(--hb-s2) 0;
       border-bottom: 1px solid var(--divider-color);
+      position: relative; padding-left: var(--hb-s4);
+    }
+    /* The status colour of the row: a bar at the left edge (--c comes from the
+       c-<category> class of the row). */
+    table.log tr::before {
+      content: ""; position: absolute; left: 0; top: var(--hb-s2); bottom: var(--hb-s2);
+      width: 4px; border-radius: 2px; background: var(--c, var(--divider-color));
     }
     table.log td { display: block; border: 0; padding: 0; white-space: normal; }
     table.log td.client { grid-area: client; max-width: none; }
@@ -243,6 +250,15 @@ export const STYLE = `
     table.log td.actions button, table.log td.actions .iconbtn { margin: 0; }
     table.log td.type, table.log td.ms { display: none; }
     table.log td.client .sub { display: none; }
+  }
+  /* The narrowest cards: the bar at the left tells the status, so the badge is
+     dropped and the domain gets the whole second line. */
+  @container (max-width: 420px) {
+    table.log tr {
+      grid-template-columns: minmax(0, 1fr) auto 2.5rem;
+      grid-template-areas: "client time actions" "domain domain actions";
+    }
+    table.log td.status { display: none; }
   }
   @container (max-width: 560px) {
     .body { padding: 0 var(--hb-s3) var(--hb-s3); }
