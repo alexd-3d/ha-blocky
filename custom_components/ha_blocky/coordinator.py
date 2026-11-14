@@ -25,10 +25,10 @@ from .const import (
 from .intervals import interval
 
 if TYPE_CHECKING:
+    from .levels import LevelConfig
     from .lists import ListManager
     from .requests import RequestTracker
     from .stats import BlockyStatsCoordinator
-    from .zones import ZoneDefinition
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,10 +43,10 @@ class BlockyData:
 
     coordinator: BlockyCoordinator
     lists: ListManager
+    # The clients' levels; changed in place when a level is set.
+    levels: LevelConfig
     # None when no query log database is configured.
     stats: BlockyStatsCoordinator | None = None
-    # Validated zones, read from the options at setup.
-    zones: dict[str, ZoneDefinition] = field(default_factory=dict)
     # None when no query log database is configured.
     requests: RequestTracker | None = None
     # Dashboard answers by (period, rows), and the lock that makes several open

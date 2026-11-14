@@ -1,10 +1,10 @@
 """Requests for new domains.
 
-The clients of "learning" and "allowlist_only" zones are watched through the
-query log. A domain a client asks for the first time becomes an event and a
-request that an administrator approves, rejects or blocks. In allowlist-only
-zones an answer that got through although the domain is on no allow list of
-the zone is reported as a leak.
+The clients of the Restricted and Lockdown levels are watched through the
+query log. A domain a client asks for the first time becomes an event (unless
+the level's notification is Off) and a request that an administrator approves,
+rejects or blocks. For Lockdown clients an answer that got through although the
+domain is on the lockdown allow list is reported as a leak.
 
 Everything read from the log, the store and service calls is hostile: names go
 through the exact-domain validator, client addresses must parse as IP
@@ -14,7 +14,6 @@ it never reaches the statistics.
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import math
 import re
@@ -38,13 +37,17 @@ from .const import (
     BASELINE_WINDOW,
     DOMAIN,
     EVENT_LIST_CHANGED,
+    EVENT_LOCKDOWN_LEAK,
     EVENT_NEW_DOMAIN,
     EVENT_NEW_DOMAINS_SUMMARY,
     EVENT_RATE_LIMIT,
     EVENT_RATE_WINDOW,
     EVENT_UNEXPECTED_DOMAIN,
-    EVENT_ZONE_LEAK,
     LEAK_WINDOW,
+    LEVEL_LOCKDOWN,
+    LEVEL_RESTRICTED,
+    LIST_LOCKDOWN_ALLOW,
+    LIST_RESTRICTED_DENY,
     LIST_TYPE_ALLOW,
     LIST_TYPE_DENY,
     MAX_BASELINE_CLIENTS_PER_ROUND,
@@ -54,16 +57,12 @@ from .const import (
     MAX_PENDING_REQUESTS,
     MAX_REJECTED_PAIRS_PER_CLIENT,
     MAX_REQUEST_CLIENTS,
-    PHASE_LEARNING,
-    PHASE_LOCKED,
-    PHASES,
     REQUEST_ACTION_APPROVE,
     REQUEST_ACTION_BLOCK,
     REQUEST_ACTIONS,
     REQUEST_TTL,
     REQUEST_WINDOW_ROWS,
-    ZONE_MODE_ALLOWLIST_ONLY,
-    ZONE_MODE_LEARNING,
+    TRACKED_LEVELS,
 )
 from .db import (
     CATEGORY_BLOCKED,
@@ -74,9 +73,9 @@ from .db import (
     QueryLogDatabase,
     response_category,
 )
+from .levels import LevelConfig
 from .lists import ListError, ListManager
-from .validation import InvalidDomainError, normalize_domain
-from .zones import ZoneDefinition, zone_for_address
+from .validation import InvalidDomainError, normalize_client, normalize_domain
 
 if TYPE_CHECKING:
     from .coordinator import BlockyConfigEntry
@@ -93,10 +92,8 @@ _ACTIONS_OF_KIND: Final = {
     KIND_LEARNING: ("block", "dismiss"),
     KIND_APPROVAL: ("approve", "reject"),
 }
-TRACKED_MODES: Final = (ZONE_MODE_LEARNING, ZONE_MODE_ALLOWLIST_ONLY)
 
 _REQUEST_ID_RE: Final = re.compile(r"[A-Za-z0-9_-]{16,64}")
-_MAX_ADDRESS_LENGTH: Final = 64
 
 # Reasons a request could not be resolved. Each one is also a key of the
 # "exceptions" translations.
@@ -104,20 +101,15 @@ ERROR_MESSAGES: Final = {
     "request_not_found": (
         "The request does not exist, was already resolved or expired."
     ),
-    "request_not_approvable": (
-        "Only a request of an allowlist-only zone can be approved."
-    ),
-    "request_not_blockable": "Only a request of a learning zone can be blocked.",
-    "zone_changed": "The zone of this request has changed; the request was dropped.",
-    "no_allow_list": "The zone has no allow list to add the domain to.",
-    "no_deny_list": "The zone has no deny list to add the domain to.",
-    "list_not_in_zone": "That is not one of the allow lists of the zone.",
+    "request_not_approvable": "Only a request of a Lockdown client can be approved.",
+    "request_not_blockable": "Only a request of a Restricted client can be blocked.",
+    "level_changed": "The level of this client has changed; the request was dropped.",
     "list_failed": "The list refused the entry, for example because it is full.",
     "invalid_client": "The client is not a valid IP address.",
-    "client_not_in_allowlist_zone": "The client is not in an allowlist-only zone.",
+    "client_not_lockdown": "The client is not at the Lockdown level.",
     "too_many_clients": "Too many clients are tracked already.",
     "client_not_tracked": "The client is not tracked.",
-    "client_not_in_learning_zone": "The client is not in a learning zone.",
+    "client_not_restricted": "The client is not at the Restricted level.",
     "invalid_domain": "The domain is not a valid name.",
     "domain_not_known": "The domain is not one of the known domains of the client.",
 }
@@ -143,7 +135,7 @@ class Request:
 
     id: str
     client: str
-    zone: str
+    level: str
     domain: str
     kind: str
     created: float
@@ -151,11 +143,9 @@ class Request:
 
 @dataclass(slots=True)
 class ClientState:
-    """What is known about one client of a tracked zone."""
+    """What is known about one client of a tracked level."""
 
-    zone: str
-    mode: str
-    phase: str
+    level: str
     last_seen: float
     known: OrderedDict[str, None] = field(default_factory=OrderedDict)
     rejected: OrderedDict[str, None] = field(default_factory=OrderedDict)
@@ -164,7 +154,7 @@ class ClientState:
     events: deque[float] = field(default_factory=deque)
     suppressed: int = 0
     suppressed_since: float = 0.0
-    # Learning zones: whether the client's recent history was taken as known.
+    # Restricted clients: whether the client's recent history was taken as known.
     baselined: bool = True
 
 
@@ -173,29 +163,13 @@ class Counters:
     """Counts of what was skipped or went wrong; nothing here is stored."""
 
     rows_read: int = 0
-    skipped_other_zone: int = 0
+    skipped_other_level: int = 0
     invalid_domains: int = 0
     invalid_clients: int = 0
     pending_cap_hits: int = 0
     clients_refused: int = 0
     events_suppressed: int = 0
     failures: int = 0
-
-
-def normalize_client(value: object) -> str | None:
-    """Return the canonical text of an IP address, or None if it is not one."""
-    if not isinstance(value, str) or not 0 < len(value) <= _MAX_ADDRESS_LENGTH:
-        return None
-    try:
-        address = ipaddress.ip_address(value.strip())
-    except ValueError:
-        return None
-    if isinstance(address, ipaddress.IPv6Address):
-        if address.scope_id is not None:
-            return None
-        if address.ipv4_mapped is not None:
-            address = address.ipv4_mapped
-    return str(address)
 
 
 def domain_is_covered(domain: str, entries: Collection[str]) -> bool:
@@ -246,7 +220,7 @@ class RequestTracker:
         hass: HomeAssistant,
         entry: BlockyConfigEntry,
         database: QueryLogDatabase,
-        zones: Mapping[str, ZoneDefinition],
+        levels: LevelConfig,
         lists: ListManager,
         *,
         report_existing: bool = False,
@@ -256,7 +230,7 @@ class RequestTracker:
         self._hass = hass
         self._entry_id = entry.entry_id
         self._database = database
-        self._zones = zones
+        self._levels = levels
         self._lists = lists
         self._report_existing = report_existing
         self._client_names = client_names or dict
@@ -270,7 +244,7 @@ class RequestTracker:
         self._clients: dict[str, ClientState] = {}
         self._requests: dict[str, Request] = {}
         self._pending: dict[tuple[str, str], str] = {}
-        self._allow_cache: dict[str, frozenset[str] | None] = {}
+        self._allow_cache: frozenset[str] | bool | None = False
         self._listeners: list[Callable[[], None]] = []
         self.counters = Counters()
 
@@ -297,22 +271,18 @@ class RequestTracker:
         address = normalize_client(raw_address)
         if address is None or not isinstance(raw, dict) or address in self._clients:
             return
-        zone_name = raw.get("zone")
-        zone = self._zones.get(zone_name) if isinstance(zone_name, str) else None
+        config = self._levels.clients.get(address)
         last_seen = _as_time(raw.get("last_seen"))
         if (
-            zone is None
-            or zone.mode not in TRACKED_MODES
-            or raw.get("mode") != zone.mode
+            config is None
+            or config.level not in TRACKED_LEVELS
+            or raw.get("level") != config.level
             or last_seen is None
         ):
             return
-        phase = raw.get("phase")
-        if zone.mode != ZONE_MODE_ALLOWLIST_ONLY or phase not in PHASES:
-            phase = PHASE_LEARNING
         leaks: dict[str, float] = {}
         raw_leaks = raw.get("leaks")
-        if isinstance(raw_leaks, dict) and zone.mode == ZONE_MODE_ALLOWLIST_ONLY:
+        if isinstance(raw_leaks, dict) and config.level == LEVEL_LOCKDOWN:
             for name, seen in list(raw_leaks.items())[-MAX_LEAKS_PER_CLIENT:]:
                 moment = _as_time(seen)
                 try:
@@ -322,12 +292,10 @@ class RequestTracker:
         self._clients[address] = ClientState(
             baselined=(
                 raw.get("baselined") is True
-                or zone.mode != ZONE_MODE_LEARNING
+                or config.level != LEVEL_RESTRICTED
                 or self._report_existing
             ),
-            zone=zone.name,
-            mode=zone.mode,
-            phase=phase,
+            level=config.level,
             last_seen=last_seen,
             known=_load_domains(raw.get("known"), MAX_KNOWN_PAIRS_PER_CLIENT),
             rejected=_load_domains(raw.get("rejected"), MAX_REJECTED_PAIRS_PER_CLIENT),
@@ -350,7 +318,7 @@ class RequestTracker:
             or state is None
             or created is None
             or kind not in _KINDS
-            or kind != _kind_of_mode(state.mode)
+            or kind != _kind_of_level(state.level)
         ):
             return
         try:
@@ -360,7 +328,7 @@ class RequestTracker:
         if (address, domain) in self._pending:
             return
         self._requests[request_id] = Request(
-            request_id, address, state.zone, domain, kind, created
+            request_id, address, state.level, domain, kind, created
         )
         self._pending[(address, domain)] = request_id
 
@@ -369,9 +337,7 @@ class RequestTracker:
             "cursor": self._cursor,
             "clients": {
                 address: {
-                    "zone": state.zone,
-                    "mode": state.mode,
-                    "phase": state.phase,
+                    "level": state.level,
                     "last_seen": state.last_seen,
                     "baselined": state.baselined,
                     "known": list(state.known),
@@ -440,7 +406,7 @@ class RequestTracker:
         return [
             {
                 "id": request.id,
-                "zone": request.zone,
+                "level": request.level,
                 "client": request.client,
                 "client_name": names.get(request.client),
                 "domain": request.domain,
@@ -454,29 +420,14 @@ class RequestTracker:
             for request in self._requests.values()
         ]
 
-    def describe_clients(self) -> list[dict[str, str | None]]:
-        """Return the clients of allowlist-only zones with their phase."""
-        names = self._client_names()
-        return [
-            {
-                "client": address,
-                "client_name": names.get(address),
-                "zone": state.zone,
-                "phase": state.phase,
-            }
-            for address, state in self._clients.items()
-            if state.mode == ZONE_MODE_ALLOWLIST_ONLY
-        ]
-
     def describe_tracked(self) -> list[dict[str, Any]]:
-        """Return every tracked client with its zone, mode and known count."""
+        """Return every tracked client with its level and known count."""
         names = self._client_names()
         return [
             {
                 "client": address,
                 "client_name": names.get(address),
-                "zone": state.zone,
-                "mode": state.mode,
+                "level": state.level,
                 "known": len(state.known),
             }
             for address, state in self._clients.items()
@@ -504,8 +455,7 @@ class RequestTracker:
         return {
             "client": address,
             "client_name": self._client_names().get(address),
-            "zone": state.zone,
-            "mode": state.mode,
+            "level": state.level,
             "total": len(state.known),
             "domains": domains,
         }
@@ -541,7 +491,7 @@ class RequestTracker:
             # again every round.
             self._cursor = cursor
             now = dt_util.utcnow().timestamp()
-            self._allow_cache.clear()
+            self._allow_cache = False
             self._process(rows, now)
             await self._async_baseline()
             self._housekeeping(now)
@@ -578,7 +528,7 @@ class RequestTracker:
         waiting = [
             address
             for address, state in self._clients.items()
-            if not state.baselined and state.mode == ZONE_MODE_LEARNING
+            if not state.baselined and state.level == LEVEL_RESTRICTED
         ][:MAX_BASELINE_CLIENTS_PER_ROUND]
         if not waiting:
             return
@@ -625,25 +575,24 @@ class RequestTracker:
             if client is None:
                 self.counters.invalid_clients += 1
                 continue
-            zone_name = zone_for_address(client, self._zones)
-            zone = self._zones.get(zone_name) if zone_name else None
-            if zone is None or zone.mode not in TRACKED_MODES:
-                self.counters.skipped_other_zone += 1
+            config = self._levels.clients.get(client)
+            if config is None or config.level not in TRACKED_LEVELS:
+                self.counters.skipped_other_level += 1
                 continue
             try:
                 domain = normalize_domain(row.domain, allow_wildcard=False)
             except InvalidDomainError:
                 self.counters.invalid_domains += 1
                 continue
-            state = self._client(client, zone, now)
+            state = self._client(client, config.level, now)
             if state is None:
                 continue
-            if zone.mode == ZONE_MODE_LEARNING:
-                self._learning_row(state, client, domain, now)
+            if config.level == LEVEL_RESTRICTED:
+                self._restricted_row(state, client, domain, now)
             else:
-                self._allowlist_row(state, client, zone, domain, row, now)
+                self._lockdown_row(state, client, config.ask, domain, row, now)
 
-    def _learning_row(
+    def _restricted_row(
         self, state: ClientState, client: str, domain: str, now: float
     ) -> None:
         if domain in state.known:
@@ -659,25 +608,25 @@ class RequestTracker:
         if request is not None:
             self._emit(EVENT_NEW_DOMAIN, state, client, domain, request, now)
 
-    def _allowlist_row(
+    def _lockdown_row(
         self,
         state: ClientState,
         client: str,
-        zone: ZoneDefinition,
+        ask: bool,
         domain: str,
         row: LogRow,
         now: float,
     ) -> None:
         category = response_category(row.response_type)
         if category in (CATEGORY_RESOLVED, CATEGORY_CACHED):
-            self._leak_row(state, client, zone, domain, row, now)
+            self._leak_row(state, client, domain, row, now)
             return
         if category != CATEGORY_BLOCKED:
             return
         if domain in state.known:
             state.known.move_to_end(domain)
             return
-        if state.phase == PHASE_LOCKED:
+        if not ask:
             self._remember(state, domain)
             self._emit(EVENT_UNEXPECTED_DOMAIN, state, client, domain, None, now)
             return
@@ -691,7 +640,6 @@ class RequestTracker:
         self,
         state: ClientState,
         client: str,
-        zone: ZoneDefinition,
         domain: str,
         row: LogRow,
         now: float,
@@ -699,44 +647,28 @@ class RequestTracker:
         horizon = now - LEAK_WINDOW.total_seconds()
         if row.requested is not None and _utc_timestamp(row.requested) < horizon:
             return
-        entries = self._allow_entries(zone)
-        if entries is None or domain_is_covered(domain, entries):
+        entries = self._allow_entries()
+        if domain_is_covered(domain, entries):
             return
         previous = state.leaks.pop(domain, None)
         state.leaks[domain] = now
         while len(state.leaks) > MAX_LEAKS_PER_CLIENT:
             del state.leaks[next(iter(state.leaks))]
         if previous is None or previous < horizon:
-            self._emit(EVENT_ZONE_LEAK, state, client, domain, None, now)
+            self._emit(EVENT_LOCKDOWN_LEAK, state, client, domain, None, now)
 
-    def _allow_entries(self, zone: ZoneDefinition) -> frozenset[str] | None:
-        """Return all allowed domains of a zone, or None if they are unknown.
-
-        Unknown means a linked list is not an allow list this integration
-        holds; leak detection is then off for the zone.
-        """
-        if zone.name in self._allow_cache:
-            return self._allow_cache[zone.name]
-        entries: set[str] = set()
-        result: frozenset[str] | None = None
-        for name in zone.lists:
-            definition = self._lists.definitions.get(name)
-            if definition is None or definition.list_type != LIST_TYPE_ALLOW:
-                break
-            entries.update(self._lists.entries(name))
-        else:
-            result = frozenset(entries)
-        self._allow_cache[zone.name] = result
-        return result
+    def _allow_entries(self) -> frozenset[str]:
+        """Return the allowed domains of the Lockdown level (one round cached)."""
+        if self._allow_cache is False:
+            self._allow_cache = frozenset(self._lists.entries(LIST_LOCKDOWN_ALLOW))
+        return self._allow_cache  # type: ignore[return-value]
 
     # --- state ----------------------------------------------------------------
 
-    def _client(
-        self, address: str, zone: ZoneDefinition, now: float
-    ) -> ClientState | None:
+    def _client(self, address: str, level: str, now: float) -> ClientState | None:
         """Return the client's state, creating it; None when at the cap."""
         state = self._clients.get(address)
-        if state is not None and (state.zone != zone.name or state.mode != zone.mode):
+        if state is not None and state.level != level:
             self._drop_client(address)
             state = None
         if state is None:
@@ -744,11 +676,9 @@ class RequestTracker:
                 self.counters.clients_refused += 1
                 return None
             state = ClientState(
-                zone=zone.name,
-                mode=zone.mode,
-                phase=PHASE_LEARNING,
+                level=level,
                 last_seen=now,
-                baselined=zone.mode != ZONE_MODE_LEARNING or self._report_existing,
+                baselined=level != LEVEL_RESTRICTED or self._report_existing,
             )
             self._clients[address] = state
         state.last_seen = now
@@ -799,7 +729,7 @@ class RequestTracker:
         request = Request(
             id=secrets.token_urlsafe(16),
             client=client,
-            zone=state.zone,
+            level=state.level,
             domain=domain,
             kind=kind,
             created=now,
@@ -813,8 +743,7 @@ class RequestTracker:
         for address in [
             address
             for address, state in self._clients.items()
-            if self._zones.get(state.zone) is None
-            or self._zones[state.zone].mode != state.mode
+            if self._levels.level_of(address) != state.level
         ]:
             self._drop_client(address)
 
@@ -833,7 +762,7 @@ class RequestTracker:
                     EVENT_NEW_DOMAINS_SUMMARY,
                     {
                         ATTR_CONFIG_ENTRY_ID: self._entry_id,
-                        "zone": state.zone,
+                        "level": state.level,
                         "client": address,
                         "client_name": self._names.get(address),
                         "suppressed": state.suppressed,
@@ -842,8 +771,8 @@ class RequestTracker:
                 state.suppressed = 0
 
     def _expire(self, request: Request) -> None:
-        """Drop a request nobody answered. Learning zones stop asking about
-        the pair; allowlist-only zones ask again when it is blocked again."""
+        """Drop a request nobody answered. Restricted clients stop being asked
+        about the pair; Lockdown clients are asked again when it is blocked again."""
         self._drop_request(request)
         state = self._clients.get(request.client)
         if state is not None and request.kind == KIND_LEARNING:
@@ -860,7 +789,16 @@ class RequestTracker:
         request: Request | None,
         now: float,
     ) -> None:
-        """Fire a per-domain event unless the client reached its rate limit."""
+        """Fire a per-domain event unless the client reached its rate limit.
+
+        A level whose notification is Off fires no new-domain or
+        unexpected-domain event (requests are still created). A leak is
+        always reported.
+        """
+        if event != EVENT_LOCKDOWN_LEAK and not self._levels.notify.get(
+            state.level, False
+        ):
+            return
         window = EVENT_RATE_WINDOW.total_seconds()
         while state.events and now - state.events[0] >= window:
             state.events.popleft()
@@ -875,7 +813,7 @@ class RequestTracker:
             event,
             {
                 ATTR_CONFIG_ENTRY_ID: self._entry_id,
-                "zone": state.zone,
+                "level": state.level,
                 "client": client,
                 "client_name": self._names.get(client),
                 ATTR_DOMAIN: domain,
@@ -915,21 +853,16 @@ class RequestTracker:
             raise RequestError("request_not_found")
         return request
 
-    def _zone_of(self, request: Request, mode: str) -> ZoneDefinition:
-        zone = self._zones.get(request.zone)
+    def _level_ok(self, request: Request, level: str) -> None:
         state = self._clients.get(request.client)
-        if zone is None or state is None or zone.mode != mode or state.mode != mode:
+        if (
+            state is None
+            or state.level != level
+            or self._levels.level_of(request.client) != level
+        ):
             self._drop_request(request)
             self._changed()
-            raise RequestError("zone_changed")
-        return zone
-
-    def _first_list(self, zone: ZoneDefinition, list_type: str) -> str | None:
-        for name in zone.lists:
-            definition = self._lists.definitions.get(name)
-            if definition is not None and definition.list_type == list_type:
-                return name
-        return None
+            raise RequestError("level_changed")
 
     def _changed(self) -> None:
         self._save_later()
@@ -940,15 +873,13 @@ class RequestTracker:
         self,
         request_id: object,
         action: str,
-        list_name: str | None = None,
         context: Context | None = None,
     ) -> Request:
         """Carry out a decision; the request is single use.
 
-        ``approve`` adds the domain to an allow list of the zone (the first
-        one unless ``list_name`` names another of the zone's allow lists),
-        ``block`` adds it to the zone's first deny list, ``reject`` closes the
-        request (a learning zone calls this dismiss).
+        ``approve`` adds the domain to the Lockdown allow list, ``block`` adds
+        it to the Restricted block list, ``reject`` closes the request (a
+        Restricted request calls this dismiss).
         """
         if action not in REQUEST_ACTIONS:
             raise RequestError("request_not_found")
@@ -958,28 +889,19 @@ class RequestTracker:
         if action == REQUEST_ACTION_APPROVE:
             if request.kind != KIND_APPROVAL:
                 raise RequestError("request_not_approvable")
-            zone = self._zone_of(request, ZONE_MODE_ALLOWLIST_ONLY)
-            target = self._first_list(zone, LIST_TYPE_ALLOW)
-            if list_name is not None:
-                if list_name not in zone.lists:
-                    raise RequestError("list_not_in_zone")
-                definition = self._lists.definitions.get(list_name)
-                if definition is None or definition.list_type != LIST_TYPE_ALLOW:
-                    raise RequestError("list_not_in_zone")
-                target = list_name
-            if target is None:
-                raise RequestError("no_allow_list")
-            self._add_to_list(target, request.domain, LIST_TYPE_ALLOW, context)
+            self._level_ok(request, LEVEL_LOCKDOWN)
+            self._add_to_list(
+                LIST_LOCKDOWN_ALLOW, request.domain, LIST_TYPE_ALLOW, context
+            )
             if state is not None:
                 self._remember(state, request.domain)
         elif action == REQUEST_ACTION_BLOCK:
             if request.kind != KIND_LEARNING:
                 raise RequestError("request_not_blockable")
-            zone = self._zone_of(request, ZONE_MODE_LEARNING)
-            target = self._first_list(zone, LIST_TYPE_DENY)
-            if target is None:
-                raise RequestError("no_deny_list")
-            self._add_to_list(target, request.domain, LIST_TYPE_DENY, context)
+            self._level_ok(request, LEVEL_RESTRICTED)
+            self._add_to_list(
+                LIST_RESTRICTED_DENY, request.domain, LIST_TYPE_DENY, context
+            )
             if state is not None:
                 self._remember(state, request.domain)
         elif state is not None:
@@ -996,12 +918,12 @@ class RequestTracker:
     def async_block_known(
         self, client: object, domain: object, context: Context | None = None
     ) -> str:
-        """Block a known domain of a client of a learning zone.
+        """Block a known domain of a Restricted client.
 
-        The domain goes to the zone's first deny list, as when a request of a
-        learning zone is blocked. Clients of allowlist-only zones are refused:
-        their known domains are on an allow list, which this does not edit.
-        Returns the canonical domain.
+        The domain goes to the Restricted block list, as when a request of a
+        Restricted client is blocked. Lockdown clients are refused: their known
+        domains are on the allow list, which this does not edit. Returns the
+        canonical domain.
         """
         address = normalize_client(client)
         if address is None:
@@ -1013,21 +935,13 @@ class RequestTracker:
         state = self._clients.get(address)
         if state is None:
             raise RequestError("client_not_tracked")
-        if state.mode != ZONE_MODE_LEARNING:
-            raise RequestError("client_not_in_learning_zone")
-        zone = self._zones.get(state.zone)
-        if (
-            zone is None
-            or zone.mode != ZONE_MODE_LEARNING
-            or zone_for_address(address, self._zones) != state.zone
-        ):
-            raise RequestError("zone_changed")
+        if state.level != LEVEL_RESTRICTED:
+            raise RequestError("client_not_restricted")
+        if self._levels.level_of(address) != LEVEL_RESTRICTED:
+            raise RequestError("level_changed")
         if name not in state.known:
             raise RequestError("domain_not_known")
-        target = self._first_list(zone, LIST_TYPE_DENY)
-        if target is None:
-            raise RequestError("no_deny_list")
-        self._add_to_list(target, name, LIST_TYPE_DENY, context)
+        self._add_to_list(LIST_RESTRICTED_DENY, name, LIST_TYPE_DENY, context)
         self._remember(state, name)
         self._changed()
         return name
@@ -1043,24 +957,24 @@ class RequestTracker:
             self._fire_list_changed(name, added, context)
 
     @callback
-    def async_set_client_phase(self, client: object, phase: str) -> None:
-        """Set the phase of a client of an allowlist-only zone."""
+    def async_set_client_ask(self, client: object, ask: bool) -> None:
+        """Check that a client may have its ask switch set (Lockdown only).
+
+        The switch itself is the ``ask`` of the client in the options; the
+        caller writes it. Raises RequestError when the client is not a
+        Lockdown client.
+        """
         address = normalize_client(client)
         if address is None:
             raise RequestError("invalid_client")
-        zone_name = zone_for_address(address, self._zones)
-        zone = self._zones.get(zone_name) if zone_name else None
-        if zone is None or zone.mode != ZONE_MODE_ALLOWLIST_ONLY or phase not in PHASES:
-            raise RequestError("client_not_in_allowlist_zone")
-        state = self._client(address, zone, dt_util.utcnow().timestamp())
-        if state is None:
-            raise RequestError("too_many_clients")
-        state.phase = phase
-        self._changed()
+        if self._levels.level_of(address) != LEVEL_LOCKDOWN or not isinstance(
+            ask, bool
+        ):
+            raise RequestError("client_not_lockdown")
 
 
-def _kind_of_mode(mode: str) -> str:
-    return KIND_LEARNING if mode == ZONE_MODE_LEARNING else KIND_APPROVAL
+def _kind_of_level(level: str) -> str:
+    return KIND_LEARNING if level == LEVEL_RESTRICTED else KIND_APPROVAL
 
 
 def storage_key(entry_id: str) -> str:
@@ -1074,6 +988,5 @@ __all__ = [
     "RequestError",
     "RequestTracker",
     "domain_is_covered",
-    "normalize_client",
     "storage_key",
 ]

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Tests for the query log card: its commands, its file and its texts."""
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ BLOCKLIST_URLS = (
 )
 I18N = SOURCES["ha-blocky-i18n.js"]
 I18N_MORE = SOURCES["ha-blocky-i18n-more.js"]
+I18N_LEVELS = SOURCES["ha-blocky-i18n-levels.js"]
 # The card element Home Assistant creates is a shell; the views are lazy.
 SHELL = SOURCES["ha-blocky-card.js"]
 VIEW = SOURCES["ha-blocky-card-view.js"]
@@ -102,6 +104,7 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
     """The whole directory is served: nothing else may sit in it."""
     assert sorted(path.name for path in FRONTEND_DIR.iterdir()) == [
         "ha-blocky-actions.js",
+        "ha-blocky-apply.js",
         "ha-blocky-card-view.js",
         "ha-blocky-card.js",
         "ha-blocky-chart.js",
@@ -111,8 +114,10 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-dom.js",
         "ha-blocky-format.js",
         "ha-blocky-group.js",
+        "ha-blocky-help-levels.js",
         "ha-blocky-help.js",
         "ha-blocky-i18n-help.js",
+        "ha-blocky-i18n-levels.js",
         "ha-blocky-i18n-more.js",
         "ha-blocky-i18n.js",
         "ha-blocky-known.js",
@@ -121,7 +126,9 @@ def test_frontend_directory_holds_only_the_intended_modules() -> None:
         "ha-blocky-panel.js",
         "ha-blocky-popover.js",
         "ha-blocky-prefs.js",
+        "ha-blocky-protection.js",
         "ha-blocky-requests.js",
+        "ha-blocky-rules.js",
         "ha-blocky-settings-options.js",
         "ha-blocky-settings.js",
         "ha-blocky-style-dashboard.js",
@@ -200,7 +207,7 @@ def test_card_modules_stay_small() -> None:
 def _texts(language: str) -> dict[str, str]:
     """The texts of a language: the card's table plus the Help tab's."""
     merged: dict[str, str] = {}
-    for source in (I18N, I18N_HELP, I18N_MORE):
+    for source in (I18N, I18N_HELP, I18N_MORE, I18N_LEVELS):
         match = re.search(
             rf"/\* i18n:{language} \*/\s*export const \w+ = (\{{.*?\}});\s*"
             r"/\* i18n:end \*/",
@@ -230,11 +237,10 @@ def test_card_texts_default_to_english_and_translations_mirror_it() -> None:
     used |= {f"cat_{kind}" for kind in CATEGORIES}
     used |= {f"help_tab_{tab}" for tab in ("dashboard", "log", "requests", "settings")}
     used |= {f"tab_{tab}" for tab in ("settings", "help")}
-    for name in ("delay", "pause", "name", "nodb", "sidebar"):
+    for name in ("delay", "pause", "name", "nodb", "sidebar", "waiting"):
         used |= {f"help_faq_{name}_q", f"help_faq_{name}_a"}
     codes = (
-        "invalid_color invalid_rows out_of_range invalid_type invalid_list_name "
-        "duplicate_list_name too_many_lists unknown_list_name list_in_use "
+        "invalid_color invalid_rows out_of_range invalid_type "
         "nothing_to_change entry_not_found not_ready"
     )
     used |= {f"serr_{code}" for code in codes.split()}
@@ -256,8 +262,8 @@ def test_requests_tab_uses_the_commands_and_only_known_actions() -> None:
     actions_js = SOURCES["ha-blocky-actions.js"]
     assert "`${DOMAIN}/requests`" in requests_js
     assert "`${DOMAIN}/resolve_request`" in requests_js
-    assert '"set_client_phase"' in requests_js
-    assert "callService(DOMAIN" in requests_js
+    # Phases are gone: whether a Lockdown client asks is set in Settings.
+    assert "set_client_phase" not in requests_js and "callService" not in requests_js
     # Dismiss is a rejection; the card sends nothing but these three actions.
     assert 'import { ACTION_OF } from "./ha-blocky-actions.js";' in requests_js
     assert re.search(r"ACTION_OF = \{[^}]*dismiss: \"reject\"", actions_js)
@@ -268,7 +274,6 @@ def test_requests_tab_uses_the_commands_and_only_known_actions() -> None:
         "reject",
         "block",
     }
-    assert 'PHASES = ["learning", "locked"]' in requests_js
     # Buttons of a request in flight are disabled.
     assert "button.disabled = busy" in requests_js
 
@@ -461,12 +466,12 @@ def test_overview_card_is_registered_through_the_card_module() -> None:
     assert '"ov_top_blocked", data.blocked, "allow"' in overview
 
 
-def test_known_domains_load_on_demand_and_block_only_learning_clients() -> None:
+def test_known_domains_load_on_demand_and_block_only_restricted_clients() -> None:
     known = SOURCES["ha-blocky-known.js"]
     assert "`${DOMAIN}/known_domains`" in known
     assert "`${DOMAIN}/block_known`" in known
-    assert 'const LEARNING = "learning";' in known
-    assert "const canBlock = state.mode === LEARNING;" in known
+    assert 'const RESTRICTED = "restricted";' in known
+    assert "const canBlock = state.level === RESTRICTED;" in known
     assert "if (canBlock) {" in known
     assert "known_readonly" in known
     # Loaded on the first expansion only.
@@ -485,9 +490,8 @@ def test_texts_exist_in_both_languages() -> None:
     english = _texts("en")
     ukrainian = _texts("uk")
     keys = {f"act_{name}" for name in ("approve", "reject", "block", "dismiss")}
-    keys |= {f"phase_{phase}" for phase in ("learning", "locked")}
-    keys |= {"tab_log", "tab_requests", "req_none", "req_error", "req_phases"}
-    keys |= {"req_client", "req_zone", "req_domain", "req_age", "unit_min", "unit_h"}
+    keys |= {"tab_log", "tab_requests", "req_none", "req_error"}
+    keys |= {"req_client", "req_level", "req_domain", "req_age", "unit_min", "unit_h"}
     keys |= {"client_edit", "client_name_placeholder", "group_repeats"}
     keys |= {"ov_title", "ov_top_domains", "ov_top_blocked", "ov_top_clients"}
     keys |= {"ov_requests", "ov_none", "ov_error"}
@@ -830,7 +834,7 @@ def test_layout_rules_of_the_tabs() -> None:
     for rule in (
         "td.domain {",
         "text-overflow: ellipsis",
-        "td.zone { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }",
+        "td.level { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }",
     ):
         assert rule in style, rule
     assert 'attrs: { title: row.domain || "" }' in log_js
@@ -939,11 +943,11 @@ async def test_config_command(
                 "refresh_lists_entity": refresh_lists,
                 "flush_cache_entity": flush_cache,
                 "lists": [
-                    {"name": "allow_default", "type": "allow", "exact_only": False},
-                    {"name": "deny_default", "type": "deny", "exact_only": False},
-                    {"name": "allow_quarantine", "type": "allow", "exact_only": True},
+                    {"name": "allow_default", "type": "allow"},
+                    {"name": "deny_default", "type": "deny"},
+                    {"name": "restricted_deny", "type": "deny"},
+                    {"name": "lockdown_allow", "type": "allow"},
                 ],
-                "zones": [],
             }
         ]
     }
@@ -1556,9 +1560,11 @@ def test_help_tab_shows_three_blocklists_as_text_with_a_guarded_copy() -> None:
         assert sink not in help_js and sink not in data, sink
     assert 'className: "srcurl"' in help_js
     assert "text: source.url" in help_js
-    assert 'typeof clipboard.writeText !== "function"' in help_js
-    assert "navigator.clipboard" in help_js
-    assert "await clipboard.writeText(text)" in help_js
+    controls_js = SOURCES["ha-blocky-controls.js"]
+    assert 'import { copyText } from "./ha-blocky-controls.js";' in help_js
+    assert 'typeof clipboard.writeText !== "function"' in controls_js
+    assert "navigator.clipboard" in controls_js
+    assert "await clipboard.writeText(text)" in controls_js
     # Sections are built with DOM calls.
     assert 'el("details"' in help_js and 'el("summary"' in help_js
     assert "innerHTML" not in help_js
@@ -1688,3 +1694,198 @@ def test_frontend_token_follows_the_content_of_the_files(
     assert changed != token
     (tmp_path / "c.js").write_text("", encoding="utf-8")
     assert frontend.frontend_token() not in (token, changed)
+
+
+# --- Protection: clients, rules, the block, the status ------------------------------
+
+NODE_SCRIPT_PROTECTION = """
+class Node {
+  constructor(tag) {
+    this.tagName = tag; this.children = []; this._text = ""; this.className = "";
+    this.attrs = {}; this.handlers = {}; this.hidden = false; this.value = ""; this.checked = false;
+    this.disabled = false; this.open = false;
+    this.classList = { add() {}, remove() {} };
+  }
+  get textContent() { return this._text + this.children.map((c) => c.textContent).join(""); }
+  set textContent(v) { this._text = String(v); this.children = []; }
+  append(...nodes) { this.children.push(...nodes); }
+  appendChild(node) { this.children.push(node); return node; }
+  replaceChildren(...nodes) { this._text = ""; this.children = nodes; }
+  setAttribute(n, v) { this.attrs[n] = String(v); }
+  getAttribute(n) { return this.attrs[n]; }
+  removeAttribute(n) { delete this.attrs[n]; }
+  addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); }
+  async fire(type, event = {}) { for (const fn of this.handlers[type] || []) await fn(event); }
+  find(pred, out = []) { if (pred(this)) out.push(this); this.children.forEach((c) => c.find(pred, out)); return out; }
+  get title() { return this.attrs.title; }
+  set title(v) { this.attrs.title = v; }
+}
+globalThis.document = { createElement: (tag) => new Node(tag), createDocumentFragment: () => new Node("#frag") };
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (t) => { globalThis.copied = t; } } } });
+
+const calls = [];
+const rules = {
+  allow_default: ["ok.example.com"], deny_default: [], restricted_deny: [], lockdown_allow: ["tv.example.com"],
+};
+const hass = {
+  async callWS(msg) {
+    calls.push(msg);
+    if (msg.type === "ha_blocky/levels") {
+      return {
+        base_groups: ["default", "ads"], notify: { restricted: false, lockdown: true },
+        clients: [
+          { address: "192.0.2.10", client_name: "Phone <b>x</b>", level: "standard", ask: false, queries: 5 },
+          { address: "198.51.100.5", client_name: null, level: "lockdown", ask: true, queries: 2 },
+        ],
+        status: { applied: false, waiting: 2, fetched_since_start: false, lists: { unfiltered: { fetched: false, current: false }, restricted: { fetched: true, current: true }, lockdown: { fetched: true, current: false } } },
+        setup: { api_ok: true, log_ok: null },
+      };
+    }
+    if (msg.type === "ha_blocky/rules") {
+      return { lists: Object.entries(rules).map(([name, entries]) => ({ name, type: "x", exact_only: name === "lockdown_allow", total: entries.length, entries })) };
+    }
+    if (msg.type === "ha_blocky/get_block") return { rev: "0123abcd", base_known: false, client_count: 1, app: "APP-TEXT", plain: "PLAIN-TEXT" };
+    if (msg.type === "ha_blocky/set_client_level" && msg.client === "bad") { const e = new Error("secret server text"); e.code = "invalid_client"; throw e; }
+    return {};
+  },
+  async callService(domain, service, data) { calls.push({ domain, service, data }); },
+};
+const { translate } = await import("./ha-blocky-i18n.js");
+const host = { hass, entry: { entry_id: "e1", refresh_lists_entity: "button.refresh" }, t: (k) => translate(hass, k) };
+const { ProtectionView } = await import("./ha-blocky-protection.js");
+const view = new ProtectionView(host);
+await view.load();
+const out = {};
+const all = (pred) => view.element.find(pred);
+out.text = view.element.textContent;
+out.selects = all((n) => n.tagName === "select").length;
+out.selectValues = all((n) => n.tagName === "select").map((n) => n.value);
+out.checkboxes = all((n) => n.tagName === "input" && n.attrs.type === "checkbox").map((n) => n.checked);
+out.base = all((n) => n.className === "widefield")[0].value;
+out.banner = all((n) => n.className.startsWith("banner"))[0].textContent;
+out.setup = all((n) => n.className === "setupcheck")[0].textContent;
+// change a level
+const first = all((n) => n.tagName === "select")[0];
+first.value = "restricted";
+await first.fire("change");
+out.setCall = calls.find((c) => c.type === "ha_blocky/set_client_level");
+// ask switch
+const box = all((n) => n.tagName === "input" && n.attrs.type === "checkbox")[0];
+box.checked = false;
+await box.fire("change");
+out.askCall = calls.filter((c) => c.type === "ha_blocky/set_client_level").at(-1);
+// show the block and copy it
+const buttons = (label) => all((n) => n.tagName === "button" && n.textContent === label);
+await buttons(host.t("prot_block_show"))[0].fire("click");
+out.block = all((n) => n.tagName === "textarea")[0].value;
+await buttons(host.t("prot_copy"))[0].fire("click");
+out.copied = globalThis.copied;
+// check now
+await buttons(host.t("prot_check"))[0].fire("click");
+out.pressed = calls.find((c) => c.service === "press");
+console.log(JSON.stringify(out));
+"""
+
+
+def test_protection_modules_talk_to_the_level_commands_only() -> None:
+    protection = SOURCES["ha-blocky-protection.js"]
+    apply_js = SOURCES["ha-blocky-apply.js"]
+    rules = SOURCES["ha-blocky-rules.js"]
+    for command in ("levels", "set_client_level", "set_base_groups", "set_notify"):
+        assert f"`${{DOMAIN}}/{command}`" in protection, command
+    assert "`${DOMAIN}/get_block`" in apply_js
+    assert '"button", "press"' in apply_js
+    assert "`${DOMAIN}/rules`" in rules and "`${DOMAIN}/rules_${kind}`" in rules
+    # The level comes from a fixed list; the server's words are never shown.
+    dom = SOURCES["ha-blocky-dom.js"]
+    assert 'LEVELS = ["unfiltered", "standard", "restricted", "lockdown"]' in dom
+    for source in (protection, apply_js, rules):
+        assert "err.message" not in source
+        assert "innerHTML" not in source
+    assert "this._text.value = block[this._format]" in apply_js
+    assert 'readonly: ""' in apply_js
+
+
+def test_level_texts_are_the_agreed_plain_words() -> None:
+    english = _texts("en")
+
+    assert english["level_text_unfiltered"] == (
+        "No blocking at all. Queries are still logged. "
+        "Use it to find out whether filtering causes a problem."
+    )
+    assert english["level_text_standard"] == (
+        "The everyday setting: ad, tracker and malware lists plus your "
+        "Always allow and Always block rules."
+    )
+    assert english["level_text_restricted"] == (
+        "Like Standard, plus this level's own Always block list. "
+        "New domains are listed for review, nothing is held back."
+    )
+    assert english["level_text_lockdown"] == (
+        "Only approved domains work. Everything else is blocked until you approve it."
+    )
+    assert english["shared_rule_hint"] == (
+        "Allowing or blocking a domain applies to every client of this level."
+    )
+    assert english["prot_base_hint"] == (
+        "The list groups your Blocky `default` client group uses. "
+        "Restricted clients get these plus the Restricted block list."
+    )
+
+
+def test_the_help_tab_compares_the_levels_and_walks_through_a_change() -> None:
+    english = _texts("en")
+    help_levels = SOURCES["ha-blocky-help-levels.js"]
+
+    for level in ("unfiltered", "standard", "restricted", "lockdown"):
+        for column in ("blocked", "rules", "asked", "new"):
+            assert english[f"help_cmp_{level}_{column}"].strip()
+    for name in ("broken", "family", "child", "iot"):
+        assert english[f"help_use_{name}"].strip()
+    steps = [k for k in english if k.startswith("help_apply_") and k[-1].isdigit()]
+    assert steps == [f"help_apply_{step}" for step in range(1, 7)]
+    assert "Unfiltered" in english["help_use_broken"]
+    assert "Lockdown" in english["help_use_iot"]
+    assert "Ask me about new domains" in english["help_use_iot"]
+    assert 'el("table"' in help_levels and "innerHTML" not in help_levels
+
+
+def test_every_card_text_is_used() -> None:
+    """No text of the card may sit unused in the tables."""
+    code = "\n".join(
+        source
+        for name, source in SOURCES.items()
+        if not name.startswith("ha-blocky-i18n")
+    )
+    literals = set(re.findall(r'"(\w+)"', code)) | set(re.findall(r"`(\w+)`", code))
+    prefixes = set(re.findall(r"`(\w+_)\$\{", code))
+    unused = [
+        key
+        for key in _texts("en")
+        if key not in literals and not any(key.startswith(p) for p in prefixes)
+    ]
+    assert unused == []
+
+
+def test_the_protection_view_draws_from_text_only(tmp_path: Any) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    directory = _node_dir(tmp_path)
+    (directory / "check.mjs").write_text(NODE_SCRIPT_PROTECTION, encoding="utf-8")
+    result = subprocess.run(
+        [node, "check.mjs"], capture_output=True, text=True, check=False, cwd=directory
+    )
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+
+    # A device name is text, never markup.
+    assert "Phone <b>x</b>" in out["text"]
+    assert out["selectValues"] == ["standard", "lockdown"]
+    assert out["checkboxes"] == [True]
+    assert out["base"] == "default, ads"
+    assert out["banner"].startswith("2 changes waiting")
+    assert out["setCall"]["level"] == "restricted"
+    assert out["askCall"]["ask"] is False and out["askCall"]["level"] == "lockdown"
+    assert out["block"] == out["copied"] == "APP-TEXT"
+    assert out["pressed"]["data"] == {"entity_id": "button.refresh"}

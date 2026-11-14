@@ -1,4 +1,4 @@
-"""Tests for the validation of list entries, list names and networks."""
+"""Tests for the validation of list entries, group names, clients and networks."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ import pytest
 
 from custom_components.ha_blocky.validation import (
     InvalidDomainError,
-    InvalidListNameError,
+    InvalidGroupNameError,
     InvalidNetworkError,
     address_in_networks,
+    normalize_client,
     normalize_domain,
     parse_networks,
-    validate_list_name,
+    validate_group_name,
 )
 
 # --- Domains ----------------------------------------------------------------
@@ -102,12 +103,14 @@ def test_normalized_entries_are_safe_for_a_blocky_list() -> None:
         assert entry.count("*") <= 1
 
 
-# --- List names -------------------------------------------------------------
+# --- Group names ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("value", ["allow_default", "iot", "a", "q1", "x" * 32])
-def test_validate_list_name_accepts(value: str) -> None:
-    assert validate_list_name(value) == value
+@pytest.mark.parametrize(
+    "value", ["default", "ads-and-trackers", "a", "Q1", "a.b_c", "x" * 64]
+)
+def test_validate_group_name_accepts(value: str) -> None:
+    assert validate_group_name(value) == value
 
 
 @pytest.mark.parametrize(
@@ -115,21 +118,55 @@ def test_validate_list_name_accepts(value: str) -> None:
     [
         "",
         "_leading",
-        "Upper",
-        "with-dash",
+        "-dash",
         "with space",
-        "dot.txt",
         "../etc",
         "a/b",
-        "x" * 33,
+        "x" * 65,
         "name\n",
+        'q"uote',
+        "a: b",
+        "a,b",
         None,
         1,
     ],
 )
-def test_validate_list_name_rejects(value: Any) -> None:
-    with pytest.raises(InvalidListNameError):
-        validate_list_name(value)
+def test_validate_group_name_rejects(value: Any) -> None:
+    with pytest.raises(InvalidGroupNameError):
+        validate_group_name(value)
+
+
+# --- Clients ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("192.0.2.5", "192.0.2.5"),
+        (" 192.0.2.5 ", "192.0.2.5"),
+        ("2001:DB8::1", "2001:db8::1"),
+        ("::ffff:192.0.2.5", "192.0.2.5"),
+    ],
+)
+def test_normalize_client_accepts(value: str, expected: str) -> None:
+    assert normalize_client(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "example.com",
+        "192.0.2.0/24",
+        "fe80::1%eth0",
+        "192.0.2.5\n9",
+        None,
+        5,
+        "9" * 65,
+    ],
+)
+def test_normalize_client_rejects(value: Any) -> None:
+    assert normalize_client(value) is None
 
 
 # --- Networks ---------------------------------------------------------------

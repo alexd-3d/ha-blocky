@@ -526,7 +526,7 @@ async def test_requests_answer_carries_the_name(
 
     result = response["result"]
     assert [r["client_name"] for r in result["requests"]] == ["Kid Tablet"]
-    assert [c["client_name"] for c in result["clients"]] == ["Kid Tablet"]
+    assert [t["client_name"] for t in result["tracked"]] == ["Kid Tablet"]
 
 
 # --- Privacy -----------------------------------------------------------------

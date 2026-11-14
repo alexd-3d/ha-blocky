@@ -3,7 +3,6 @@ leaks, storage, entities, services and commands."""
 
 from __future__ import annotations
 
-import ipaddress
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -31,29 +30,33 @@ from sqlalchemy.engine import URL
 
 from custom_components.ha_blocky import requests as req
 from custom_components.ha_blocky.const import (
+    CONF_CLIENTS,
     CONF_LIST_NETWORKS,
-    CONF_LISTS,
+    CONF_NOTIFY,
     CONF_REPORT_EXISTING_DOMAINS,
-    CONF_ZONES,
     DOMAIN,
     EVENT_LIST_CHANGED,
+    EVENT_LOCKDOWN_LEAK,
     EVENT_NEW_DOMAIN,
     EVENT_NEW_DOMAINS_SUMMARY,
     EVENT_UNEXPECTED_DOMAIN,
-    EVENT_ZONE_LEAK,
     STATS_INTERVAL,
 )
 from custom_components.ha_blocky.db import LOG_TABLE, BlockyDbError, QueryLogDatabase
 from custom_components.ha_blocky.diagnostics import async_get_config_entry_diagnostics
-from custom_components.ha_blocky.lists import ListManager, read_definitions
+from custom_components.ha_blocky.levels import (
+    LevelConfig,
+    clients_to_options,
+    with_client,
+)
+from custom_components.ha_blocky.lists import ListManager
 from custom_components.ha_blocky.requests import (
     RequestError,
     RequestTracker,
     domain_is_covered,
-    normalize_client,
     storage_key,
 )
-from custom_components.ha_blocky.zones import ZoneDefinition, read_zones
+from custom_components.ha_blocky.validation import normalize_client
 
 from .test_db import add_rows, make_log
 from .test_lists import LOOPBACK
@@ -70,41 +73,38 @@ ENABLED = {"enabled": True, "disabledGroups": [], "autoEnableInSec": 0}
 LAB = "198.51.100.10"
 LAB_B = "198.51.100.11"
 LAB_C = "198.51.100.12"
-LAB2 = "198.51.100.200"
+LAB2 = "198.51.100.13"
 KID = "203.0.113.10"
 KID_B = "203.0.113.11"
+KID_QUIET = "203.0.113.12"
 OFFICE = "192.0.2.10"
 OTHER = "203.0.113.200"
 
-LISTS = {
-    CONF_LISTS: {
-        "allow_a": {"type": "allow", "exact_only": True},
-        "allow_b": {"type": "allow", "exact_only": True},
-        "allow_wild": {"type": "allow", "exact_only": False},
-        "deny_a": {"type": "deny", "exact_only": False},
+LISTS = {CONF_LIST_NETWORKS: LOOPBACK}
+# Restricted: LAB, LAB_B, LAB_C, LAB2 and 198.51.100.20-31 (see the baseline
+# test). Lockdown: KID and KID_B ask about new domains, KID_QUIET does not.
+CLIENTS = {
+    CONF_CLIENTS: {
+        **{
+            address: {"level": "restricted"}
+            for address in (
+                LAB,
+                LAB_B,
+                LAB_C,
+                LAB2,
+                *(f"198.51.100.{20 + i}" for i in range(12)),
+            )
+        },
+        KID: {"level": "lockdown", "ask": True},
+        KID_B: {"level": "lockdown", "ask": True},
+        KID_QUIET: {"level": "lockdown", "ask": False},
     },
-    CONF_LIST_NETWORKS: LOOPBACK,
-}
-ZONES = {
-    CONF_ZONES: {
-        "lab": {
-            "networks": ["198.51.100.0/25"],
-            "mode": "learning",
-            "lists": ["deny_a"],
-        },
-        "lab2": {"networks": ["198.51.100.128/25"], "mode": "learning", "lists": []},
-        "kids": {
-            "networks": ["203.0.113.0/25"],
-            "mode": "allowlist_only",
-            "lists": ["allow_a", "allow_b"],
-        },
-        "office": {"networks": ["192.0.2.0/24"], "mode": "filter", "lists": []},
-    }
+    CONF_NOTIFY: {"restricted": True, "lockdown": True},
 }
 OPTIONS = {
     **DB_OPTIONS,
     **LISTS,
-    **ZONES,
+    **CLIENTS,
     CONF_REPORT_EXISTING_DOMAINS: True,
 }
 
@@ -147,7 +147,6 @@ def make(
     async def _make(
         *,
         options: dict[str, Any] | None = None,
-        zones: dict[str, ZoneDefinition] | None = None,
         report_existing: bool = True,
         entry: MockConfigEntry | None = None,
         ready: bool = True,
@@ -163,13 +162,12 @@ def make(
         await lists.async_load()
         database = QueryLogDatabase(log_url)
         databases.append(database)
-        if zones is None:
-            zones = read_zones(options, read_definitions(options))
+        levels = LevelConfig(options)
         tracker = RequestTracker(
             hass,
             entry,
             database,
-            zones,
+            levels,
             lists,
             report_existing=report_existing,
             client_names=client_names,
@@ -192,6 +190,14 @@ async def harness_round(hass: HomeAssistant, harness: Harness) -> None:
 
 def data_of(events: list[Event]) -> list[dict[str, Any]]:
     return [event.data for event in events]
+
+
+def set_ask(
+    levels: LevelConfig, options: Mapping[str, Any], client: str, ask: bool
+) -> None:
+    """Switch a Lockdown client's ask option in memory, as the options would."""
+    current = {**options, CONF_CLIENTS: clients_to_options(levels.clients)}
+    levels.update(with_client(current, client, "lockdown", ask))
 
 
 def only_request(harness: Harness) -> dict[str, Any]:
@@ -298,7 +304,7 @@ async def test_an_emptied_table_restarts_the_cursor(
     assert [event["domain"] for event in data_of(events)] == ["c.example.com"]
 
 
-async def test_only_learning_and_allowlist_zones_are_watched(
+async def test_only_restricted_and_lockdown_clients_are_watched(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
@@ -306,13 +312,13 @@ async def test_only_learning_and_allowlist_zones_are_watched(
     harness.add(
         row("a.example.com", OFFICE),
         row("b.example.com", OTHER, "BLOCKED"),
-        row("c.example.com", "198.51.100.150"),
+        row("c.example.com", LAB2),
         row("d.example.com", KID, "BLOCKED"),
     )
 
     await harness_round(hass, harness)
 
-    assert harness.tracker.counters.skipped_other_zone == 2
+    assert harness.tracker.counters.skipped_other_level == 2
     assert {event["domain"] for event in data_of(events)} == {
         "c.example.com",
         "d.example.com",
@@ -364,7 +370,7 @@ async def test_trailing_dot_and_case_are_normalised(
     assert [event["domain"] for event in data_of(events)] == ["new.example.com"]
 
 
-# --- Learning zones -----------------------------------------------------------------
+# --- Restricted clients -----------------------------------------------------------
 
 
 async def test_learning_new_pair_fires_once_and_creates_a_request(
@@ -380,7 +386,7 @@ async def test_learning_new_pair_fires_once_and_creates_a_request(
     assert data_of(events) == [
         {
             "config_entry_id": harness.entry.entry_id,
-            "zone": "lab",
+            "level": "restricted",
             "client": LAB,
             "client_name": None,
             "domain": "new.example.com",
@@ -408,12 +414,12 @@ async def test_block_adds_the_domain_to_the_first_deny_list(
     harness.tracker.async_resolve(only_request(harness)["id"], "block")
     await hass.async_block_till_done()
 
-    assert harness.lists.entries("deny_a") == ["ads.example.com"]
+    assert harness.lists.entries("restricted_deny") == ["ads.example.com"]
     assert data_of(changed) == [
         {
             "config_entry_id": harness.entry.entry_id,
             "action": "add",
-            "list": "deny_a",
+            "list": "restricted_deny",
             "domain": "ads.example.com",
         }
     ]
@@ -437,23 +443,9 @@ async def test_dismiss_closes_the_request_and_knows_the_pair(
     harness.add(row("meh.example.com"))
     await harness_round(hass, harness)
 
-    assert harness.lists.entries("deny_a") == []
+    assert harness.lists.entries("restricted_deny") == []
     assert harness.tracker.pending_count == 0
     assert not events
-
-
-async def test_block_without_a_deny_list_is_an_error(
-    hass: HomeAssistant, make: Callable[..., Any]
-) -> None:
-    harness = await make()
-    harness.add(row("x.example.com", LAB2))
-    await harness_round(hass, harness)
-
-    with pytest.raises(RequestError) as err:
-        harness.tracker.async_resolve(only_request(harness)["id"], "block")
-
-    assert err.value.code == "no_deny_list"
-    assert harness.tracker.pending_count == 1
 
 
 async def test_request_kinds_limit_the_actions(
@@ -498,7 +490,7 @@ async def test_a_new_learning_client_starts_with_its_recent_history_as_known(
 
     await harness_round(hass, harness)
 
-    # Nothing of the learning clients is reported; the allowlist zone is not
+    # Nothing of the learning clients is reported; the Lockdown level is not
     # part of the baseline and still raises a request for a blocked pair.
     assert [e["domain"] for e in data_of(events)] == ["kid-old.example.com"]
     known = set(harness.tracker._clients[LAB].known)
@@ -512,7 +504,7 @@ async def test_a_new_learning_client_starts_with_its_recent_history_as_known(
     assert [e["domain"] for e in data_of(events)] == ["fresh.example.com"]
 
 
-async def test_a_zone_added_later_does_not_report_everyday_domains(
+async def test_a_level_added_later_does_not_report_everyday_domains(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make(report_existing=False)
@@ -637,10 +629,10 @@ async def test_options_survive_other_settings(
     assert entry.options[CONF_REPORT_EXISTING_DOMAINS] is True
 
 
-# --- Allowlist-only zones -----------------------------------------------------------
+# --- Lockdown clients -------------------------------------------------------------
 
 
-async def test_learning_phase_blocked_pair_becomes_an_approval_request(
+async def test_asking_lockdown_client_blocked_pair_becomes_an_approval_request(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
@@ -659,16 +651,13 @@ async def test_learning_phase_blocked_pair_becomes_an_approval_request(
     assert data_of(events) == [
         {
             "config_entry_id": harness.entry.entry_id,
-            "zone": "kids",
+            "level": "lockdown",
             "client": KID,
             "client_name": None,
             "domain": "wanted.example.com",
             "request_id": request["id"],
             "actions": ["approve", "reject"],
         }
-    ]
-    assert harness.tracker.describe_clients() == [
-        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
     ]
     # Asking again while the request is pending changes nothing.
     harness.add(blocked("wanted.example.com"))
@@ -677,43 +666,26 @@ async def test_learning_phase_blocked_pair_becomes_an_approval_request(
     assert harness.tracker.pending_count == 1
 
 
-async def test_approve_uses_the_first_allow_list_or_the_named_one(
+async def test_approve_adds_the_domain_to_the_lockdown_allow_list(
     hass: HomeAssistant, make: Callable[..., Any]
-) -> None:
-    harness = await make()
-    harness.add(blocked("one.example.com"), blocked("two.example.com"))
-    await harness_round(hass, harness)
-    ids = {r["domain"]: r["id"] for r in harness.tracker.describe_requests()}
-    changed = async_capture_events(hass, EVENT_LIST_CHANGED)
-
-    harness.tracker.async_resolve(ids["one.example.com"], "approve")
-    harness.tracker.async_resolve(ids["two.example.com"], "approve", "allow_b")
-    await hass.async_block_till_done()
-
-    assert harness.lists.entries("allow_a") == ["one.example.com"]
-    assert harness.lists.entries("allow_b") == ["two.example.com"]
-    assert [(e["list"], e["domain"]) for e in data_of(changed)] == [
-        ("allow_a", "one.example.com"),
-        ("allow_b", "two.example.com"),
-    ]
-    assert harness.tracker.pending_count == 0
-
-
-@pytest.mark.parametrize("name", ["allow_wild", "deny_a", "nope", "ALLOW_A", ""])
-async def test_named_list_must_be_an_allow_list_of_the_zone(
-    hass: HomeAssistant, make: Callable[..., Any], name: str
 ) -> None:
     harness = await make()
     harness.add(blocked("one.example.com"))
     await harness_round(hass, harness)
+    changed = async_capture_events(hass, EVENT_LIST_CHANGED)
 
-    with pytest.raises(RequestError) as err:
-        harness.tracker.async_resolve(only_request(harness)["id"], "approve", name)
+    harness.tracker.async_resolve(only_request(harness)["id"], "approve")
+    await hass.async_block_till_done()
 
-    assert err.value.code == "list_not_in_zone"
-    assert harness.tracker.pending_count == 1
-    assert harness.lists.entries("allow_wild") == []
-    assert harness.lists.entries("deny_a") == []
+    assert harness.lists.entries("lockdown_allow") == ["one.example.com"]
+    assert [(e["list"], e["domain"]) for e in data_of(changed)] == [
+        ("lockdown_allow", "one.example.com"),
+    ]
+    assert harness.tracker.pending_count == 0
+    # The pair is known now: no second request.
+    harness.add(blocked("one.example.com"))
+    await harness_round(hass, harness)
+    assert harness.tracker.pending_count == 0
 
 
 async def test_reject_remembers_the_pair_for_good(
@@ -730,25 +702,25 @@ async def test_reject_remembers_the_pair_for_good(
 
     assert not events
     assert harness.tracker.pending_count == 0
-    for entries in (harness.lists.entries("allow_a"), harness.lists.entries("allow_b")):
-        assert entries == []
+    assert harness.lists.entries("lockdown_allow") == []
     # Another client is another pair.
     harness.add(blocked("no.example.com", KID_B))
     await harness_round(hass, harness)
     assert len(events) == 1
 
 
-async def test_locked_clients_raise_no_request_only_one_event_per_pair(
+async def test_quiet_clients_raise_no_request_only_one_event_per_pair(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
-    harness.tracker.async_set_client_phase(KID, "locked")
     unexpected = async_capture_events(hass, EVENT_UNEXPECTED_DOMAIN)
     new = async_capture_events(hass, EVENT_NEW_DOMAIN)
-    harness.add(blocked("odd.example.com"), blocked("odd.example.com"))
+    harness.add(
+        blocked("odd.example.com", KID_QUIET), blocked("odd.example.com", KID_QUIET)
+    )
 
     await harness_round(hass, harness)
-    harness.add(blocked("odd.example.com"))
+    harness.add(blocked("odd.example.com", KID_QUIET))
     await harness_round(hass, harness)
 
     assert harness.tracker.pending_count == 0
@@ -756,53 +728,56 @@ async def test_locked_clients_raise_no_request_only_one_event_per_pair(
     assert data_of(unexpected) == [
         {
             "config_entry_id": harness.entry.entry_id,
-            "zone": "kids",
-            "client": KID,
+            "level": "lockdown",
+            "client": KID_QUIET,
             "client_name": None,
             "domain": "odd.example.com",
             "request_id": None,
             "actions": [],
         }
     ]
-    # Another client of the zone is still being learned.
+    # Another client of the level still asks.
     harness.add(blocked("odd.example.com", KID_B))
     await harness_round(hass, harness)
     assert harness.tracker.pending_count == 1
 
 
-async def test_phase_changes_only_through_the_service_call(
+async def test_the_ask_option_decides_between_request_and_event(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
-    harness.tracker.async_set_client_phase(KID, "locked")
-    harness.add(blocked("a.example.com"), row("b.example.com", KID))
+    levels = harness.tracker._levels
+    set_ask(levels, harness.entry.options, KID, False)
+    harness.add(blocked("a.example.com"))
     await harness_round(hass, harness)
-    assert harness.tracker.describe_clients()[0]["phase"] == "locked"
+    assert harness.tracker.pending_count == 0
 
-    harness.tracker.async_set_client_phase(" 203.0.113.10 ", "learning")
-    assert harness.tracker.describe_clients()[0]["phase"] == "learning"
+    set_ask(levels, harness.entry.options, KID, True)
+    harness.add(blocked("b.example.com"))
+    await harness_round(hass, harness)
+    assert [r["domain"] for r in harness.tracker.describe_requests()] == [
+        "b.example.com"
+    ]
 
 
 @pytest.mark.parametrize(
     ("client", "code"),
     [
         ("nonsense", "invalid_client"),
-        (LAB, "client_not_in_allowlist_zone"),
-        (OFFICE, "client_not_in_allowlist_zone"),
-        (OTHER, "client_not_in_allowlist_zone"),
-        ("8.8.8.8", "client_not_in_allowlist_zone"),
+        (LAB, "client_not_lockdown"),
+        (OFFICE, "client_not_lockdown"),
+        ("8.8.8.8", "client_not_lockdown"),
     ],
 )
-async def test_set_client_phase_refuses_other_clients(
+async def test_the_ask_switch_refuses_other_clients(
     hass: HomeAssistant, make: Callable[..., Any], client: str, code: str
 ) -> None:
     harness = await make()
 
     with pytest.raises(RequestError) as err:
-        harness.tracker.async_set_client_phase(client, "locked")
+        harness.tracker.async_set_client_ask(client, False)
 
     assert err.value.code == code
-    assert harness.tracker.describe_clients() == []
 
 
 # --- Ids, single use, expiry --------------------------------------------------------
@@ -833,7 +808,7 @@ async def test_ids_are_exact_and_single_use(
     with pytest.raises(RequestError) as err:
         harness.tracker.async_resolve(first["id"], "approve")
     assert err.value.code == "request_not_found"
-    assert harness.lists.entries("allow_a") == ["one.example.com"]
+    assert harness.lists.entries("lockdown_allow") == ["one.example.com"]
     assert harness.tracker.pending_count == 1
 
 
@@ -892,29 +867,30 @@ async def test_an_expired_request_cannot_be_used_before_the_next_round(
         harness.tracker.async_resolve(request_id, "approve")
 
     assert err.value.code == "request_not_found"
-    assert harness.lists.entries("allow_a") == []
+    assert harness.lists.entries("lockdown_allow") == []
     assert harness.tracker.pending_count == 0
 
 
-async def test_a_request_is_dropped_when_its_zone_changed(
+async def test_a_request_is_dropped_when_its_level_changed(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
     harness.add(blocked("one.example.com"))
     await harness_round(hass, harness)
     request_id = only_request(harness)["id"]
-    zones = harness.tracker._zones
-    assert isinstance(zones, dict)
-    zones["kids"] = ZoneDefinition(
-        "kids", zones["kids"].networks, "learning", zones["kids"].lists
-    )
+    levels = harness.tracker._levels
+    options = {
+        **harness.entry.options,
+        CONF_CLIENTS: clients_to_options(levels.clients),
+    }
+    levels.update(with_client(options, KID, "restricted", False))
 
     with pytest.raises(RequestError) as err:
         harness.tracker.async_resolve(request_id, "approve")
 
-    assert err.value.code == "zone_changed"
+    assert err.value.code == "level_changed"
     assert harness.tracker.pending_count == 0
-    assert harness.lists.entries("allow_a") == []
+    assert harness.lists.entries("lockdown_allow") == []
 
 
 # --- Caps ---------------------------------------------------------------------------
@@ -1064,7 +1040,7 @@ async def test_events_are_limited_per_client_and_summarised_once(
     assert data_of(summaries) == [
         {
             "config_entry_id": harness.entry.entry_id,
-            "zone": "lab",
+            "level": "restricted",
             "client": LAB,
             "client_name": None,
             "suppressed": 3,
@@ -1080,10 +1056,10 @@ async def test_the_limit_counts_all_three_per_domain_event_types(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
-    harness.tracker.async_set_client_phase(KID, "locked")
+    set_ask(harness.tracker._levels, harness.entry.options, KID, False)
     new = async_capture_events(hass, EVENT_NEW_DOMAIN)
     unexpected = async_capture_events(hass, EVENT_UNEXPECTED_DOMAIN)
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    leaks = async_capture_events(hass, EVENT_LOCKDOWN_LEAK)
     harness.add(
         *(blocked(f"u{i}.example.com") for i in range(3)),
         *(row(f"l{i}.example.com", KID) for i in range(4)),
@@ -1107,7 +1083,7 @@ async def _with_allowed(
 ) -> Harness:
     harness = await make()
     for domain in domains:
-        harness.lists.async_add("allow_a", domain, "allow")
+        harness.lists.async_add("lockdown_allow", domain, "allow")
     return harness
 
 
@@ -1115,8 +1091,8 @@ async def test_a_resolved_domain_outside_the_allow_lists_is_a_leak(
     hass: HomeAssistant, make: Callable[..., Any], freezer: FrozenDateTimeFactory
 ) -> None:
     harness = await _with_allowed(hass, make, "ok.example.com")
-    harness.lists.async_add("allow_b", "also.example.net", "allow")
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    harness.lists.async_add("lockdown_allow", "also.example.net", "allow")
+    leaks = async_capture_events(hass, EVENT_LOCKDOWN_LEAK)
     new = async_capture_events(hass, EVENT_NEW_DOMAIN)
     harness.add(
         row("ok.example.com", KID),
@@ -1136,7 +1112,7 @@ async def test_a_resolved_domain_outside_the_allow_lists_is_a_leak(
     ]
     assert data_of(leaks)[0] == {
         "config_entry_id": harness.entry.entry_id,
-        "zone": "kids",
+        "level": "lockdown",
         "client": KID,
         "client_name": None,
         "domain": "badok.example.com",
@@ -1167,7 +1143,7 @@ async def test_old_rows_are_no_leak(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make(ready=False)
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    leaks = async_capture_events(hass, EVENT_LOCKDOWN_LEAK)
     harness.add(row("old.example.com", KID, age=timedelta(hours=3)))
 
     await harness_round(hass, harness)
@@ -1176,36 +1152,15 @@ async def test_old_rows_are_no_leak(
     assert harness.tracker.leak_count() == 0
 
 
-async def test_leak_detection_is_off_when_a_zone_list_is_not_known(
-    hass: HomeAssistant, make: Callable[..., Any]
-) -> None:
-    zones = {
-        "kids": ZoneDefinition(
-            "kids",
-            (ipaddress.ip_network("203.0.113.0/25"),),
-            "allowlist_only",
-            ("allow_a", "ghost"),
-        )
-    }
-    harness = await make(zones=zones)
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
-    harness.add(row("leak.example.com", KID))
-
-    await harness_round(hass, harness)
-
-    assert not leaks
-    assert harness.tracker.leak_count() == 0
-
-
-async def test_leak_detection_covers_every_phase(
+async def test_leak_detection_covers_asking_and_quiet_clients(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
-    harness.tracker.async_set_client_phase(KID, "locked")
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    set_ask(harness.tracker._levels, harness.entry.options, KID, False)
+    leaks = async_capture_events(hass, EVENT_LOCKDOWN_LEAK)
     harness.add(row("leak.example.com", KID))
     await harness_round(hass, harness)
-    harness.tracker.async_set_client_phase(KID_B, "learning")
+    set_ask(harness.tracker._levels, harness.entry.options, KID_B, True)
     harness.add(row("leak.example.com", KID_B))
     await harness_round(hass, harness)
 
@@ -1250,7 +1205,7 @@ async def test_a_poison_row_does_not_stall_the_cursor(
     def boom(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError
 
-    monkeypatch.setattr(harness.tracker, "_learning_row", boom)
+    monkeypatch.setattr(harness.tracker, "_restricted_row", boom)
     await harness_round(hass, harness)
 
     assert harness.tracker.counters.failures == 1
@@ -1292,7 +1247,7 @@ async def test_state_survives_a_restart(
         row("a.example.com"), blocked("b.example.com"), row("leak.example.com", KID)
     )
     await harness_round(hass, harness)
-    harness.tracker.async_set_client_phase(KID_B, "locked")
+    set_ask(harness.tracker._levels, harness.entry.options, KID_B, False)
     harness.tracker.async_resolve(
         harness.tracker.describe_requests()[0]["id"], "reject"
     )
@@ -1302,7 +1257,6 @@ async def test_state_survives_a_restart(
     again = await make(entry=harness.entry, ready=False)
 
     assert again.tracker.describe_requests() == harness.tracker.describe_requests()
-    assert again.tracker.describe_clients() == harness.tracker.describe_clients()
     assert again.tracker.diagnostics() == harness.tracker.diagnostics() | {
         "counters": again.tracker.diagnostics()["counters"],
         "baseline_last_duration_ms": None,
@@ -1329,21 +1283,20 @@ async def test_tampered_store_is_validated(
         "data": {
             "cursor": "9; DROP",
             "clients": {
-                "not-an-ip": {"zone": "lab", "mode": "learning", "last_seen": 1.0},
+                "not-an-ip": {"level": "restricted", "last_seen": 1.0},
                 LAB: {
-                    "zone": "lab",
-                    "mode": "learning",
+                    "level": "restricted",
                     "phase": "locked",
                     "last_seen": 1.0,
                     "known": ["good.example.com", "bad name", 5, None],
                     "rejected": "x",
                     "leaks": ["x"],
                 },
-                LAB_B: {"zone": ["lab"], "mode": "learning", "last_seen": 1.0},
-                LAB_C: {"zone": "ghost", "mode": "learning", "last_seen": 1.0},
-                KID: {"zone": "kids", "mode": "learning", "last_seen": 1.0},
-                KID_B: {"zone": "kids", "mode": "allowlist_only", "last_seen": -1},
-                OFFICE: {"zone": "office", "mode": "filter", "last_seen": 1.0},
+                LAB_B: {"level": ["restricted"], "last_seen": 1.0},
+                LAB_C: {"level": "lockdown", "last_seen": 1.0},
+                KID: {"level": "restricted", "last_seen": 1.0},
+                KID_B: {"level": "lockdown", "last_seen": -1},
+                OFFICE: {"level": "restricted", "last_seen": 1.0},
             },
             "requests": [
                 "junk",
@@ -1395,7 +1348,6 @@ async def test_tampered_store_is_validated(
     assert list(harness.tracker._clients) == [LAB]
     state = harness.tracker._clients[LAB]
     assert list(state.known) == ["good.example.com"]
-    assert state.phase == "learning"
 
 
 async def test_stored_caps_are_enforced_on_load(
@@ -1418,8 +1370,7 @@ async def test_stored_caps_are_enforced_on_load(
             "cursor": 4,
             "clients": {
                 address: {
-                    "zone": "lab",
-                    "mode": "learning",
+                    "level": "restricted",
                     "last_seen": 1.0,
                     "known": [f"d{i}.example.com" for i in range(5)],
                 }
@@ -1469,7 +1420,7 @@ async def _setup(
 
 
 PENDING_SENSOR = "sensor.ha_blocky_pending_domain_requests"
-LEAK_SENSOR = "binary_sensor.ha_blocky_zone_leak"
+LEAK_SENSOR = "binary_sensor.ha_blocky_lockdown_leak"
 
 
 async def test_sensors_follow_requests_and_leaks_without_naming_them(
@@ -1541,7 +1492,7 @@ async def test_diagnostics_show_counts_only(
         ],
     )
     await _poll(hass, freezer, STATS_INTERVAL)
-    entry.runtime_data.requests.async_set_client_phase(KID_B, "locked")
+    set_ask(entry.runtime_data.levels, entry.options, KID_B, False)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
     dumped = json.dumps(diagnostics, default=str)
@@ -1549,7 +1500,7 @@ async def test_diagnostics_show_counts_only(
     for needle in (LAB, KID, KID_B, "secret", "example.com/"):
         assert needle not in dumped, needle
     requests = diagnostics["query_log"]["requests"]
-    assert requests["clients"] == 3
+    assert requests["clients"] == 2
     assert requests["pending_requests"] == 2
     assert requests["leaks_last_hour"] == 1
     assert requests["counters"]["invalid_domains"] == 1
@@ -1641,14 +1592,12 @@ async def test_services_resolve_requests(
         "learn.example.com",
         "kid.example.com",
     }
-    assert response["clients"] == [
-        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
-    ]
+    assert "clients" not in response
 
     await hass.services.async_call(
         DOMAIN,
         "approve_request",
-        {"request_id": ids["approval"], "list": "allow_b"},
+        {"request_id": ids["approval"]},
         blocking=True,
         context=context,
     )
@@ -1656,13 +1605,13 @@ async def test_services_resolve_requests(
     await hass.async_block_till_done()
 
     lists = entry.runtime_data.lists
-    assert lists.entries("allow_b") == ["kid.example.com"]
-    assert lists.entries("deny_a") == ["learn.example.com"]
+    assert lists.entries("lockdown_allow") == ["kid.example.com"]
+    assert lists.entries("restricted_deny") == ["learn.example.com"]
     assert changed[0].context is context
     assert (await _call(hass, "get_requests"))["requests"] == []
 
 
-async def test_reject_service_in_both_kinds_of_zone(
+async def test_reject_service_in_both_kinds_of_level(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
     log_url: URL,
@@ -1674,8 +1623,8 @@ async def test_reject_service_in_both_kinds_of_zone(
     await _call(hass, "reject_request", request_id=ids["approval"])
 
     assert (await _call(hass, "get_requests"))["requests"] == []
-    assert entry.runtime_data.lists.entries("deny_a") == []
-    assert entry.runtime_data.lists.entries("allow_a") == []
+    assert entry.runtime_data.lists.entries("restricted_deny") == []
+    assert entry.runtime_data.lists.entries("lockdown_allow") == []
 
 
 @pytest.mark.parametrize(
@@ -1683,8 +1632,6 @@ async def test_reject_service_in_both_kinds_of_zone(
     [
         ("approve_request", "learning", {}, "request_not_approvable"),
         ("block_request", "approval", {}, "request_not_blockable"),
-        ("approve_request", "approval", {"list": "allow_wild"}, "list_not_in_zone"),
-        ("approve_request", "approval", {"list": "deny_a"}, "list_not_in_zone"),
     ],
 )
 async def test_service_refusals_carry_a_translation_key(
@@ -1733,10 +1680,11 @@ async def test_service_with_an_unknown_request_id(
         ("approve_request", {"request_id": "x" * 65}),
         ("reject_request", {"request_id": ["a"]}),
         ("block_request", {}),
-        ("set_client_phase", {"client": KID}),
-        ("set_client_phase", {"client": KID, "phase": "open"}),
-        ("set_client_phase", {"phase": "locked"}),
-        ("set_client_phase", {"client": "x" * 65, "phase": "locked"}),
+        ("approve_request", {"request_id": "abc", "list": "lockdown_allow"}),
+        ("set_client_ask", {"client": KID}),
+        ("set_client_ask", {"client": KID, "ask": "maybe"}),
+        ("set_client_ask", {"ask": True}),
+        ("set_client_ask", {"client": "x" * 65, "ask": True}),
         ("get_requests", {"extra": 1}),
     ],
 )
@@ -1758,24 +1706,24 @@ async def test_service_schemas_reject_bad_input(
         )
 
 
-async def test_set_client_phase_service(
+async def test_set_client_ask_service(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     entry = await _setup(hass, aioclient_mock, OPTIONS)
 
-    await _call(hass, "set_client_phase", client=KID, phase="locked")
-    assert (await _call(hass, "get_requests"))["clients"] == [
-        {"client": KID, "client_name": None, "zone": "kids", "phase": "locked"}
-    ]
-    await _call(hass, "set_client_phase", client=KID, phase="learning")
-    assert entry.runtime_data.requests.describe_clients()[0]["phase"] == "learning"
+    await _call(hass, "set_client_ask", client=KID, ask=False)
+    assert entry.options[CONF_CLIENTS][KID] == {"level": "lockdown", "ask": False}
+    assert entry.runtime_data.levels.clients[KID].ask is False
+    await _call(hass, "set_client_ask", client=f"::ffff:{KID}", ask=True)
+    assert entry.options[CONF_CLIENTS][KID] == {"level": "lockdown", "ask": True}
 
     for client, key in (
         ("garbage", "invalid_client"),
-        (LAB, "client_not_in_allowlist_zone"),
+        (LAB, "client_not_lockdown"),
+        (OFFICE, "client_not_lockdown"),
     ):
         with pytest.raises(ServiceValidationError) as err:
-            await _call(hass, "set_client_phase", client=client, phase="locked")
+            await _call(hass, "set_client_ask", client=client, ask=False)
         assert err.value.translation_key == key
 
 
@@ -1786,7 +1734,7 @@ async def test_set_client_phase_service(
         ("reject_request", {"request_id": "abc"}),
         ("block_request", {"request_id": "abc"}),
         ("get_requests", {}),
-        ("set_client_phase", {"client": KID, "phase": "locked"}),
+        ("set_client_ask", {"client": KID, "ask": False}),
     ],
 )
 async def test_request_services_are_admin_only(
@@ -1807,7 +1755,7 @@ async def test_request_services_are_admin_only(
             context=Context(user_id=hass_read_only_user.id),
             return_response=service == "get_requests",
         )
-    assert entry.runtime_data.requests.describe_clients() == []
+    assert entry.runtime_data.levels.clients[KID].ask is True
 
 
 @pytest.mark.parametrize(
@@ -1815,7 +1763,6 @@ async def test_request_services_are_admin_only(
     [
         ("approve_request", {"request_id": "abc"}),
         ("get_requests", {}),
-        ("set_client_phase", {"client": KID, "phase": "locked"}),
     ],
 )
 async def test_services_need_the_query_log(
@@ -1871,12 +1818,10 @@ async def test_commands_list_and_resolve_requests(
     result = response["result"]
     assert result["entry_id"] == entry.entry_id
     assert {r["id"] for r in result["requests"]} == set(ids.values())
-    assert result["clients"] == [
-        {"client": KID, "client_name": None, "zone": "kids", "phase": "learning"}
-    ]
+    assert "clients" not in result
     assert set(result["requests"][0]) == {
         "id",
-        "zone",
+        "level",
         "client",
         "client_name",
         "domain",
@@ -1892,11 +1837,10 @@ async def test_commands_list_and_resolve_requests(
         type=f"{DOMAIN}/resolve_request",
         request_id=ids["approval"],
         action="approve",
-        list="allow_b",
     )
     assert response["success"]
     assert [r["id"] for r in response["result"]["requests"]] == [ids["learning"]]
-    assert entry.runtime_data.lists.entries("allow_b") == ["kid.example.com"]
+    assert entry.runtime_data.lists.entries("lockdown_allow") == ["kid.example.com"]
 
     response = await _command(
         client,
@@ -1906,7 +1850,7 @@ async def test_commands_list_and_resolve_requests(
         action="block",
     )
     assert response["success"]
-    assert entry.runtime_data.lists.entries("deny_a") == ["learn.example.com"]
+    assert entry.runtime_data.lists.entries("restricted_deny") == ["learn.example.com"]
 
 
 @pytest.mark.parametrize(
@@ -2020,7 +1964,7 @@ async def _learn(
             harness.tracker.async_resolve(request["id"], "reject")
 
 
-async def test_known_domains_come_newest_first_with_zone_and_mode(
+async def test_known_domains_come_newest_first_with_level_and_mode(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make(client_names=lambda: {LAB: "Lab PC"})
@@ -2031,8 +1975,7 @@ async def test_known_domains_come_newest_first_with_zone_and_mode(
     assert known == {
         "client": LAB,
         "client_name": "Lab PC",
-        "zone": "lab",
-        "mode": "learning",
+        "level": "restricted",
         "total": 3,
         "domains": ["c.example.com", "b.example.com", "a.example.com"],
     }
@@ -2042,8 +1985,7 @@ async def test_known_domains_come_newest_first_with_zone_and_mode(
         {
             "client": LAB,
             "client_name": "Lab PC",
-            "zone": "lab",
-            "mode": "learning",
+            "level": "restricted",
             "known": 3,
         }
     ]
@@ -2092,7 +2034,7 @@ async def test_known_domains_of_an_untracked_client_is_refused(
     assert err.value.code == code
 
 
-async def test_allowlist_clients_list_their_known_domains_read_only(
+async def test_lockdown_clients_list_their_known_domains_read_only(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
@@ -2102,11 +2044,11 @@ async def test_allowlist_clients_list_their_known_domains_read_only(
 
     known = harness.tracker.describe_known(KID)
 
-    assert known["mode"] == "allowlist_only"
+    assert known["level"] == "lockdown"
     assert known["domains"] == ["kid.example.com"]
 
 
-async def test_block_known_adds_to_the_first_deny_list(
+async def test_block_known_adds_to_the_restricted_block_list(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
     harness = await make()
@@ -2118,12 +2060,12 @@ async def test_block_known_adds_to_the_first_deny_list(
     await hass.async_block_till_done()
 
     assert name == "a.example.com"
-    assert harness.lists.entries("deny_a") == ["a.example.com"]
+    assert harness.lists.entries("restricted_deny") == ["a.example.com"]
     assert data_of(changed) == [
         {
             "config_entry_id": harness.entry.entry_id,
             "action": "add",
-            "list": "deny_a",
+            "list": "restricted_deny",
             "domain": "a.example.com",
         }
     ]
@@ -2136,7 +2078,7 @@ async def test_block_known_adds_to_the_first_deny_list(
     # Blocking it again adds nothing and fires nothing.
     harness.tracker.async_block_known(LAB, "a.example.com")
     await hass.async_block_till_done()
-    assert harness.lists.entries("deny_a") == ["a.example.com"]
+    assert harness.lists.entries("restricted_deny") == ["a.example.com"]
     assert len(changed) == 1
 
 
@@ -2160,30 +2102,29 @@ async def test_block_known_refuses_what_is_not_a_known_domain_of_a_learning_clie
     assert refused(LAB, 5) == "invalid_domain"
     assert refused(OTHER, "a.example.com") == "client_not_tracked"
     assert refused(LAB, "other.example.com") == "domain_not_known"
-    # The allowlist client knows the domain, but Block is for learning zones.
-    assert refused(KID, "kid.example.com") == "client_not_in_learning_zone"
-    assert harness.lists.entries("deny_a") == []
-    assert harness.lists.entries("allow_a") == ["kid.example.com"]
+    # The Lockdown client knows the domain, but Block is for Restricted clients.
+    assert refused(KID, "kid.example.com") == "client_not_restricted"
+    assert harness.lists.entries("restricted_deny") == []
+    assert harness.lists.entries("lockdown_allow") == ["kid.example.com"]
 
 
-async def test_block_known_needs_a_deny_list_and_the_same_zone(
+async def test_block_known_needs_the_same_level(
     hass: HomeAssistant, make: Callable[..., Any]
 ) -> None:
-    zones = read_zones(OPTIONS, read_definitions(OPTIONS))
-    harness = await make(zones=zones)
-    await _learn(hass, harness, LAB2, "x.example.com")
+    harness = await make()
     await _learn(hass, harness, LAB, "a.example.com")
+    levels = harness.tracker._levels
+    options = {
+        **harness.entry.options,
+        CONF_CLIENTS: clients_to_options(levels.clients),
+    }
+    # The client was made Standard after it was tracked.
+    levels.update(with_client(options, LAB, "standard", False))
 
-    with pytest.raises(RequestError) as err:
-        harness.tracker.async_block_known(LAB2, "x.example.com")
-    assert err.value.code == "no_deny_list"
-
-    # The zone was removed after the client was tracked.
-    del zones["lab"]
     with pytest.raises(RequestError) as err:
         harness.tracker.async_block_known(LAB, "a.example.com")
-    assert err.value.code == "zone_changed"
-    assert harness.lists.entries("deny_a") == []
+    assert err.value.code == "level_changed"
+    assert harness.lists.entries("restricted_deny") == []
 
 
 async def test_block_known_reports_a_full_list(
@@ -2230,9 +2171,9 @@ async def test_known_domains_commands(
     tracked = (await _command(client, 1, type=f"{DOMAIN}/requests"))["result"][
         "tracked"
     ]
-    assert {(item["client"], item["mode"], item["known"]) for item in tracked} == {
-        (LAB, "learning", 1),
-        (KID, "allowlist_only", 1),
+    assert {(item["client"], item["level"], item["known"]) for item in tracked} == {
+        (LAB, "restricted", 1),
+        (KID, "lockdown", 1),
     }
 
     response = await _command(
@@ -2242,8 +2183,7 @@ async def test_known_domains_commands(
     assert response["result"] == {
         "client": LAB,
         "client_name": None,
-        "zone": "lab",
-        "mode": "learning",
+        "level": "restricted",
         "total": 1,
         "domains": ["learn.example.com"],
     }
@@ -2253,18 +2193,18 @@ async def test_known_domains_commands(
     )
     assert response["success"]
     assert response["result"] == {"client": LAB, "domain": "learn.example.com"}
-    assert entry.runtime_data.lists.entries("deny_a") == ["learn.example.com"]
+    assert entry.runtime_data.lists.entries("restricted_deny") == ["learn.example.com"]
 
-    # An allowlist-only client's list can be read but not blocked from.
+    # A Lockdown client's list can be read but not blocked from.
     response = await _command(client, 4, type=f"{DOMAIN}/known_domains", client=KID)
     assert response["result"]["domains"] == ["kid.example.com"]
     response = await _command(
         client, 5, type=f"{DOMAIN}/block_known", client=KID, domain="kid.example.com"
     )
     assert response["success"] is False
-    assert response["error"]["code"] == "client_not_in_learning_zone"
+    assert response["error"]["code"] == "client_not_restricted"
     assert "example.com" not in response["error"]["message"]
-    assert entry.runtime_data.lists.entries("deny_a") == ["learn.example.com"]
+    assert entry.runtime_data.lists.entries("restricted_deny") == ["learn.example.com"]
 
 
 @pytest.mark.parametrize(
@@ -2322,7 +2262,7 @@ async def test_known_domain_commands_fail_closed(
 
     assert response["success"] is False
     assert response["error"]["code"] == code
-    assert entry.runtime_data.lists.entries("deny_a") == []
+    assert entry.runtime_data.lists.entries("restricted_deny") == []
 
 
 NEW_COMMANDS = {
@@ -2442,7 +2382,7 @@ async def test_events_and_descriptions_carry_the_client_name(
         return {LAB: "Lab PC", KID: "Kid Tablet"}
 
     harness = await make(client_names=names)
-    harness.tracker.async_set_client_phase(KID_B, "locked")
+    set_ask(harness.tracker._levels, harness.entry.options, KID_B, False)
     new = async_capture_events(hass, EVENT_NEW_DOMAIN)
     unexpected = async_capture_events(hass, EVENT_UNEXPECTED_DOMAIN)
     harness.add(
@@ -2469,17 +2409,14 @@ async def test_events_and_descriptions_carry_the_client_name(
         r["client"]: r["client_name"] for r in harness.tracker.describe_requests()
     }
     assert described == {LAB: "Lab PC", LAB_B: None, KID: "Kid Tablet"}
-    phases = {c["client"]: c["client_name"] for c in harness.tracker.describe_clients()}
-    assert phases[KID] == "Kid Tablet"
-    assert phases[KID_B] is None
 
 
 async def test_leak_and_summary_events_carry_the_client_name(
     hass: HomeAssistant, make: Callable[..., Any], freezer: FrozenDateTimeFactory
 ) -> None:
     harness = await make(client_names=lambda: {LAB: "Lab PC", KID: "Kid Tablet"})
-    harness.lists.async_add("allow_a", "ok.example.com", "allow")
-    leaks = async_capture_events(hass, EVENT_ZONE_LEAK)
+    harness.lists.async_add("lockdown_allow", "ok.example.com", "allow")
+    leaks = async_capture_events(hass, EVENT_LOCKDOWN_LEAK)
     summaries = async_capture_events(hass, EVENT_NEW_DOMAINS_SUMMARY)
     harness.add(row("leak.example.com", KID, "CACHED"))
     harness.add(*(row(f"d{i}.example.com") for i in range(8)))

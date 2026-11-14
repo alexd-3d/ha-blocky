@@ -13,11 +13,12 @@ from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CLIENT_LEVELS,
+    CONF_CLIENTS,
     CONF_DB_HOST,
     CONF_DB_NAME,
     CONF_DB_PASSWORD,
     CONF_DB_USERNAME,
-    CONF_ZONES,
 )
 from .coordinator import BlockyConfigEntry
 
@@ -27,7 +28,7 @@ TO_REDACT = {
     CONF_DB_NAME,
     CONF_DB_USERNAME,
     CONF_DB_PASSWORD,
-    CONF_ZONES,
+    CONF_CLIENTS,
 }
 
 
@@ -49,16 +50,14 @@ async def async_get_config_entry_diagnostics(
             "disabled_group_count": len(status.disabled_groups),
             "auto_enable_in_sec": status.auto_enable_in_sec,
         },
-        # Zone networks are client addresses and never appear here.
-        "zones": [
-            {
-                "name": zone.name,
-                "mode": zone.mode,
-                "lists": list(zone.lists),
-                "networks": len(zone.networks),
-            }
-            for zone in data.zones.values()
-        ],
+        # Client addresses never appear here: counts per level only.
+        "levels": {
+            level: sum(
+                1 for config in data.levels.clients.values() if config.level == level
+            )
+            for level in CLIENT_LEVELS
+        },
+        "base_group_count": len(data.levels.base_groups),
         "query_log": None,
     }
 

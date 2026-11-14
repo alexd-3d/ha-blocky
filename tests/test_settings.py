@@ -87,9 +87,7 @@ async def test_settings_describe_display_and_options(
     }
     assert described["report_existing_domains"] is False
     assert described["show_in_sidebar"] is True
-    assert described["allow_lists"] == ["allow_default", "allow_quarantine"]
-    assert described["deny_lists"] == ["deny_default"]
-    assert described["exact_only_lists"] == ["allow_quarantine"]
+    assert not {"allow_lists", "deny_lists", "exact_only_lists"} & set(described)
     # Nothing secret and nothing of the connection or the list networks.
     dumped = json.dumps(result)
     assert DB_OPTIONS["db_password"] not in dumped
@@ -279,8 +277,8 @@ async def test_options_are_changed_partially_and_the_entry_reloads(
         "report_existing_domains": True,
         "show_in_sidebar": False,
     }
-    # The connection, the database and the lists are exactly as they were.
-    for key in (*DB_OPTIONS, "lists"):
+    # The connection, the database and the list networks are exactly as they were.
+    for key in (*DB_OPTIONS, "list_networks"):
         assert entry.options[key] == before[key]
     assert entry.runtime_data.coordinator.update_interval == timedelta(seconds=20)
     assert entry.runtime_data.stats.update_interval == timedelta(seconds=90)
@@ -291,50 +289,6 @@ async def test_options_are_changed_partially_and_the_entry_reloads(
     )
     assert again["result"]["entry_changed"] is False
     assert again["result"]["reloading"] is False
-
-
-async def test_lists_are_defined_through_the_settings(
-    hass: HomeAssistant,
-    aioclient_mock: AiohttpClientMocker,
-    hass_ws_client: WebSocketGenerator,
-    log_url: URL,
-) -> None:
-    entry = await _setup(hass, aioclient_mock, {"list_networks": ["192.0.2.0/24"]})
-    client = await hass_ws_client(hass)
-
-    response = await _command(
-        client,
-        1,
-        type=SET,
-        allow_lists=["allow_default", " allow_quarantine "],
-        deny_lists=["deny_default"],
-        exact_only_lists=["allow_quarantine"],
-    )
-    await hass.async_block_till_done()
-
-    assert response["success"]
-    assert entry.options == {
-        "list_networks": ["192.0.2.0/24"],
-        "lists": {
-            "allow_default": {"type": "allow", "exact_only": False},
-            "allow_quarantine": {"type": "allow", "exact_only": True},
-            "deny_default": {"type": "deny", "exact_only": False},
-        },
-    }
-    assert set(entry.runtime_data.lists.definitions) == {
-        "allow_default",
-        "allow_quarantine",
-        "deny_default",
-    }
-
-    # A partial update of one kind keeps the others.
-    await _command(client, 2, type=SET, deny_lists=["deny_other"])
-    await hass.async_block_till_done()
-    assert entry.options["lists"] == {
-        "allow_default": {"type": "allow", "exact_only": False},
-        "allow_quarantine": {"type": "allow", "exact_only": True},
-        "deny_other": {"type": "deny", "exact_only": False},
-    }
 
 
 @pytest.mark.parametrize(
@@ -350,31 +304,6 @@ async def test_lists_are_defined_through_the_settings(
         ({"tops_interval": None}, "out_of_range", "tops_interval"),
         ({"report_existing_domains": "yes"}, "invalid_type", "report_existing_domains"),
         ({"show_in_sidebar": 1}, "invalid_type", "show_in_sidebar"),
-        ({"allow_lists": "a"}, "invalid_type", "allow_lists"),
-        ({"deny_lists": [1]}, "invalid_type", "deny_lists"),
-        ({"allow_lists": [f"l{i}" for i in range(21)]}, "invalid_type", "allow_lists"),
-        ({"allow_lists": ["Bad Name"]}, "invalid_list_name", "allow_lists"),
-        ({"deny_lists": ["../x"]}, "invalid_list_name", "deny_lists"),
-        ({"allow_lists": [""]}, "invalid_list_name", "allow_lists"),
-        (
-            {"allow_lists": ["same"], "deny_lists": ["same"]},
-            "duplicate_list_name",
-            "allow_lists",
-        ),
-        ({"allow_lists": ["a", "a"]}, "duplicate_list_name", "allow_lists"),
-        (
-            {"allow_lists": ["a"], "exact_only_lists": ["b"]},
-            "unknown_list_name",
-            "exact_only_lists",
-        ),
-        (
-            {
-                "allow_lists": [f"a{i}" for i in range(15)],
-                "deny_lists": [f"d{i}" for i in range(6)],
-            },
-            "too_many_lists",
-            "allow_lists",
-        ),
     ],
 )
 async def test_bad_options_are_refused_and_nothing_changes(
@@ -409,8 +338,11 @@ async def test_bad_options_are_refused_and_nothing_changes(
         {"db_password": "x"},
         {"db_host": "evil.example"},
         {"list_networks": ["0.0.0.0/0"]},
-        {"zones": {}},
+        {"clients": {}},
         {"lists": {}},
+        {"allow_lists": ["a"]},
+        {"exact_only_lists": []},
+        {"base_groups": ["default"]},
         {"colors": {"evil": "#000000"}},
         {"colors": "#000000"},
         {"entry_id": 5, "rows": 5},
@@ -480,7 +412,7 @@ async def test_settings_commands_are_admin_only(
 def test_apply_operational_touches_only_the_whitelisted_options() -> None:
     options = {
         "db_password": "secret",
-        "zones": {"office": {}},
+        "clients": {"192.0.2.10": {"level": "restricted"}},
         "list_networks": ["192.0.2.0/24"],
         "status_interval": 30,
     }
@@ -521,7 +453,6 @@ async def test_a_default_written_out_is_no_change_and_no_reload(
         show_in_sidebar=True,
         status_interval=30,
         report_existing_domains=False,
-        allow_lists=["allow_default", "allow_quarantine"],
     )
     await hass.async_block_till_done()
 

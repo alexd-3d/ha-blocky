@@ -20,8 +20,7 @@ export const MORE_EN = {
   "cat_hint_other": "Other: any other kind of answer, for example an error or a special rule.",
   "set_group_defaults": "Dashboard defaults",
   "set_group_intervals": "Polling intervals",
-  "set_group_general": "Reporting and sidebar",
-  "set_group_lists": "Lists"
+  "set_group_general": "Reporting and sidebar"
 };
 /* i18n:end */
 
@@ -41,7 +40,6 @@ export const MORE_UK = {
   "cat_hint_other": "Інше: будь-який інший тип відповіді, наприклад помилка чи особливе правило.",
   "set_group_defaults": "Типові значення панелі",
   "set_group_intervals": "Інтервали опитування",
-  "set_group_general": "Звіти та бічна панель",
-  "set_group_lists": "Списки"
+  "set_group_general": "Звіти та бічна панель"
 };
 /* i18n:end */

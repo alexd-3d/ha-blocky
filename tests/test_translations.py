@@ -83,18 +83,10 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
     source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
 
     steps = set(re.findall(r'step_id="(\w+)"', source))
-    assert steps == {
-        "user",
-        "init",
-        "database",
-        "list_networks",
-        "list_urls",
-        "zones",
-        "zone_edit",
-        "zone_config",
-    }
+    assert steps == {"user", "init", "database", "list_networks"}
     known_steps = set(ENGLISH["config"]["step"]) | set(ENGLISH["options"]["step"])
-    assert steps <= known_steps
+    # Every step has text, and no text is left for a step that is gone.
+    assert steps == known_steps
 
     menu = re.search(r"menu_options=\[([^\]]+)\]", source)
     assert menu is not None
@@ -104,33 +96,38 @@ def test_every_flow_step_error_and_abort_has_english_text() -> None:
 
     errors = set(re.findall(r'errors\[[^\]]+\] = "(\w+)"', source))
     known_errors = set(ENGLISH["config"]["error"]) | set(ENGLISH["options"]["error"])
-    assert errors and errors <= known_errors
+    assert errors
 
-    aborts = set(re.findall(r'async_abort\(reason="(\w+)"\)', source))
-    known_aborts = set(ENGLISH["config"]["abort"]) | set(ENGLISH["options"]["abort"])
-    assert aborts and aborts <= known_aborts
+    # Home Assistant itself aborts a duplicate entry; nothing else aborts.
+    assert not re.findall(r"async_abort\(reason=", source)
+    assert set(ENGLISH["config"]["abort"]) == {"already_configured"}
+    assert "abort" not in ENGLISH["options"]
+    # Every error text is used by a form, and every error of a form has text.
+    assert errors == known_errors
 
 
-def test_zone_selectors_and_errors_have_english_text() -> None:
-    from custom_components.ha_blocky.const import ZONE_MODES
-
+def test_no_selector_text_is_left_over() -> None:
+    assert "selector" not in ENGLISH
     source = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
-    zones_source = (COMPONENT / "zones.py").read_text(encoding="utf-8")
+    assert "translation_key" not in source
 
-    selectors = set(re.findall(r'translation_key="(\w+)"', source))
-    assert selectors == {"zone_choice", "zone_mode"}
-    assert selectors <= set(ENGLISH["selector"])
-    assert set(ENGLISH["selector"]["zone_mode"]["options"]) == set(ZONE_MODES)
-    assert "add-new" in ENGLISH["selector"]["zone_choice"]["options"]
 
-    # Every refusal code of a zone has a message; the form maps them to fields.
-    zone_errors = set(re.findall(r'ZoneError\("(\w+)"\)', zones_source))
-    field_errors = set(re.findall(r'"(\w+)": CONF_ZONE\w*', source))
-    assert zone_errors and field_errors
-    assert zone_errors | field_errors <= set(ENGLISH["options"]["error"])
+def test_exceptions_match_the_refusal_codes_exactly() -> None:
+    from custom_components.ha_blocky.requests import ERROR_MESSAGES
 
-    zone_fields = set(ENGLISH["options"]["step"]["zone_edit"]["data"])
-    assert zone_fields == {"name", "networks", "mode", "lists", "delete"}
+    assert set(ENGLISH["exceptions"]) == set(ERROR_MESSAGES) | {"no_query_log"}
+    for code, text in ERROR_MESSAGES.items():
+        assert ENGLISH["exceptions"][code]["message"] == text, code
+
+
+def test_every_data_description_belongs_to_a_form_field() -> None:
+    for flow, step in (
+        ("config", "user"),
+        ("options", "database"),
+        ("options", "list_networks"),
+    ):
+        texts = ENGLISH[flow]["step"][step]
+        assert set(texts.get("data_description", {})) <= set(texts["data"]), step
 
 
 def test_every_form_field_has_an_english_label() -> None:
@@ -172,13 +169,14 @@ async def test_every_entity_has_an_english_name(
         domain=DOMAIN,
         data={CONF_URL: base_url},
         options={**DB_OPTIONS, **LIST_OPTIONS},
+        minor_version=2,
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 15 + 3 + 2
+    assert len(entities) == 6 + 15 + 4 + 6 + 2
     for entity in entities:
         assert entity.translation_key, entity.entity_id
         assert entity.translation_key in ENGLISH["entity"][entity.domain], (
@@ -188,6 +186,11 @@ async def test_every_entity_has_an_english_name(
         assert state is not None
         name = state.attributes["friendly_name"]
         assert name.startswith("HA-Blocky ") and len(name) > len("HA-Blocky "), name
+
+    # No entity text is left over: each text belongs to an entity that exists.
+    for domain, texts in ENGLISH["entity"].items():
+        keys = {e.translation_key for e in entities if e.domain == domain}
+        assert set(texts) == keys, domain
 
     # Every state of the select has a label too.
     select_states = ENGLISH["entity"]["select"]["pause_blocking"]["state"]

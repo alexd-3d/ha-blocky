@@ -81,11 +81,23 @@
       "other_total": {
         "name": "Other queries"
       },
-      "zone_queries_24h": {
-        "name": "Zone {zone} queries (24 h)"
+      "unfiltered_queries_24h": {
+        "name": "Unfiltered queries (24 h)"
       },
-      "zone_blocked_24h": {
-        "name": "Zone {zone} blocked queries (24 h)"
+      "unfiltered_blocked_24h": {
+        "name": "Unfiltered blocked queries (24 h)"
+      },
+      "restricted_queries_24h": {
+        "name": "Restricted queries (24 h)"
+      },
+      "restricted_blocked_24h": {
+        "name": "Restricted blocked queries (24 h)"
+      },
+      "lockdown_queries_24h": {
+        "name": "Lockdown queries (24 h)"
+      },
+      "lockdown_blocked_24h": {
+        "name": "Lockdown blocked queries (24 h)"
       },
       "pending_requests": {
         "name": "Pending domain requests"
@@ -98,8 +110,8 @@
       "database": {
         "name": "Query log database"
       },
-      "zone_leak": {
-        "name": "Zone leak"
+      "lockdown_leak": {
+        "name": "Lockdown leak"
       }
     },
     "button": {
@@ -146,7 +158,7 @@
     },
     "allow_domain": {
       "name": "Allow domain",
-      "description": "Adds a domain to an allow list. Blocky reloads its lists shortly afterwards.",
+      "description": "Adds a domain to an allow list (allow_default or lockdown_allow). Blocky reloads its lists shortly afterwards.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -154,17 +166,17 @@
         },
         "list": {
           "name": "List",
-          "description": "Name of the manual list."
+          "description": "Name of one of the fixed lists: allow_default (Always allow), deny_default (Always block), restricted_deny (Restricted block list) or lockdown_allow (Lockdown allow list)."
         },
         "domain": {
           "name": "Domain",
-          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+          "description": "A domain name such as example.com. The Lockdown allow list takes exact domains only; the other lists also take a leading wildcard."
         }
       }
     },
     "block_domain": {
       "name": "Block domain",
-      "description": "Adds a domain to a deny list. Blocky reloads its lists shortly afterwards.",
+      "description": "Adds a domain to a block list (deny_default or restricted_deny). Blocky reloads its lists shortly afterwards.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -172,17 +184,17 @@
         },
         "list": {
           "name": "List",
-          "description": "Name of the manual list."
+          "description": "Name of one of the fixed lists: allow_default (Always allow), deny_default (Always block), restricted_deny (Restricted block list) or lockdown_allow (Lockdown allow list)."
         },
         "domain": {
           "name": "Domain",
-          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+          "description": "A domain name such as example.com. The Lockdown allow list takes exact domains only; the other lists also take a leading wildcard."
         }
       }
     },
     "remove_domain": {
       "name": "Remove domain",
-      "description": "Removes a domain from a manual list.",
+      "description": "Removes a domain from one of the fixed lists.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -190,17 +202,17 @@
         },
         "list": {
           "name": "List",
-          "description": "Name of the manual list."
+          "description": "Name of one of the fixed lists: allow_default (Always allow), deny_default (Always block), restricted_deny (Restricted block list) or lockdown_allow (Lockdown allow list)."
         },
         "domain": {
           "name": "Domain",
-          "description": "A domain name such as example.com, or with a leading wildcard where the list allows it."
+          "description": "A domain name such as example.com. The Lockdown allow list takes exact domains only; the other lists also take a leading wildcard."
         }
       }
     },
     "get_list": {
       "name": "Get list",
-      "description": "Returns the entries of a manual list.",
+      "description": "Returns the entries of one of the fixed lists.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -208,7 +220,7 @@
         },
         "list": {
           "name": "List",
-          "description": "Name of the manual list."
+          "description": "Name of one of the fixed lists: allow_default (Always allow), deny_default (Always block), restricted_deny (Restricted block list) or lockdown_allow (Lockdown allow list)."
         }
       }
     },
@@ -224,7 +236,7 @@
     },
     "approve_request": {
       "name": "Approve request",
-      "description": "Approves a request of an allowlist-only zone: the domain is added to an allow list of the zone. A request can be used once.",
+      "description": "Approves a request of a Lockdown client: the domain is added to the Lockdown allow list, which applies to every client of that level. A request can be used once.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -233,16 +245,12 @@
         "request_id": {
           "name": "Request",
           "description": "The id of the request, from the new domain event or from the list of requests."
-        },
-        "list": {
-          "name": "List",
-          "description": "An allow list of the zone to add the domain to. Leave empty to use the first allow list of the zone."
         }
       }
     },
     "reject_request": {
       "name": "Reject request",
-      "description": "Rejects a request of an allowlist-only zone, which then never asks again for that client and domain. In a learning zone it dismisses the request. A request can be used once.",
+      "description": "Rejects a request of a Lockdown client, which then never asks again for that client and domain. For a Restricted client it dismisses the request. A request can be used once.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -256,7 +264,7 @@
     },
     "block_request": {
       "name": "Block request",
-      "description": "Blocks the domain of a request of a learning zone: it is added to the first deny list of the zone. A request can be used once.",
+      "description": "Blocks the domain of a request of a Restricted client: it is added to the Restricted block list, which applies to every client of that level. A request can be used once.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -270,7 +278,7 @@
     },
     "get_requests": {
       "name": "Get requests",
-      "description": "Returns the requests waiting for a decision and the phase of the clients of allowlist-only zones.",
+      "description": "Returns the requests waiting for a decision.",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -278,9 +286,9 @@
         }
       }
     },
-    "set_client_phase": {
-      "name": "Set client phase",
-      "description": "Sets the phase of a client of an allowlist-only zone. A learning client turns blocked domains into requests; a locked client only causes an event.",
+    "set_client_ask": {
+      "name": "Set whether a client asks",
+      "description": "Sets whether a Lockdown client turns blocked new domains into requests (on) or only causes an event (off).",
       "fields": {
         "config_entry_id": {
           "name": "Blocky instance",
@@ -288,11 +296,11 @@
         },
         "client": {
           "name": "Client",
-          "description": "The IP address of the client."
+          "description": "The IP address of a client at the Lockdown level."
         },
-        "phase": {
-          "name": "Phase",
-          "description": "Learning or locked."
+        "ask": {
+          "name": "Ask me about new domains",
+          "description": "On: a blocked new domain becomes a request you can approve. Off: it is only reported as an unexpected domain."
         }
       }
     }
@@ -303,10 +311,7 @@
         "title": "HA-Blocky options",
         "menu_options": {
           "database": "Query log database",
-          "list_networks": "Clients that may download lists",
-          "list_urls": "List addresses for Blocky",
-          "zones": "Zones",
-          "zone_config": "Zone configuration for Blocky"
+          "list_networks": "Clients that may download lists"
         }
       },
       "database": {
@@ -326,49 +331,13 @@
       },
       "list_networks": {
         "title": "Clients that may download lists",
-        "description": "Say which clients may download the manual lists from Home Assistant. Blocky downloads each list from Home Assistant. Which lists exist, and the other settings, are in the Settings tab of the HA-Blocky card.",
+        "description": "Say which clients may download the rule lists from Home Assistant. Blocky downloads each list from Home Assistant. Clients, levels and rules are in the Settings tab of the HA-Blocky card, where the block to paste into Blocky is shown too.",
         "data": {
           "list_networks": "Clients allowed to download lists"
         },
         "data_description": {
           "list_networks": "Networks in CIDR notation. Only clients in them can download a list. The default is the network of Home Assistant apps (add-ons)."
         }
-      },
-      "list_urls": {
-        "title": "List addresses for Blocky",
-        "description": "Add these addresses as list sources in Blocky's configuration. Each one contains a secret token: anyone who knows an address and connects from an allowed network can read that list.\n\n{urls}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
-      },
-      "zones": {
-        "title": "Zones",
-        "description": "A zone is a named group of client networks. It is only a record kept in Home Assistant, used to tell which policy applies to a client in the query log. Home Assistant never changes Blocky's configuration; use \"Zone configuration for Blocky\" to get a fragment to copy. Zones must not overlap.",
-        "data": {
-          "zone": "Zone"
-        },
-        "data_description": {
-          "zone": "Choose a zone to change or delete, or add a new one."
-        }
-      },
-      "zone_edit": {
-        "title": "Zone",
-        "description": "Zone: {zone}. Clients in the networks below belong to this zone. Filter: filtered as usual with the linked lists. Learning: filtered as usual; meant for watching which domains the clients ask for. Allowlist only: the clients may reach only the domains on the linked allow lists, which must be lists without wildcards.",
-        "data": {
-          "name": "Name",
-          "networks": "Networks",
-          "mode": "Mode",
-          "lists": "Linked lists",
-          "delete": "Delete this zone"
-        },
-        "data_description": {
-          "name": "Lower-case letters, digits and underscores, up to 32 characters. It cannot be changed later.",
-          "networks": "Between 1 and 8 addresses or networks in CIDR notation, for example 192.0.2.0/24. A network that matches every address is not accepted.",
-          "mode": "How the clients of this zone are meant to be treated in Blocky.",
-          "lists": "Manual lists used by this zone. Allowlist only needs at least one allow list without wildcards.",
-          "delete": "Tick to remove this zone. Nothing in Blocky changes."
-        }
-      },
-      "zone_config": {
-        "title": "Zone configuration for Blocky",
-        "description": "Merge this fragment into the blocking section of Blocky's configuration. Home Assistant does not apply it. The list addresses contain a secret token, so keep the configuration private.\n\n{config}\n\nIf Blocky runs as a Home Assistant app (add-on), it reaches Home Assistant under the host name homeassistant on port 8123; replace the host part accordingly."
       }
     },
     "error": {
@@ -377,33 +346,7 @@
       "db_cannot_connect": "Could not connect to the database with these settings.",
       "db_schema": "This database does not contain Blocky's query log table.",
       "db_not_read_only": "This account can change data. Use an account that only has the SELECT privilege.",
-      "unknown_list_name": "This name is not among the allow or deny lists.",
-      "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted.",
-      "duplicate_zone_name": "A zone with this name already exists.",
-      "too_many_zones": "Too many zones.",
-      "invalid_zone_name": "Use lower-case letters, digits and underscores, starting with a letter or digit, up to 32 characters.",
-      "invalid_zone_mode": "Choose one of the modes.",
-      "zone_overlap": "These networks overlap another zone. Zones must not overlap, because Blocky would merge their groups.",
-      "allowlist_only_lists": "Allowlist only needs at least one linked list, and every linked list must be an allow list without wildcards."
-    },
-    "abort": {
-      "list_urls_closed": "Nothing was changed.",
-      "not_loaded": "The integration is not loaded.",
-      "zone_config_closed": "Nothing was changed."
-    }
-  },
-  "selector": {
-    "zone_mode": {
-      "options": {
-        "filter": "Filter",
-        "learning": "Learning",
-        "allowlist_only": "Allowlist only"
-      }
-    },
-    "zone_choice": {
-      "options": {
-        "add-new": "Add a new zone"
-      }
+      "invalid_network": "Enter networks in CIDR notation. A network that matches every address is not accepted."
     }
   },
   "exceptions": {
@@ -414,22 +357,13 @@
       "message": "The request does not exist, was already resolved or expired."
     },
     "request_not_approvable": {
-      "message": "Only a request of an allowlist-only zone can be approved."
+      "message": "Only a request of a Lockdown client can be approved."
     },
     "request_not_blockable": {
-      "message": "Only a request of a learning zone can be blocked."
+      "message": "Only a request of a Restricted client can be blocked."
     },
-    "zone_changed": {
-      "message": "The zone of this request has changed; the request was dropped."
-    },
-    "no_allow_list": {
-      "message": "The zone has no allow list to add the domain to."
-    },
-    "no_deny_list": {
-      "message": "The zone has no deny list to add the domain to."
-    },
-    "list_not_in_zone": {
-      "message": "That is not one of the allow lists of the zone."
+    "level_changed": {
+      "message": "The level of this client has changed; the request was dropped."
     },
     "list_failed": {
       "message": "The list refused the entry, for example because it is full."
@@ -437,8 +371,8 @@
     "invalid_client": {
       "message": "The client is not a valid IP address."
     },
-    "client_not_in_allowlist_zone": {
-      "message": "The client is not in an allowlist-only zone."
+    "client_not_lockdown": {
+      "message": "The client is not at the Lockdown level."
     },
     "too_many_clients": {
       "message": "Too many clients are tracked already."
@@ -446,8 +380,8 @@
     "client_not_tracked": {
       "message": "The client is not tracked."
     },
-    "client_not_in_learning_zone": {
-      "message": "The client is not in a learning zone."
+    "client_not_restricted": {
+      "message": "The client is not at the Restricted level."
     },
     "invalid_domain": {
       "message": "The domain is not a valid name."

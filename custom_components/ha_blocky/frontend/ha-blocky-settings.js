@@ -1,8 +1,10 @@
 /*
- * The "Settings" tab. Display preferences (the colour of each kind of query
- * and the default number of rows) are kept per Home Assistant and apply at
- * once; the operational options (intervals, new-domain reporting, sidebar
- * entry, list names) are options of the integration and reload it.
+ * The "Settings" tab. Protection (the clients with their level, the rules, the
+ * block to paste into Blocky) comes first and has its own commands. Display
+ * preferences (the colour of each kind of query and the default number of
+ * rows) are kept per Home Assistant and apply at once; the operational options
+ * (intervals, new-domain reporting, sidebar entry) are options of the
+ * integration and reload it.
  * Both go through the command `ha_blocky/set_settings`; the server checks
  * every value again. Colours are validated here too (exactly #rrggbb) before
  * they are used.
@@ -18,6 +20,7 @@ import {
   validColor,
 } from "./ha-blocky-format.js";
 import { loadPrefs, prefs } from "./ha-blocky-prefs.js";
+import { ProtectionView } from "./ha-blocky-protection.js";
 import { OptionsForm } from "./ha-blocky-settings-options.js";
 
 // The label of each field a refusal can name (never taken from the server).
@@ -27,9 +30,6 @@ const FIELD_LABELS = {
   tops_interval: "set_tops_interval",
   report_existing_domains: "set_report",
   show_in_sidebar: "set_sidebar",
-  allow_lists: "set_allow_lists",
-  deny_lists: "set_deny_lists",
-  exact_only_lists: "set_exact_lists",
   rows: "set_rows_default",
 };
 const RELOAD_DELAY_MS = 4000;
@@ -41,6 +41,7 @@ export class SettingsView {
     this._rowsTouched = false;
     this._inputs = {};
     this._options = new OptionsForm(host);
+    this._protection = new ProtectionView(host);
     this._build(container);
   }
 
@@ -158,7 +159,9 @@ export class SettingsView {
     );
 
     this._ops = ops.root;
-    container.appendChild(el("div", { className: "settings" }, [display.root, ops.root]));
+    container.appendChild(
+      el("div", { className: "settings" }, [this._protection.element, display.root, ops.root])
+    );
   }
 
   // The colours in the inputs, each checked before it is used.
@@ -184,6 +187,7 @@ export class SettingsView {
 
   async load() {
     const entry = this._host.entry;
+    this._protection.load();
     try {
       const result = await this._host.hass.callWS({
         type: `${DOMAIN}/settings`,

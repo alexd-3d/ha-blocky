@@ -5,24 +5,14 @@
  * fetched. `host` offers: t(key).
  */
 
+import { copyText } from "./ha-blocky-controls.js";
 import { el } from "./ha-blocky-dom.js";
+import { levelSections } from "./ha-blocky-help-levels.js";
 import { BLOCKLISTS } from "./ha-blocky-i18n-help.js";
 
 const TAB_KEYS = ["dashboard", "log", "requests", "settings"];
-const FAQ = ["delay", "pause", "name", "nodb", "sidebar"];
+const FAQ = ["delay", "pause", "name", "nodb", "sidebar", "waiting"];
 const COPIED_MS = 2000;
-
-// Write text to the clipboard; false when the browser does not allow it.
-async function copyText(text) {
-  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-  if (!clipboard || typeof clipboard.writeText !== "function") return false;
-  try {
-    await clipboard.writeText(text);
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
 
 export class HelpView {
   constructor(host, container) {
@@ -85,9 +75,9 @@ export class HelpView {
     const actions = this._section(t("help_actions_title"), [
       el("p", { text: t("help_actions_body") }),
     ]);
-    const zones = this._section(t("help_zones_title"), [
-      el("p", { text: t("help_zones_body") }),
-    ]);
+    const levels = levelSections(t, (title, children, open) =>
+      this._section(title, children, open)
+    );
     const faq = this._section(
       t("help_faq_title"),
       FAQ.map((name) =>
@@ -101,6 +91,6 @@ export class HelpView {
       el("p", { text: t("help_lists_body") }),
       ...BLOCKLISTS.map((source) => this._source(source)),
     ]);
-    return el("div", { className: "helppage" }, [quick, names, actions, zones, faq, lists]);
+    return el("div", { className: "helppage" }, [quick, ...levels, names, actions, faq, lists]);
   }
 }

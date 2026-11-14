@@ -4,11 +4,12 @@
  * Five tabs. The Dashboard shows the blocking switch, the totals of a period,
  * a chart of queries over time and the top clients and domains. The Query log
  * has search, filters, sorting and paging, and lets an administrator add a
- * domain to a manual allow or deny list. Requests lists the requests for new
- * domains and the phase of the clients of allowlist-only zones, with the known
- * domains of every client. A click on a client names it (the name is kept by
- * the server, keyed by the client's address). Settings holds the colours of the
- * query kinds, the default rows and the integration's operational options.
+ * domain to one of the fixed rule lists. Requests lists the requests for new
+ * domains of Restricted and Lockdown clients, with the known domains of every
+ * client. A click on a client names it (the name is kept by the server, keyed
+ * by the client's address). Settings holds the protection level of each
+ * client, the rules and the block to paste into Blocky, then the colours of
+ * the query kinds, the default rows and the integration's operational options.
  * Help is a short quick start with a few well-known blocklist sources.
  *
  * The card is split into plain ES modules next to this file; the browser

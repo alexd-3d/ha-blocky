@@ -138,13 +138,7 @@ async def open_options_step(
     """Open the options menu and pick one of its steps."""
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU
-    assert result["menu_options"] == [
-        "database",
-        "list_networks",
-        "list_urls",
-        "zones",
-        "zone_config",
-    ]
+    assert result["menu_options"] == ["database", "list_networks"]
     return await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step}
     )
@@ -167,7 +161,7 @@ async def test_no_database_means_no_statistics_entities(
     entry = await _setup(hass, aioclient_mock)
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6
+    assert len(entities) == 6 + 4
     assert entry.runtime_data.stats is None
 
 
@@ -194,7 +188,7 @@ async def test_statistics_entities_and_ids(
         "database": "binary_sensor.ha_blocky_query_log_database",
     }
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entities) == 6 + 15 + 2
+    assert len(entities) == 6 + 15 + 2 + 4 + 6
     assert _state(hass, entry, "database") == STATE_ON
     assert "items" in BlockyTopSensor._unrecorded_attributes
 

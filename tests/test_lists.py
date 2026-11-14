@@ -1,4 +1,4 @@
-"""Tests for the manual lists: storage, endpoint, actions and options."""
+"""Tests for the rule lists: storage, endpoint, actions and options."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+import voluptuous as vol
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import CONF_URL
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ServiceValidationError, Unauthorized
-from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -26,11 +26,11 @@ from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 from custom_components.ha_blocky.const import (
     CONF_LIST_NETWORKS,
-    CONF_LISTS,
     DOMAIN,
     EVENT_LIST_CHANGED,
     MAX_LIST_ENTRIES,
     REFRESH_DEBOUNCE_SECONDS,
+    RULE_LISTS,
 )
 from custom_components.ha_blocky.lists import storage_key
 
@@ -45,14 +45,7 @@ ENABLED = {"enabled": True, "disabledGroups": [], "autoEnableInSec": 0}
 
 # The test client connects from the loopback address.
 LOOPBACK = ["127.0.0.0/8", "::1/128"]
-LIST_OPTIONS = {
-    CONF_LISTS: {
-        "allow_default": {"type": "allow", "exact_only": False},
-        "deny_default": {"type": "deny", "exact_only": False},
-        "allow_quarantine": {"type": "allow", "exact_only": True},
-    },
-    CONF_LIST_NETWORKS: LOOPBACK,
-}
+LIST_OPTIONS = {CONF_LIST_NETWORKS: LOOPBACK}
 
 
 async def _setup(
@@ -111,7 +104,6 @@ async def test_allow_block_remove_and_get(
     assert await _call(hass, "get_list", list="allow_default") == {
         "list": "allow_default",
         "type": "allow",
-        "exact_only": False,
         "entries": ["*.cdn.example", "good.example.com"],
     }
     assert (await _call(hass, "get_list", list="deny_default"))["entries"] == [
@@ -150,18 +142,14 @@ async def test_repeated_changes_are_not_reported_twice(
     [
         ("allow_domain", {"list": "deny_default", "domain": "example.com"}),
         ("block_domain", {"list": "allow_default", "domain": "example.com"}),
-        ("allow_domain", {"list": "no_such_list", "domain": "example.com"}),
-        ("allow_domain", {"list": "../allow_default", "domain": "example.com"}),
         ("allow_domain", {"list": "allow_default", "domain": "/.*/"}),
         ("allow_domain", {"list": "allow_default", "domain": "*"}),
         ("allow_domain", {"list": "allow_default", "domain": "com"}),
         ("allow_domain", {"list": "allow_default", "domain": "a.example\nb.example"}),
         ("allow_domain", {"list": "allow_default", "domain": "example.com # x"}),
-        ("allow_domain", {"list": "allow_quarantine", "domain": "*.example.com"}),
+        ("allow_domain", {"list": "lockdown_allow", "domain": "*.example.com"}),
         ("block_domain", {"list": "deny_default", "domain": "192.0.2.1"}),
-        ("remove_domain", {"list": "no_such_list", "domain": "example.com"}),
         ("remove_domain", {"list": "deny_default", "domain": "not a domain"}),
-        ("get_list", {"list": "no_such_list"}),
     ],
 )
 async def test_actions_reject_bad_input(
@@ -180,17 +168,38 @@ async def test_actions_reject_bad_input(
     assert (await _call(hass, "get_list", list="allow_default"))["entries"] == []
 
 
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        ("allow_domain", {"list": "no_such_list", "domain": "example.com"}),
+        ("allow_domain", {"list": "../allow_default", "domain": "example.com"}),
+        ("allow_domain", {"list": "unfiltered_empty", "domain": "example.com"}),
+        ("remove_domain", {"list": "no_such_list", "domain": "example.com"}),
+        ("get_list", {"list": "no_such_list"}),
+    ],
+)
+async def test_the_list_argument_is_a_fixed_set(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    service: str,
+    data: dict[str, Any],
+) -> None:
+    await _setup(hass, aioclient_mock)
+
+    with pytest.raises(vol.Invalid):
+        await _call(hass, service, **data)
+
+
 async def test_exact_only_list_accepts_exact_names(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     await _setup(hass, aioclient_mock)
 
-    await _call(hass, "allow_domain", list="allow_quarantine", domain="tv.example.com")
+    await _call(hass, "allow_domain", list="lockdown_allow", domain="tv.example.com")
 
-    assert await _call(hass, "get_list", list="allow_quarantine") == {
-        "list": "allow_quarantine",
+    assert await _call(hass, "get_list", list="lockdown_allow") == {
+        "list": "lockdown_allow",
         "type": "allow",
-        "exact_only": True,
         "entries": ["tv.example.com"],
     }
 
@@ -366,8 +375,7 @@ async def test_default_network_does_not_include_the_test_client(
     aioclient_mock: AiohttpClientMocker,
     hass_client_no_auth: ClientSessionGenerator,
 ) -> None:
-    options = {CONF_LISTS: LIST_OPTIONS[CONF_LISTS]}
-    entry = await _setup(hass, aioclient_mock, options)
+    entry = await _setup(hass, aioclient_mock, {})
     client = await hass_client_no_auth()
 
     response = await client.get(entry.runtime_data.lists.path("allow_default"))
@@ -460,7 +468,7 @@ async def test_tampered_store_is_cleaned_on_load(
             "token": "short",
             "lists": {
                 "allow_default": ["ok.example.com", "/.*/", "*", 5, "bad name"],
-                "allow_quarantine": ["tv.example.com", "*.wild.example.com"],
+                "lockdown_allow": ["tv.example.com", "*.wild.example.com"],
                 "deleted_list": ["leftover.example.com"],
                 "deny_default": "not a list",
             },
@@ -476,32 +484,11 @@ async def test_tampered_store_is_cleaned_on_load(
     assert lists.token != "short"
     assert len(lists.token) >= 40
     assert lists.entries("allow_default") == ["ok.example.com"]
-    assert lists.entries("allow_quarantine") == ["tv.example.com"]
+    assert lists.entries("lockdown_allow") == ["tv.example.com"]
     assert lists.entries("deny_default") == []
     stored = hass_storage[key]["data"]
     assert stored["token"] == lists.token
-    assert set(stored["lists"]) == {"allow_default", "allow_quarantine", "deny_default"}
-
-
-async def test_tampered_definitions_are_dropped(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(
-        hass,
-        aioclient_mock,
-        {
-            CONF_LISTS: {
-                "good": {"type": "deny"},
-                "../evil": {"type": "allow"},
-                "Upper": {"type": "allow"},
-                "weird": {"type": "regex"},
-                "broken": "allow",
-            },
-            CONF_LIST_NETWORKS: LOOPBACK,
-        },
-    )
-
-    assert list(entry.runtime_data.lists.definitions) == ["good"]
+    assert set(stored["lists"]) == set(RULE_LISTS)
 
 
 async def test_removing_the_entry_deletes_the_lists(
@@ -530,9 +517,8 @@ async def test_a_sensor_counts_each_list(
     state = hass.states.get("sensor.ha_blocky_list_deny_default")
     assert state.state == "0"
     assert state.attributes["list_type"] == "deny"
-    assert hass.states.get("sensor.ha_blocky_list_allow_quarantine").attributes[
-        "exact_only"
-    ]
+    assert "exact_only" not in state.attributes
+    assert hass.states.get("sensor.ha_blocky_list_lockdown_allow") is not None
 
     await _call(hass, "block_domain", list="deny_default", domain="ads.example.net")
     await hass.async_block_till_done()
@@ -540,34 +526,13 @@ async def test_a_sensor_counts_each_list(
     assert hass.states.get("sensor.ha_blocky_list_deny_default").state == "1"
 
 
-async def test_sensor_of_a_deleted_list_is_removed(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(hass, aioclient_mock)
-    registry = er.async_get(hass)
-    assert registry.async_get("sensor.ha_blocky_list_deny_default") is not None
-
-    hass.config_entries.async_update_entry(
-        entry,
-        options={
-            CONF_LISTS: {"allow_default": {"type": "allow", "exact_only": False}},
-            CONF_LIST_NETWORKS: LOOPBACK,
-        },
-    )
-    await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
-
-    assert registry.async_get("sensor.ha_blocky_list_deny_default") is None
-    assert registry.async_get("sensor.ha_blocky_list_allow_default") is not None
-
-
 # --- Options ----------------------------------------------------------------
 
 
-async def test_options_set_the_list_networks_and_keep_the_lists(
+async def test_options_set_the_list_networks_and_keep_the_other_options(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    entry = await _setup(hass, aioclient_mock, {CONF_LISTS: LIST_OPTIONS[CONF_LISTS]})
+    entry = await _setup(hass, aioclient_mock, {"clients": {}})
     result = await open_options_step(hass, entry, "list_networks")
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "list_networks"
@@ -576,7 +541,6 @@ async def test_options_set_the_list_networks_and_keep_the_lists(
         for key in result["data_schema"].schema
     }
     assert suggested == {CONF_LIST_NETWORKS: ["172.30.32.0/23"]}
-    # The list names are no longer part of this form.
     assert [str(key) for key in result["data_schema"].schema] == [CONF_LIST_NETWORKS]
 
     result = await hass.config_entries.options.async_configure(
@@ -585,15 +549,7 @@ async def test_options_set_the_list_networks_and_keep_the_lists(
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {
-        CONF_LISTS: LIST_OPTIONS[CONF_LISTS],
-        CONF_LIST_NETWORKS: ["192.0.2.0/24"],
-    }
-    assert set(entry.runtime_data.lists.definitions) == {
-        "allow_default",
-        "allow_quarantine",
-        "deny_default",
-    }
+    assert entry.options == {"clients": {}, CONF_LIST_NETWORKS: ["192.0.2.0/24"]}
 
 
 @pytest.mark.parametrize(
@@ -612,22 +568,3 @@ async def test_options_reject_bad_list_networks(
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_LIST_NETWORKS: "invalid_network"}
     assert entry.options == {}
-
-
-async def test_options_show_list_addresses(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    entry = await _setup(hass, aioclient_mock)
-    lists = entry.runtime_data.lists
-
-    result = await open_options_step(hass, entry, "list_urls")
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "list_urls"
-    urls = result["description_placeholders"]["urls"]
-    for name in ("allow_default", "deny_default", "allow_quarantine"):
-        assert lists.path(name) in urls
-
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
-    assert result["type"] is FlowResultType.ABORT
-    assert entry.options == LIST_OPTIONS

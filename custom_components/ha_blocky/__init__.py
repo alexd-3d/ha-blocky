@@ -35,15 +35,17 @@ from .frontend import (
     wants_panel,
 )
 from .http import async_register_view
+from .levels import LevelConfig
 from .lists import STORAGE_VERSION as LISTS_STORAGE_VERSION
-from .lists import ListManager, read_definitions, storage_key
+from .lists import ListManager, storage_key
+from .migration import async_migrate_entry as async_migrate_entry
 from .requests import STORAGE_VERSION as REQUESTS_STORAGE_VERSION
 from .requests import RequestTracker
 from .requests import storage_key as requests_storage_key
 from .services import async_setup_services
 from .stats import STORAGE_VERSION, BlockyStatsCoordinator
 from .websocket_api import async_register_commands
-from .zones import read_zones
+from .websocket_levels import async_register_level_commands
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +71,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_setup_services(hass)
     async_register_view(hass)
     async_register_commands(hass)
+    async_register_level_commands(hass)
     await async_register_card(hass)
     return True
 
@@ -103,7 +106,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     coordinator = BlockyCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
-    zones = read_zones(entry.options, read_definitions(entry.options))
+    levels = LevelConfig(entry.options)
     lists = ListManager(hass, entry)
     await lists.async_load()
     lists.set_refresh(coordinator.async_refresh_lists)
@@ -112,13 +115,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     tracker: RequestTracker | None = None
     database = _database_from_options(entry)
     if database is not None:
-        stats = BlockyStatsCoordinator(hass, entry, database, zones)
+        stats = BlockyStatsCoordinator(hass, entry, database, levels)
         await stats.async_load()
         tracker = RequestTracker(
             hass,
             entry,
             database,
-            zones,
+            levels,
             lists,
             report_existing=entry.options.get(CONF_REPORT_EXISTING_DOMAINS) is True,
             client_names=partial(client_name_map, hass),
@@ -131,8 +134,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: BlockyConfigEntry) -> bo
     entry.runtime_data = BlockyData(
         coordinator=coordinator,
         lists=lists,
+        levels=levels,
         stats=stats,
-        zones=zones,
         requests=tracker,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

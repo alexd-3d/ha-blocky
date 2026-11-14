@@ -18,10 +18,22 @@
       "blocked_total": {
         "default": "mdi:shield-remove"
       },
-      "zone_queries_24h": {
+      "unfiltered_queries_24h": {
         "default": "mdi:dns"
       },
-      "zone_blocked_24h": {
+      "unfiltered_blocked_24h": {
+        "default": "mdi:shield-remove"
+      },
+      "restricted_queries_24h": {
+        "default": "mdi:dns"
+      },
+      "restricted_blocked_24h": {
+        "default": "mdi:shield-remove"
+      },
+      "lockdown_queries_24h": {
+        "default": "mdi:dns"
+      },
+      "lockdown_blocked_24h": {
         "default": "mdi:shield-remove"
       },
       "queries_24h": {
@@ -81,7 +93,7 @@
       }
     },
     "binary_sensor": {
-      "zone_leak": {
+      "lockdown_leak": {
         "default": "mdi:shield-alert-outline"
       }
     }
@@ -104,6 +116,9 @@
     },
     "rotate_list_token": {
       "service": "mdi:key-change"
+    },
+    "set_client_ask": {
+      "service": "mdi:help-network-outline"
     }
   }
 }

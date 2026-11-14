@@ -31,7 +31,7 @@ async def async_setup_entry(
     if data.stats is not None:
         entities.append(DatabaseBinarySensor(data.stats, "database"))
     if data.requests is not None:
-        entities.append(ZoneLeakBinarySensor(entry.entry_id, data.requests))
+        entities.append(LockdownLeakBinarySensor(entry.entry_id, data.requests))
     async_add_entities(entities)
 
 
@@ -69,22 +69,21 @@ class DatabaseBinarySensor(BlockyStatsEntity, BinarySensorEntity):
         return self.coordinator.last_update_success
 
 
-class ZoneLeakBinarySensor(BinarySensorEntity):
-    """On while a client of an allowlist-only zone got an answer for a domain
-    that is on none of the zone's allow lists, during the last hour.
+class LockdownLeakBinarySensor(BinarySensorEntity):
+    """On while a Lockdown client got an answer for a domain that is not on
+    the Lockdown allow list, during the last hour.
 
     Only a count is exposed, never a client or a domain.
     """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_translation_key = "zone_leak"
+    _attr_translation_key = "lockdown_leak"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, entry_id: str, tracker: RequestTracker) -> None:
         """Initialize the sensor."""
         self._tracker = tracker
-        # Not "zone_...": the sensors of deleted zones are removed by prefix.
         self._attr_unique_id = f"{entry_id}_domain_leak"
         self._attr_device_info = device_info(entry_id)
 

@@ -137,8 +137,8 @@ export function timeOptions(locale) {
 }
 
 // The date and time formats of the card, following the profile of Home
-// Assistant (`locale`: { language, time_format }). Times are shown in the time
-// zone of the browser. This is the only place that formats a date or a time.
+// Assistant (`locale`: { language, time_format }). Times are shown in the local
+// clock of the browser. This is the only place that formats a date or a time.
 export function timeFormats(locale, fallbackLanguage) {
   const language = timeLanguage(locale, fallbackLanguage);
   const clockOptions = timeOptions(locale);

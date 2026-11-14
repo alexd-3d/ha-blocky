@@ -5,9 +5,10 @@ DNS proxy and ad-blocker.
 
 > **Status: early development.** The integration can pause and resume blocking,
 > refresh lists, flush the cache, report whether Blocky is reachable, show
-> statistics from Blocky's query log database, manage manual allow and deny
-> lists, see a dashboard and browse the query log in a card or a sidebar panel, name clients
-> and handle requests for new domains.
+> statistics from Blocky's query log database, give each client one of four
+> protection levels, manage the rules of those levels, see a dashboard and browse
+> the query log in a card or a sidebar panel, name clients and handle requests
+> for new domains.
 
 ## Goals
 
@@ -15,9 +16,10 @@ DNS proxy and ad-blocker.
   flush the cache.
 - Show what the DNS filter is doing: query counters, blocked ratio, top domains
   and clients, and a searchable query log read from Blocky's database log.
-- Manage manual allow and deny lists from Home Assistant, per client group.
-- Support allowlist-only client groups with an approval workflow, so a new
-  device can only reach domains that were explicitly approved.
+- Give each client (device) one of four protection levels and manage the rules of
+  those levels from Home Assistant.
+- Support a Lockdown level with an approval workflow, so a new device can only reach
+  domains that were explicitly approved.
 - Expose events and actions so approvals can be driven from automations.
 
 ## Comparison
@@ -30,7 +32,7 @@ current documentation of each project before relying on this table.
 | Feature | AdGuard Home | Pi-hole | Blocky + HA-Blocky |
 |---|---|---|---|
 | Blocking ads and trackers | ✅ | ✅ | 🟡 Through lists that you add to Blocky's configuration |
-| Customizing blocklists | ✅ | ✅ | ✅ Blocky list groups, plus manual allow and deny lists managed from Home Assistant |
+| Customizing blocklists | ✅ | ✅ | ✅ Blocky list groups, plus four rule lists (Always allow, Always block, Restricted block list, Lockdown allow list) managed from Home Assistant |
 | Built-in DHCP server | ✅ | ✅ | ❌ |
 | HTTPS for the admin interface | ✅ | ✅ | ➖ No admin interface of its own: the card lives inside Home Assistant (administrators only). Blocky's HTTP API has no authentication |
 | Encrypted DNS upstream servers | ✅ DoH, DoT, DNSCrypt | ❌ Requires additional software | ✅ DoH and DoT (DNSCrypt not documented) |
@@ -39,10 +41,10 @@ current documentation of each project before relying on this table.
 | Blocking phishing and malware domains | ✅ | 🟡 Requires non-default blocklists | 🟡 Add a malware or phishing list, same as for ads |
 | Parental control (blocking adult domains) | ✅ | 🟡 Requires non-default blocklists | 🟡 Add an adult-content list to the client group that needs it |
 | Force safe search on search engines | ✅ | ❌ | Not documented |
-| Per-client (device) configuration | ✅ | ✅ | ✅ Client groups in Blocky; zones with `filter`, `learning` and `allowlist_only` modes |
+| Per-client (device) configuration | ✅ | ✅ | ✅ Client groups in Blocky; four protection levels (Unfiltered, Standard, Restricted, Lockdown) chosen per device in the card |
 | Access settings (who can use the DNS) | ✅ | ❌ | Not documented |
 | Approval workflow for new domains | ❌ | ❌ | ✅ Requests with Approve, Reject and Block |
-| Allowlist-only zones with leak detection | ❌ | ❌ | ✅ |
+| Lockdown level with leak detection | ❌ | ❌ | ✅ |
 | Events and actions for automations | ❌ | ❌ | ✅ Home Assistant events and actions |
 
 The AdGuard Home and Pi-hole columns are based on the table in the AdGuard Home
@@ -64,8 +66,8 @@ with this setup, which you build yourself:
    direct connections to an IP address never ask DNS at all; both can only be limited
    with a list of known DoH servers or an allowlist on the router, not by Blocky.
 
-Zone leak detection (see above) is related but different: it reports answers Blocky gave
-for domains outside an `allowlist_only` zone's allow lists.
+Leak detection (see above) is related but different: it reports answers Blocky gave
+to a Lockdown client for domains that are not on the Lockdown allow list.
 
 ## Design principles
 
@@ -74,99 +76,177 @@ for domains outside an `allowlist_only` zone's allow lists.
 - **Least privilege.** The integration only needs read access to the query log
   database. Actions and data access are limited to Home Assistant administrators.
 - **Fail closed.** A failure of the integration must never disable filtering or
-  open an allowlist-only group.
+  open a Lockdown client.
 - **Minimal dependencies.** No frontend build step and no third-party frontend
   packages.
-- **Nothing network-specific in the code.** Client groups, subnets and lists are
+- **Nothing network-specific in the code.** Clients, levels and rules are
   configured by the user.
 
-## Zones
+## Clients and protection levels
 
-A zone is a named group of client networks that you define in the integration
-options. It is only a record kept in Home Assistant, used to tell which policy
-applies to a client seen in the query log: the query log card labels each client
-with its zone, and each zone gets 24 hour query and blocked-query sensors. A zone
-has one of three modes: `filter` (filtered as usual), `learning` (filtered as
-usual, meant for watching which domains its clients ask for) or `allowlist_only` (only the linked allow
-lists without wildcards). Zones must not overlap. The integration never edits
-Blocky's configuration: the options show a configuration fragment for you to
-copy into it.
+Every client (one IP address, IPv4 or IPv6) has one of four levels. Standard is the
+default and is the absence of a setting. You choose a level per device in the Settings
+tab of the card, under "Clients and levels"; the card lists every device seen in the query
+log in the last 7 days. At most 64 clients can have a level.
+
+| | Unfiltered | Standard | Restricted | Lockdown |
+|---|---|---|---|---|
+| **What is blocked** | Nothing. | Ads, trackers and malware from your block lists, plus Always block. | Like Standard, plus the Restricted block list. | Everything except the domains on the Lockdown allow list. |
+| **Whose rules apply** | None. Even Always block is ignored. | The shared Always allow and Always block rules. | Standard's rules, plus the Restricted block list shared by every Restricted client. | Only the Lockdown allow list, shared by every Lockdown client. Standard's rules do not apply. |
+| **Asked and notified** | Nothing. The queries are still logged. | Nothing. | Each new domain becomes a request you can Block or Dismiss. Notifications are Off at first. | With "Ask me about new domains" on, each blocked new domain becomes a request. Notifications are On at first. |
+| **A new domain** | Works. | Works, unless a list blocks it. | Works. It is listed for review; nothing is held back. | Blocked until you approve it. Approving opens it for every Lockdown client. |
+
+Allowing or blocking a domain applies to every client of the level; what is tracked as
+"new" stays per client.
+
+**Which level for what**
+
+- A site is broken and you wonder whether the filter is the cause: set that device to
+  **Unfiltered** for a while. If the problem goes away, filtering was the cause; put the
+  device back to Standard.
+- Family phones and computers: **Standard**. Nothing to do.
+- A child's device: **Restricted**. It gets an extra block list, and every new domain it
+  visits is listed for review. Nothing is held back.
+- An IoT device, a robot vacuum or a smart TV that should only reach its vendor:
+  **Lockdown**. Keep "Ask me about new domains" on while it is learning, and turn it off
+  once it works reliably (a blocked new domain is then only reported as an unexpected
+  domain).
+
+**Rules.** Four fixed lists, edited in the card (Settings, "Rules") or with the actions
+`allow_domain`, `block_domain` and `remove_domain`: `allow_default` (Always allow) and
+`deny_default` (Always block) are the shared rules of Standard and Restricted;
+`restricted_deny` is the Restricted block list; `lockdown_allow` is the Lockdown allow
+list (exact domains only: a wildcard entry is refused when you add it). An entry covers
+its own domain and its subdomains; `*.example.com` covers subdomains only. Blocky is asked
+to reload its lists a few seconds after a change.
+
+**How a change gets applied.** Home Assistant never writes Blocky's configuration, so a
+change of levels needs these steps:
+
+1. Change a device's level. A banner shows "N changes waiting".
+2. Press "Show block to paste", then "Copy block". The block lists the list groups and one
+   client line per device that is not at Standard, in the format of the Blocky app
+   (Configuration tab) and in Blocky's own YAML for Docker or Custom Config Mode.
+3. Paste it into Blocky's configuration: add these entries, do not replace the whole option.
+4. Restart Blocky.
+5. Press "Check now". It asks Blocky to refresh its lists and reads the status again.
+6. The banner changes to "Applied".
+
+The block contains the secret list addresses, so it is shown to administrators only. Every
+list address carries `?r=<rev>`, where `rev` is the first 8 hex characters of the SHA-256 of
+the base list groups and the sorted client lines; it is not secret. The list endpoint serves
+the same content whatever `r` is and only remembers (in memory) which `rev` Blocky fetched
+last for each of the fixed lists, and only when `r` is exactly 8 lower-case hex characters
+and the request is entitled to the list. The status is "applied" when Blocky fetched every
+list with the current `rev`. After a Home Assistant restart it says that it is waiting until
+Blocky fetches the lists again.
+
+**Standard list groups.** In Blocky a client line lists *list groups* (the keys of
+`denylists` and `allowlists`), not other client groups, and a client with its own line does
+not inherit the `default` client group. So the card asks which list groups your `default`
+client group uses (the option `base_groups`, 1 to 16 names, default `default`). A
+Restricted client gets these plus `restricted`; Unfiltered gets `unfiltered`; Lockdown gets
+`lockdown`; Standard has no line. Changing the base groups changes the `rev`, so the change
+is waiting until you paste the new block.
+
+**Not yet verified live.** These four points are marked as unverified in the code and the
+tests until they have been checked on a real Blocky: (a) Blocky fetches the lists again
+after a restart and keeps the query string, so "Check now" flips the status to applied;
+(b) a Restricted client still resolves an ordinary domain (Restricted did not become
+allowlist-only); (c) an Unfiltered client resolves a domain that is on `deny_default` (an
+empty group is accepted); (d) a Lockdown client is blocked on an unknown domain and Approve
+opens it (a cached block answer can last up to the 5 minute block TTL).
+
+**Setup check.** A read-only panel in the Settings tab: Blocky API reachable, query log
+readable, per level whether Blocky has fetched its list, and whether Blocky has the current
+settings.
+
+**Sensors.** The 24 hour query and blocked-query counters exist per level for Unfiltered,
+Restricted and Lockdown (none for Standard).
+
+**Upgrading from 0.12.** The old network groups and free lists are migrated once when the integration loads
+(see the changelog of 0.13.0): a learning group of single hosts becomes Restricted clients, an
+allowlist-only group of single hosts becomes Lockdown clients (the entries of its linked allow
+lists are copied to the Lockdown allow list), and a group with a wider network or in filter
+mode is dropped with a log line that carries only a count and a reason code.
 
 ## New-domain tracking
 
-With the query log database configured, the integration watches the clients of
-`learning` and `allowlist_only` zones and turns what they ask for into events and
-requests. Nothing is tracked for `filter` zones or for clients outside every zone.
+With the query log database configured, the integration watches the clients at the
+Restricted and Lockdown levels and turns what they ask for into events and requests.
+Nothing is tracked for the other levels or for clients without a level.
 
-**Zone modes and phases**
+- **Restricted** client: the first time it asks for a domain, the integration creates a
+  request with the actions Block and Dismiss and (if the notification of the level is
+  not Off) fires `ha_blocky_new_domain`. Block adds the exact domain to the Restricted
+  block list. Dismiss only closes the request. Either way the pair of client and domain
+  is known from then on. Nothing is held back.
+- **Lockdown** client with "Ask me about new domains" on: a new domain whose answer was
+  blocked creates a request with the actions Approve and Reject and fires
+  `ha_blocky_new_domain`. Approve adds the exact domain to the Lockdown allow list.
+  Reject remembers the pair, which then never raises a request again. With the switch
+  off, a new blocked domain raises no request and fires `ha_blocky_unexpected_domain`,
+  once per pair. The switch is the `ask` of the client; change it in the card or with the
+  action `ha_blocky.set_client_ask`.
 
-- `learning` zone: the first time a client asks for a domain, the integration fires
-  `ha_blocky_new_domain` and creates a request with the actions Block and Dismiss.
-  Block adds the exact domain to the first deny list linked to the zone (an error if
-  the zone has none). Dismiss only closes the request. Either way the pair of client
-  and domain is known from then on.
-- `allowlist_only` zone: every client has a phase, `learning` (the default for a new
-  client) or `locked`. In the learning phase, a new domain whose answer was blocked
-  creates a request with the actions Approve and Reject and fires
-  `ha_blocky_new_domain`. Approve adds the exact domain to the first allow list of the
-  zone, or to the allow list named in the call (it must be one of the zone's allow
-  lists). Reject remembers the pair, which then never raises a request again. A locked
-  client raises no request; a new blocked domain fires `ha_blocky_unexpected_domain`,
-  once per pair. The phase changes only through the `ha_blocky.set_client_phase`
-  action.
+**Notifications.** Per level (Restricted, Lockdown) the card has Off or Each. Off fires no
+`ha_blocky_new_domain`, `ha_blocky_unexpected_domain` or summary event for that level
+(requests are still created and shown in the Requests tab). Leaks are always reported. The
+defaults are Off for Restricted and Each for Lockdown.
 
 **Life cycle of a request.** A request has a random id, is single use and expires
-after 24 hours. When a request expires in a `learning` zone, the pair is treated as
-known; in an `allowlist_only` zone it is not, so the next blocked query raises a new
-request. At most 200 requests are pending; beyond that no new request is created.
-Per client at most 1000 known and 500 rejected pairs are kept (the least recently
-seen are forgotten first), and at most 256 clients are tracked.
+after 24 hours. When a Restricted request expires, the pair is treated as known; for a
+Lockdown client it is not, so the next blocked query raises a new request. At most 200
+requests are pending; beyond that no new request is created. Per client at most 1000 known
+and 500 rejected pairs are kept (the least recently seen are forgotten first), and at most
+256 clients are tracked. Changing a client's level starts its tracking afresh.
 
 **Actions** (administrators only)
 
-- `ha_blocky.approve_request`: `request_id`, optional `list`.
-- `ha_blocky.reject_request`: `request_id` (in a learning zone this is Dismiss).
-- `ha_blocky.block_request`: `request_id`, learning zones only.
-- `ha_blocky.get_requests`: returns the pending requests and the client phases.
-- `ha_blocky.set_client_phase`: `client` (IP address), `phase` (`learning` or `locked`).
+- `ha_blocky.approve_request`: `request_id`.
+- `ha_blocky.reject_request`: `request_id` (for a Restricted client this is Dismiss).
+- `ha_blocky.block_request`: `request_id`, Restricted clients only.
+- `ha_blocky.get_requests`: returns the pending requests.
+- `ha_blocky.set_client_ask`: `client` (IP address of a Lockdown client), `ask` (true or false).
+- `ha_blocky.allow_domain`, `block_domain`, `remove_domain` and `get_list`: `list` is one of
+  `allow_default`, `deny_default`, `restricted_deny`, `lockdown_allow`.
 
 All of them accept an optional `config_entry_id` when more than one Blocky instance is
 set up.
 
-**Events.** Each carries `config_entry_id`, `zone`, `client`, `domain`, `request_id`
+**Events.** Each carries `config_entry_id`, `level`, `client`, `domain`, `request_id`
 (empty when there is no request) and `actions` (the buttons the request allows).
 
 - `ha_blocky_new_domain`: a request was created.
-- `ha_blocky_unexpected_domain`: a locked client asked for a blocked domain.
-- `ha_blocky_zone_leak`: see below.
-- `ha_blocky_new_domains_summary`: carries only `config_entry_id`, `zone`, `client` and
+- `ha_blocky_unexpected_domain`: a Lockdown client without "Ask me about new domains"
+  asked for a blocked domain.
+- `ha_blocky_lockdown_leak`: see below.
+- `ha_blocky_new_domains_summary`: carries only `config_entry_id`, `level`, `client` and
   `suppressed`.
 
 **Flood limit.** At most 5 of the three per-domain events are fired per client in 10
 minutes. After that the events are held back, requests are still created, and one
 `ha_blocky_new_domains_summary` per client reports how many were held back.
 
-**Zone leaks.** In an `allowlist_only` zone, a query that Blocky answered (resolved or
-cached) for a domain that is on none of the zone's allow lists fires
-`ha_blocky_zone_leak` (once per client and domain until it clears) and turns on the
-"Zone leak" problem sensor for an hour. The sensor shows only a count, never a client or
-a domain. Limits: only the manual lists held by this integration are known; allow
-lists that Blocky gets from elsewhere are invisible, so such answers can show up as
-false leaks. A list entry covers its own domain and its subdomains, and a wildcard
-entry `*.example.com` covers subdomains only; this matching has not been verified
-against Blocky's own.
+**Leaks.** For a Lockdown client, a query that Blocky answered (resolved or cached) for a
+domain that is not on the Lockdown allow list fires `ha_blocky_lockdown_leak` (once per
+client and domain until it clears) and turns on the "Lockdown leak" problem sensor for an
+hour. The sensor shows only a count, never a client or a domain. Limits: only the
+list held by this integration is known; allow lists that Blocky gets from elsewhere are
+invisible, so such answers can show up as false leaks. A list entry covers its own domain
+and its subdomains; this matching has not been verified against Blocky's own.
 
 **Baseline.** In the Settings tab of the card ("Report existing history as new") you choose what happens with domains
-a client asked for before it was tracked. By default (silent baseline) a client first
-seen in a `learning` zone has its distinct domains of the last 7 days (up to the
+a client asked for before it was tracked. By default (silent baseline) a Restricted client first
+seen has its distinct domains of the last 7 days (up to the
 known-pairs cap) taken as known, without events or requests; at most 10 clients are
 processed per round, and rows of the others are taken as known silently meanwhile. With
 "Report existing history as new" there is no baseline. The baseline does not apply to
-`allowlist_only` zones.
+Lockdown clients.
 
 **Card.** The query log card has a Requests tab: the pending requests with the buttons
-each allows, and the phase of the clients of allowlist-only zones with a switch. Clients
-are shown with their name (see "Client names" below).
+each allows, and the known domains of every tracked client. Clients are shown with their
+name (see "Client names" below).
 
 **Entities.** One sensor with the number of pending requests and one problem sensor for
 leaks. Diagnostics contain counts only.
@@ -182,7 +262,7 @@ and sends alarms to another chat. Copy it into `config/blueprints/automation/ha_
 Its messages are plain text, since domains come from the DNS log.
 
 Any other notification service works the same way. A recipe: trigger on
-`ha_blocky_new_domain`; send a message with the zone, client and domain, plus one action
+`ha_blocky_new_domain`; send a message with the level, client and domain, plus one action
 per entry of `actions` (for a mobile app actionable notification, an action whose id
 contains the request id); trigger on the response (for the mobile app, the
 `mobile_app_notification_action` event); check that the responder is allowed and that the
@@ -253,19 +333,25 @@ card applies them through one style element) and the default number of rows of t
 dashboard top lists (5, 10, 20; a choice made on the dashboard in a browser wins over it in
 that browser). *Operation* (options of the integration; saving them reloads it): the three
 update intervals (blocking status, query counters, top lists), "Report existing history as
-new", "Show in sidebar" (off removes the sidebar entry; the card stays usable from a
-dashboard) and the names of the allow lists, deny lists and lists without wildcards. They
-have the same limits as before; the server validates every value and refuses a list that a
-zone uses. **These options are no longer in the Configure menu**, which keeps the
-connection, the database, the clients that may download lists, the list addresses and the
-zones.
+new" and "Show in sidebar" (off removes the sidebar entry; the card stays usable from a
+dashboard). The Configure menu of the integration keeps only the database and the clients
+that may download lists; the list addresses are inside the block.
+
+*Protection* comes first in the tab and has its own administrator-only commands
+(`ha_blocky/levels`, `set_client_level`, `set_base_groups`, `set_notify`, `get_block`,
+`rules`, `rules_add`, `rules_remove`; all internal to the card): the clients with a level
+dropdown and, for Lockdown, "Ask me about new domains"; notifications Off or Each for
+Restricted and Lockdown; the Standard list groups; the Rules; "Applying changes to Blocky"
+with the block, the copy button and "Check now"; and the setup check. Every control has a
+short hint.
 
 **Live mode.** The Live button of the Query log tab reads the first page of the log every 3
 seconds, only while the page is visible, for at most 10 minutes; it stops when you leave the
 tab. Rows that are new since the previous read light up briefly. Blocky writes its log in
 batches, so entries can appear with a delay.
 
-**Help.** A short quick start, a few answers, and three well-known blocklist sources
+**Help.** A short quick start, a comparison of the four levels with use cases and the
+steps of applying a change, a few answers, and three well-known blocklist sources
 (StevenBlack hosts, HaGeZi Pro, OISD big) as plain text with a copy button. They are not
 links and the card never fetches them. List sources are added in Blocky's own
 configuration; HA-Blocky does not apply them.
@@ -281,8 +367,8 @@ type: custom:ha-blocky-overview-card
 It shows the top domains, top blocked domains and top clients of the last 24 hours with
 their counts, and the requests waiting for a decision. A top domain has a Block icon and a
 top blocked domain an Allow icon (both open the same list picker as the query log). A
-request has Approve and Reject icons (allowlist-only zones) or Block and Dismiss icons
-(learning zones). A click on a client names it, as in the query log. It replaces the
+request has Approve and Reject icons (Lockdown clients) or Block and Dismiss icons
+(Restricted clients). A click on a client names it, as in the query log. It replaces the
 markdown tables that read the `items` attribute of the three top-list sensors. The
 WebSocket command `ha_blocky/overview` that it uses is internal to the card.
 
@@ -292,10 +378,38 @@ default and not remembered). In a narrow card, such as on a phone, each entry ta
 lines: client and domain, then time, status icon and the action icon.
 
 The Requests tab also lists the known domains of every tracked client (loaded when you
-expand a client). For a client of a learning zone each domain has a Block icon that adds it
-to the zone's first deny list. For a client of an allowlist-only zone the list is read-only:
-its known domains are on an allow list, and removing entries from there is not done by the
-card.
+expand a client). For a Restricted client each domain has a Block icon that adds it to the
+Restricted block list. For a Lockdown client the list is read-only: its known domains are on
+the Lockdown allow list, which you edit under Rules in the Settings tab.
+
+## FAQ
+
+**A site is broken. Is it the filter?** Set the device to Unfiltered for a while (Settings,
+Clients and levels). If it works then, filtering was the cause; look in the query log for
+the blocked domain and allow it, then set the device back to Standard.
+
+**The banner says "N changes waiting".** Blocky has not fetched the lists with the current
+settings yet. Copy the block, paste it into Blocky (add, do not replace), restart Blocky and
+press "Check now". After a Home Assistant restart it can also say waiting until Blocky
+fetches the lists again.
+
+**"Check now" does not turn the banner to Applied.** Blocky must fetch the three list
+addresses of the block with the `?r=` part kept. If it does not (point (a) above is not yet
+verified live), tell the maintainer; a per-revision file name is the fallback.
+
+**Which names go into "Standard list groups"?** The list groups your Blocky `default`
+client group uses, for example `default`. Restricted clients get these plus the Restricted
+block list, because a Blocky client with its own line does not inherit the `default` group.
+
+**A Lockdown device does not work at all.** That is the level: only approved domains work.
+Keep "Ask me about new domains" on, use the device, then approve what it needs in the
+Requests tab (or add the domains under Rules). Turn the switch off once it is stable.
+
+**The device got another address.** Levels and names are kept per IP address. A reserved
+address (DHCP reservation) avoids this.
+
+**Where did the old network groups and free lists go?** They were replaced by the four levels in 0.13.0 and
+migrated once; see the changelog.
 
 ### Chart period switcher
 

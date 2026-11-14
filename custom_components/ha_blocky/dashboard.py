@@ -34,7 +34,7 @@ UNIT_DAY: Final = "day"
 
 @dataclass(frozen=True, slots=True)
 class Window:
-    """A time window and its buckets; every time is timezone aware UTC."""
+    """A time window and its buckets; every time is aware UTC."""
 
     since: datetime
     until: datetime

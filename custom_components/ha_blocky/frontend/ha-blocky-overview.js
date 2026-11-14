@@ -274,7 +274,7 @@ class HaBlockyOverviewCard extends HTMLElement {
       const error = this._errors.get(request.id);
       if (error) actions.appendChild(el("div", { text: error, className: "rowerror" }));
       const line = el("tr", {}, [
-        clientCell(this, request.client, request.client_name, request.zone),
+        clientCell(this, request.client, request.client_name, request.level),
         el("td", {
           text: request.domain || "",
           className: "domain",

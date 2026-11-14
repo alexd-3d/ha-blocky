@@ -45,29 +45,38 @@ export function nameOf(value) {
   return typeof value === "string" ? value : "";
 }
 
+// The protection levels a client can have; only these are ever shown.
+export const LEVELS = ["unfiltered", "standard", "restricted", "lockdown"];
+
+// The card's own name of a level (never taken from the server), or "" for
+// Standard and for anything unknown: Standard needs no mention.
+export function levelLabel(host, level) {
+  return LEVELS.includes(level) && level !== "standard" ? host.t(`level_${level}`) : "";
+}
+
 // The lines of a client: the name (or the address) first; below it, dimmed,
-// the zone and the address. A long value is cut by the style sheet; the whole
+// the level and the address. A long value is cut by the style sheet; the whole
 // text stays available as the title of the line.
-export function clientLines(address, name, zone) {
+export function clientLines(address, name, level) {
   const line = (text, className) => el("div", { text, className, attrs: { title: text } });
   if (name) {
-    return [line(name, "main"), line(zone ? `${zone} · ${address}` : address, "sub")];
+    return [line(name, "main"), line(level ? `${level} · ${address}` : address, "sub")];
   }
   const lines = [line(address, "main")];
-  if (zone) lines.push(line(zone, "sub"));
+  if (level) lines.push(line(level, "sub"));
   return lines;
 }
 
 // The cell of a client. A click turns it into a text input: Enter saves the
 // name on the server (an empty name clears it), Escape cancels.
 // `host` offers: hass, t(key), refresh().
-export function clientCell(host, address, name, zone) {
+export function clientCell(host, address, name, level) {
   const known = typeof address === "string" && address !== "";
   const label = known ? address : "";
   const shownName = nameOf(name);
-  const shownZone = typeof zone === "string" ? zone : "";
+  const shownLevel = levelLabel(host, level);
   const cell = el("td", { className: "client" });
-  const draw = () => cell.replaceChildren(...clientLines(label, shownName, shownZone));
+  const draw = () => cell.replaceChildren(...clientLines(label, shownName, shownLevel));
   draw();
   if (!known) return cell;
 

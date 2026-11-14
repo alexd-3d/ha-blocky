@@ -44,13 +44,13 @@ export const STYLE = `
   }
   th { cursor: pointer; user-select: none; color: var(--secondary-text-color); }
   th.plain { cursor: default; }
-  /* Long values (a domain, a zone, a client) are cut with an ellipsis; the
+  /* Long values (a domain, a level, a client) are cut with an ellipsis; the
      whole text is the title of the cell. */
   td.domain {
     width: 40%; max-width: 0; overflow: hidden; text-overflow: ellipsis;
     font-family: var(--code-font-family, monospace);
   }
-  td.zone { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
+  td.level { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
   td.client { max-width: 14rem; }
   .main, .sub { min-width: 0; }
   td.client .main, td.client .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -65,7 +65,7 @@ export const STYLE = `
   .panel .name {
     word-break: break-all; font-family: var(--code-font-family, monospace);
   }
-  .zone { font-size: 0.85em; color: var(--secondary-text-color); }
+  .level { font-size: 0.85em; color: var(--secondary-text-color); }
   .message { margin: 12px 0; color: var(--secondary-text-color); }
   .message.error { color: var(--error-color); }
   .footer {
@@ -166,12 +166,12 @@ export const STYLE = `
     table.log td.status .statustext { display: none; }
     table.log td.status ha-icon.statusicon { display: inline-flex; }
     .scroll { overflow-x: visible; }
-    /* The requests: client, domain, then zone and age, then the buttons. */
+    /* The requests: client, domain, then level and age, then the buttons. */
     table.req thead { display: none; }
     table.req, table.req tbody { display: block; }
     table.req tr {
       display: grid; grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas: "client client" "domain domain" "zone age" "buttons buttons";
+      grid-template-areas: "client client" "domain domain" "level age" "buttons buttons";
       align-items: center; gap: 2px 12px; padding: 8px 0;
       border-bottom: 1px solid var(--divider-color);
     }
@@ -180,8 +180,8 @@ export const STYLE = `
     table.req td.domain {
       grid-area: domain; width: auto; max-width: none; white-space: nowrap;
     }
-    table.req td.zone {
-      grid-area: zone; max-width: none; color: var(--secondary-text-color);
+    table.req td.level {
+      grid-area: level; max-width: none; color: var(--secondary-text-color);
       white-space: nowrap;
     }
     table.req td.age { grid-area: age; color: var(--secondary-text-color); }
