@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.15.0
+
+Visual redesign of the card: more space, less clutter, one look in light and dark
+themes (BLO-019).
+
+### Changed
+
+- **One set of spacing, type and corner sizes** across all five tabs, built on the
+  Home Assistant theme variables; fewer borders and aligned columns.
+- **Query log on a narrow card** (up to 760 px): each row has two lines, the client
+  and the time, then the status and the domain at almost full width. The repeat count
+  is lighter. On a wide card the domain column takes all the free width.
+- **Status badges and action buttons look different everywhere:** a badge is a plain
+  tinted label, a button has an outline and a hover state.
+- **The heading is always `HA-Blocky`** unless the card configuration sets a title.
+
+### Fixed
+
+- **Settings:** "Saved. The integration is reloading." gave way to a short "Saved."
+  once the reload is over.
+- **Query log:** after Block or Allow the rows are read again and show the new state
+  at once.
+
 ## 0.14.0
 
 Query log filters by IP and name, client names in Settings, and Settings save keeps
