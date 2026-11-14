@@ -9,6 +9,8 @@ do not multiply the load on the database.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
@@ -21,6 +23,8 @@ from .db import CATEGORIES, QueryLogDatabase
 
 if TYPE_CHECKING:
     from .coordinator import BlockyData
+
+_LOGGER = logging.getLogger(__name__)
 
 PERIOD_TODAY: Final = "today"
 PERIOD_24H: Final = "24h"
@@ -94,6 +98,19 @@ def collect(
     database: QueryLogDatabase, window: Window, period: str, rows: int
 ) -> dict[str, Any]:
     """Run the dashboard queries. Executor only."""
+    started = time.perf_counter()
+    result = _collect(database, window, period, rows)
+    _LOGGER.debug(
+        "dashboard round for %s: %d ms",
+        period,
+        round((time.perf_counter() - started) * 1000),
+    )
+    return result
+
+
+def _collect(
+    database: QueryLogDatabase, window: Window, period: str, rows: int
+) -> dict[str, Any]:
     since, until = _naive(window.since), _naive(window.until)
     categories, unique_domains, average = database.dashboard_totals(since, until)
 
@@ -153,7 +170,9 @@ async def async_dashboard(
         now = dt_util.utcnow()
         cached = data.dashboard_cache.get(key)
         if cached is not None and now - cached[0] < DASHBOARD_CACHE:
+            _LOGGER.debug("dashboard cache hit for %s", period)
             return cached[1]
+        _LOGGER.debug("dashboard cache miss for %s", period)
         result = await hass.async_add_executor_job(
             collect, database, build_window(period, now), period, rows
         )
