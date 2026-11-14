@@ -91,8 +91,27 @@ export const MORE_STYLE = `
   /* The last part of a card, set off from the part above it. */
   .scard .subsec { margin-top: var(--hb-s4); padding-top: var(--hb-s4); border-top: 1px solid var(--divider-color); }
   .scard .subsec h4 { margin: 0 0 var(--hb-s1); font-size: var(--hb-fs-body, 1rem); font-weight: var(--hb-fw-medium); }
-  table.setupcheck td { padding-top: var(--hb-s2); padding-bottom: var(--hb-s2); }
+  /* The setup check never grows beyond its card: both cells may wrap. */
+  table.setupcheck { width: 100%; table-layout: fixed; }
+  table.setupcheck td {
+    padding-top: var(--hb-s2); padding-bottom: var(--hb-s2);
+    white-space: normal; overflow-wrap: anywhere; vertical-align: top;
+  }
+  table.setupcheck td:first-child { width: 55%; }
   table.setupcheck td:last-child { text-align: right; font-weight: var(--hb-fw-medium); }
+  /* Nothing inside a settings card may push it wider than its column. */
+  .scard { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .scard .hint, .scard .message, .scard .banner { overflow-wrap: anywhere; }
+  /* An opt-in row: the label at the left, the switch at the right. */
+  .optrow { display: flex; align-items: center; justify-content: space-between; gap: var(--hb-s3); }
+  .optrow .optlabel { flex: 1 1 auto; min-width: 0; font-weight: var(--hb-fw-medium); overflow-wrap: anywhere; }
+  button.tswitch {
+    --c: var(--disabled-text-color, #9e9e9e);
+    flex: 0 0 auto; min-height: 0; padding: 4px; border: 0; border-radius: 16px; background: none;
+  }
+  button.tswitch[aria-checked="true"] { --c: var(--hb-good); }
+  button.tswitch[aria-checked="true"] .knob { transform: translateX(18px); }
+  button.tswitch:disabled { opacity: 0.5; cursor: not-allowed; }
   table.compare th, table.compare td {
     white-space: normal; vertical-align: top; min-width: 9rem; line-height: 1.35;
   }

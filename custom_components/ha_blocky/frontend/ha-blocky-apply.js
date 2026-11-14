@@ -96,10 +96,22 @@ export class ApplyView {
 
     // The opt-in: a switch, its reason when unavailable, and an inline
     // confirmation row (no browser dialog) before it is turned on.
-    this._auto_box = el("input", {
-      attrs: { type: "checkbox", "aria-label": t("prot_auto_label") },
-    });
-    this._auto_box.addEventListener("change", () => this._toggleAuto());
+    // One row: the label at the left, the card's switch (track and knob) at the
+    // right. A real button with role "switch", so the keyboard works.
+    this._auto_box = el(
+      "button",
+      {
+        className: "tswitch",
+        attrs: {
+          type: "button",
+          role: "switch",
+          "aria-checked": "false",
+          "aria-label": t("prot_auto_label"),
+        },
+      },
+      [el("span", { className: "track" }, [el("span", { className: "knob" })])]
+    );
+    this._auto_box.addEventListener("click", () => this._toggleAuto());
     this._auto_reason = el("div", { className: "hint", attrs: { hidden: "" } });
     const yes = el("button", { text: t("prot_auto_confirm_yes"), className: "primary" });
     yes.addEventListener("click", () => this._setAuto(true));
@@ -110,9 +122,9 @@ export class ApplyView {
       el("div", { className: "btnrow" }, [yes, no]),
     ]);
     const auto = el("div", { className: "field" }, [
-      el("label", { className: "flabel" }, [
+      el("div", { className: "optrow" }, [
+        el("span", { className: "optlabel", text: t("prot_auto_label") }),
         this._auto_box,
-        el("span", { text: ` ${t("prot_auto_label")}` }),
       ]),
       el("div", { className: "hint", text: t("prot_auto_hint") }),
       this._auto_reason,
@@ -209,13 +221,13 @@ export class ApplyView {
     const hass = this._host.hass || {};
     const formats = timeFormats(hass.locale, hass.language);
     const when = formatWhen(formats.dateTime, last.at);
-    const time = when ? `, ${when}` : "";
-    return `${this._t(`apply_result_${last.result}`)}${time}`;
+    const time = when ? ` · ${when}` : "";
+    return `${this._t(`apply_short_${last.result}`)}${time}`;
   }
 
   _drawAuto() {
     const { enabled, available } = this._auto;
-    this._auto_box.checked = enabled;
+    this._auto_box.setAttribute("aria-checked", String(enabled));
     this._auto_box.disabled = !available || this._running;
     this._auto_reason.textContent = available ? "" : this._t("prot_auto_unavailable");
     this._auto_reason.hidden = available;
@@ -228,15 +240,14 @@ export class ApplyView {
 
   _askAuto(show) {
     this._auto_confirm.hidden = !show;
-    this._auto_box.checked = this._auto.enabled;
   }
 
   // Off at once; on only after the confirmation row.
   _toggleAuto() {
-    if (this._auto_box.checked) {
-      this._askAuto(true);
-    } else {
+    if (this._auto.enabled) {
       this._setAuto(false);
+    } else {
+      this._askAuto(true);
     }
   }
 
