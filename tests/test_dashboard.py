@@ -436,7 +436,8 @@ async def test_dashboard_cleans_hostile_text_from_the_log(
         log_url,
         [
             _row(
-                "evil\x00.example\x1b[0m\n.com",
+                # No NUL here: SQLite's substr stops at one (MariaDB's LEFT does not).
+                "evil\x01.example\x1b[0m\n.com",
                 client="<img src=x onerror=1>\x07",
                 response_type="BLOCKED",
                 reason=hostile_reason,

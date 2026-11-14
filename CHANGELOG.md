@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.17.1
+
+Faster dashboard statements (BLO-022).
+
+### Changed
+
+- **Faster Dashboard tab on MariaDB:** the dashboard statements group on short keys
+  (the first 45 characters of a client address, 127 of a domain name, 32 of a response type)
+  instead of the long text columns, which made the database build slow temporary tables on
+  disk, and the per-row sums are gone. Each top list is now two bounded statements: the rank,
+  then the queries per category for the ranked names only. Domain names are cut to 127
+  characters for grouping, so the unique-domain count and the top lists treat two names that
+  share their first 127 characters as one. The result the card receives is unchanged.
+
 ## 0.17.0
 
 Apply now, a tidier Settings tab and timing for the slow dashboard (BLO-021).

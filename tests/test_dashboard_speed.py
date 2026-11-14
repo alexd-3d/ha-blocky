@@ -35,7 +35,7 @@ def _labels(caplog: pytest.LogCaptureFixture) -> list[str]:
     ]
 
 
-def test_a_top_list_is_one_statement_with_the_categories(
+def test_a_top_list_is_a_rank_and_a_category_statement(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     rows = [
@@ -53,7 +53,10 @@ def test_a_top_list_is_one_statement_with_the_categories(
 
     items = database.dashboard_top("domain", since, until, 5)
 
-    assert _labels(caplog) == ["dashboard_top.ranked"]
+    assert _labels(caplog) == [
+        "dashboard_top.ranked",
+        "dashboard_top.categories",
+    ]
     assert items[0]["name"] == "a.example" and items[0]["count"] == 6
     assert items[0]["categories"] == {
         "resolved": 1,
@@ -68,13 +71,17 @@ def test_a_top_list_is_one_statement_with_the_categories(
     blocked = database.dashboard_top(
         "domain", since, until, 5, blocked_only=True, with_reason=True
     )
-    assert _labels(caplog) == ["dashboard_top.ranked", "dashboard_top.reasons"]
+    assert _labels(caplog) == [
+        "dashboard_top.ranked",
+        "dashboard_top.categories",
+        "dashboard_top.reasons",
+    ]
     assert blocked[0]["categories"]["blocked"] == 2
     assert sum(blocked[0]["categories"].values()) == 2
     database.close()
 
 
-def test_a_round_needs_six_statements_and_totals_match_the_hours(
+def test_a_round_needs_nine_statements_and_totals_match_the_hours(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     rows = [row(f"{i}.example", response_type="CACHED") for i in range(3)]
@@ -88,8 +95,11 @@ def test_a_round_needs_six_statements_and_totals_match_the_hours(
         "dashboard_domains",
         "dashboard_hours",
         "dashboard_top.ranked",
+        "dashboard_top.categories",
         "dashboard_top.ranked",
+        "dashboard_top.categories",
         "dashboard_top.ranked",
+        "dashboard_top.categories",
         "dashboard_top.reasons",
     ]
     totals = result["totals"]
