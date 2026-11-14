@@ -327,7 +327,7 @@ def test_icons_come_from_fixed_tables_only() -> None:
         if name != "ha-blocky-actions.js":
             assert "mdi:" not in source, name
     tables = re.findall(r"export const (\w*ICONS) = \{", actions_js)
-    assert tables == ["ICONS", "STATUS_ICONS", "UI_ICONS"]
+    assert tables == ["ICONS", "UI_ICONS"]
     names = re.findall(r'"(mdi:[a-z0-9-]+)"', actions_js)
     assert names and len(names) == actions_js.count("mdi:")
     assert 'allow: "mdi:shield-check"' in actions_js
@@ -462,10 +462,14 @@ def test_narrow_card_shows_two_lines_per_entry_with_the_same_dom() -> None:
     style = SOURCES["ha-blocky-style.js"]
     assert "container-type: inline-size" in style
     brief = style[style.index("@container") :]
-    assert 'grid-template-areas: "client domain domain" "time status actions"' in brief
+    assert (
+        'grid-template-areas: "client client time actions" "status domain domain actions"'
+        in brief
+    )
     assert "table.log td.type, table.log td.ms { display: none; }" in brief
-    assert "table.log td.status .statustext { display: none; }" in brief
-    assert "ha-icon.statusicon { display: inline-flex; }" in brief
+    # The badge stays on the second line (it is no longer swapped for an icon).
+    assert "statustext { display: none; }" not in brief
+    assert "statusicon" not in style
     # One render path: the cells carry the classes the style addresses.
     log_js = SOURCES["ha-blocky-log.js"]
     for name in ("time", "domain", "type", "status", "actions"):
@@ -836,8 +840,7 @@ def test_layout_rules_of_the_tabs() -> None:
     filters_js = SOURCES["ha-blocky-log-filters.js"]
     # The status of a log row is a badge in the colour of its kind.
     assert "`statustext badge c-${kind}`" in log_js
-    badge = "border: 1px solid var(--c); background: transparent; color: var(--c);"
-    assert badge in tabs
+    assert "background: color-mix(in srgb, var(--c) 16%, transparent);" in tabs
     assert "white-space: nowrap" in tabs
     # The grouping box has a one-word label; Refresh and Live are icon buttons.
     assert 'glyphButton(t("refresh"), "log_refresh")' in filters_js

@@ -4,7 +4,7 @@
  */
 
 import { DOMAIN, clientCell, el } from "./ha-blocky-dom.js";
-import { ListPicker, STATUS_ICONS, flasher, haIcon, iconButton } from "./ha-blocky-actions.js";
+import { ListPicker, flasher, iconButton } from "./ha-blocky-actions.js";
 import { formatWhen, timeFormats } from "./ha-blocky-format.js";
 import { groupRows } from "./ha-blocky-group.js";
 import { LogFilters } from "./ha-blocky-log-filters.js";
@@ -13,6 +13,8 @@ import { affectedRowIds, ipFilterOk, levelOfRow, listLevels } from "./ha-blocky-
 // Live mode: how often the log is read, and for how long at most.
 const LIVE_INTERVAL_MS = 3000;
 const LIVE_MAX_MS = 10 * 60 * 1000;
+// The most rows the server gives in one answer.
+const MAX_ROWS = 200;
 const COLUMNS = [
   { key: "time", label: "col_time", sort: "id" },
   { key: "client", label: "col_client", sort: "client" },
@@ -22,7 +24,7 @@ const COLUMNS = [
   { key: "duration_ms", label: "col_ms", sort: "duration_ms", numeric: true },
 ];
 
-// The category of a response type; it picks the status icon.
+// The category of a response type; it picks the colour of the status badge.
 const STATUS_CATEGORY = {
   RESOLVED: "resolved",
   CACHED: "cached",
@@ -100,6 +102,8 @@ export class LogView {
         }
       }
       this.render();
+      // The rows only light up; read the log again so they show the new state.
+      this.reloadCurrent();
     });
 
     this._headRow = el("tr");
@@ -194,7 +198,15 @@ export class LogView {
     }
   }
 
-  async load(reset) {
+  // Read the rows already shown again (same filters, same number of rows), so
+  // that the table keeps its length and position. At most one server page.
+  reloadCurrent() {
+    const shown = Math.max(this._rows.length, this._host.config.page_size);
+    return this.load(true, Math.min(shown, MAX_ROWS));
+  }
+
+  // `keep`: how many rows to read when the first page is read again.
+  async load(reset, keep) {
     const entry = this._host.entry;
     if (!entry || !entry.has_query_log) return;
     // The server refuses such a value anyway; do not even ask.
@@ -211,7 +223,7 @@ export class LogView {
       entry_id: entry.entry_id,
       hours: this._filters.hours,
       status: this._filters.status,
-      limit: this._host.config.page_size,
+      limit: keep || this._host.config.page_size,
     };
     if (this._filters.domain) message.domain = this._filters.domain;
     if (this._filters.ip) message.ip = this._filters.ip;
@@ -306,7 +318,9 @@ export class LogView {
     const fragment = document.createDocumentFragment();
 
     for (const { row, count, types } of groupRows(this._sortedRows(), this._bar.group, this._bar.ignoreType)) {
-      const time = el("td", { text: this._formatTime(row.time), className: "time" });
+      const time = el("td", { className: "time" }, [
+        el("span", { text: this._formatTime(row.time), className: "when" }),
+      ]);
       if (count > 1) {
         time.appendChild(el("span", { text: `×${count}`, className: "count" }));
       }
@@ -314,10 +328,7 @@ export class LogView {
       const status = el(
         "td",
         { className: "status", attrs: { title: row.response_type || "" } },
-        [
-          haIcon(STATUS_ICONS, kind, `statusicon c-${kind}`),
-          el("span", { text: row.response_type || "", className: `statustext badge c-${kind}` }),
-        ]
+        [el("span", { text: row.response_type || "", className: `statustext badge c-${kind}` })]
       );
       const cells = [
         time,

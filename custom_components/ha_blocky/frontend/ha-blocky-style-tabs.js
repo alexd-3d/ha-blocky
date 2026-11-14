@@ -8,36 +8,40 @@
 export const TABS_STYLE = `
   .ibtn {
     display: inline-grid; place-items: center; flex: 0 0 auto; box-sizing: border-box;
-    width: 38px; height: 38px; min-width: 38px; padding: 0; border-radius: 8px;
+    width: var(--hb-control); height: var(--hb-control); min-width: var(--hb-control);
+    padding: 0; border-radius: var(--hb-radius-s);
     --mdc-icon-size: 22px;
   }
   .ibtn:focus-visible, .ksum:focus-visible { outline: 2px solid var(--primary-color); }
   .tbtn.flash-good { animation: hbfade-good 1s ease-out; }
   .tbtn.flash-bad { animation: hbfade-bad 1s ease-out; }
 
-  .dtools { display: grid; gap: 6px; min-width: 0; }
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-  .tgroup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+  .dtools { display: grid; gap: var(--hb-s2); min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hb-s2) var(--hb-s3); min-width: 0; }
+  .tgroup { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hb-s2); min-width: 0; }
   .toolbar > .btngroup { width: auto; flex: 0 0 auto; margin-left: auto; }
-  .toolbar .btngroup button { flex: 0 0 auto; min-width: 56px; min-height: 36px; padding: 4px 12px; }
-  .pausebox { display: inline-flex; align-items: center; gap: 6px; }
-  .pausebox select {
-    min-height: 36px; padding: 4px 8px; font: inherit; color: var(--primary-text-color);
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color); border-radius: 6px;
-  }
+  .toolbar .btngroup button { flex: 0 0 auto; min-width: 56px; padding: 0 var(--hb-s3); }
+  .pausebox { display: inline-flex; align-items: center; gap: var(--hb-s2); }
 
+  /* A status badge: a quiet tinted pill. It only tells; it has no border, no
+     hover and no pointer, so it cannot be taken for an action button (see
+     "button" and ".abtn" in ha-blocky-style.js). The text is the colour of its
+     kind of query, mixed with the text colour of the theme to stay readable. */
   .badge {
-    display: inline-block; box-sizing: border-box; padding: 1px 8px; border-radius: 999px;
-    border: 1px solid var(--c); background: transparent; color: var(--c);
-    font-size: 0.8em; font-weight: 500; line-height: 1.5; white-space: nowrap;
+    display: inline-block; box-sizing: border-box; max-width: 100%;
+    padding: 2px var(--hb-s2); border: 0; border-radius: var(--hb-radius-pill);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+    color: color-mix(in srgb, var(--c) 70%, var(--primary-text-color));
+    font-size: var(--hb-fs-label); font-weight: var(--hb-fw-medium); line-height: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle;
+    cursor: default; user-select: none; pointer-events: none;
   }
-  ha-icon.statusicon { color: var(--c); }
 
-  .kn { display: grid; gap: 8px; }
-  details.kitem { min-width: 0; border: 1px solid var(--divider-color); border-radius: 8px; }
+  /* The known domains: one divider between the clients, no boxes. */
+  .kn { display: grid; gap: 0; }
+  details.kitem { min-width: 0; border-top: 1px solid var(--divider-color); }
   .ksum {
-    display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 12px;
+    display: flex; align-items: center; gap: var(--hb-s3); min-height: 48px; padding: var(--hb-s2) 0;
     cursor: pointer; list-style: none;
   }
   .ksum::-webkit-details-marker { display: none; }
@@ -50,31 +54,39 @@ export const TABS_STYLE = `
   .kname { flex: 1 1 auto; min-width: 0; }
   .kname .main, .kname .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kcount {
-    flex: 0 0 auto; min-width: 1.6em; padding: 1px 8px; border-radius: 999px;
-    text-align: center; font-size: 0.85em; font-weight: 600;
-    background: color-mix(in srgb, var(--primary-color) 16%, transparent);
+    flex: 0 0 auto; min-width: 1.6em; padding: 2px var(--hb-s2); border-radius: var(--hb-radius-pill);
+    text-align: center; font-size: var(--hb-fs-label); font-weight: var(--hb-fw-medium);
+    font-variant-numeric: tabular-nums; cursor: default; background: var(--hb-tonal);
   }
-  .kbody { padding: 0 12px 8px; min-width: 0; }
+  .kbody { padding: 0 0 var(--hb-s2) var(--hb-s6); min-width: 0; }
 
   .settings {
-    display: grid; gap: 16px; align-items: start; min-width: 0; max-width: 1100px;
+    display: grid; gap: var(--hb-s4); align-items: start; min-width: 0; max-width: 1100px;
     grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   }
   .settings > * { min-width: 0; }
   .scard {
-    box-sizing: border-box; min-width: 0; padding: 16px; border-radius: 12px;
+    box-sizing: border-box; min-width: 0; padding: var(--hb-s4); border-radius: var(--hb-radius-m);
     border: 1px solid var(--divider-color); background: var(--card-background-color);
   }
-  .scard h3 { margin: 0 0 4px; font-size: 1.1em; font-weight: 600; }
-  .scard .hint { color: var(--secondary-text-color); font-size: 0.85em; }
-  .scard .field .hint { margin-top: 4px; }
-  .group { margin-top: 20px; min-width: 0; }
-  .gtitle { margin: 0 0 8px; font-size: 0.95em; font-weight: 600; }
+  .scard h3 { margin: 0 0 var(--hb-s1); font-size: var(--hb-fs-title); font-weight: var(--hb-fw-medium); }
+  .scard .hint { color: var(--secondary-text-color); font-size: var(--hb-fs-label); }
+  .scard .field .hint { margin-top: var(--hb-s1); }
+  .group { margin-top: var(--hb-s6); min-width: 0; }
+  .gtitle {
+    margin: 0 0 var(--hb-s2); font-size: var(--hb-fs-label); font-weight: var(--hb-fw-medium);
+    letter-spacing: 0.4px; text-transform: uppercase; color: var(--secondary-text-color);
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .tbtn.flash-good, .tbtn.flash-bad { animation: none; }
     .tbtn.flash-good { background-color: color-mix(in srgb, var(--hb-good) 28%, transparent); }
     .tbtn.flash-bad { background-color: color-mix(in srgb, var(--hb-bad) 28%, transparent); }
     .karrow { transition: none; }
+  }
+  @container (max-width: 560px) {
+    .ibtn { width: 40px; height: 40px; min-width: 40px; }
+    .toolbar .btngroup button { min-height: 40px; }
+    .scard { padding: var(--hb-s3); }
   }
 `;

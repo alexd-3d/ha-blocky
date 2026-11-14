@@ -17,32 +17,75 @@ export const STYLE = `
     /* The colour of the effect of an action: lets through / keeps out. */
     --hb-good: var(--success-color, #43a047);
     --hb-bad: var(--error-color, #db4437);
+    /* Spacing on a 4/8 px grid. */
+    --hb-s1: 4px; --hb-s2: 8px; --hb-s3: 12px; --hb-s4: 16px; --hb-s6: 24px;
+    /* Type scale: title, body, label; the big number of a tile. */
+    --hb-fs-title: 16px; --hb-fs-body: 14px; --hb-fs-label: 12px; --hb-fs-value: 28px;
+    --hb-fw-medium: 500;
+    /* Shapes: controls, cards inside the card, pills. */
+    --hb-radius-s: 8px;
+    --hb-radius-m: min(var(--ha-card-border-radius, 12px), 16px);
+    --hb-radius-pill: 999px;
+    /* Height of a control (a touch target on a narrow card), and the look of
+       a hover and of a quiet surface. */
+    --hb-control: 36px;
+    --hb-outline: var(--outline-color, var(--divider-color));
+    --hb-hover: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
+    --hb-surface: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
+    --hb-tonal: color-mix(in srgb, var(--primary-color) 14%, transparent);
   }
-  .body { padding: 0 16px 16px; container-type: inline-size; }
-  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-  .filters input, .filters select, .panel select {
-    flex: 1 1 140px; min-width: 0; box-sizing: border-box; padding: 8px;
-    font: inherit; color: var(--primary-text-color);
+  .body {
+    padding: 0 var(--hb-s4) var(--hb-s4); container-type: inline-size;
+    font-size: var(--hb-fs-body); line-height: 20px; color: var(--primary-text-color);
+  }
+
+  /* Fields: one look for every input, select and text area. */
+  input[type="text"], input[type="search"], input[type="number"], select, textarea {
+    box-sizing: border-box; min-height: var(--hb-control); min-width: 0;
+    padding: 0 var(--hb-s3); font: inherit; color: var(--primary-text-color);
     background: var(--card-background-color);
-    border: 1px solid var(--divider-color); border-radius: 6px;
+    border: 1px solid var(--hb-outline); border-radius: var(--hb-radius-s);
   }
+  textarea { padding: var(--hb-s2) var(--hb-s3); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--primary-color); outline-offset: -1px;
+    border-color: var(--primary-color);
+  }
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hb-s2); margin-bottom: var(--hb-s3); }
+  .filters input, .filters select, .panel select { flex: 1 1 140px; }
+
+  /* Action buttons: outlined, with a hover and a focus state. A badge is a
+     different thing (see .badge): it does nothing. */
   button {
-    font: inherit; cursor: pointer; padding: 6px 12px; border-radius: 6px;
-    color: var(--primary-text-color); background: transparent;
-    border: 1px solid var(--divider-color);
+    font: inherit; font-weight: var(--hb-fw-medium); cursor: pointer;
+    min-height: var(--hb-control); padding: 0 var(--hb-s4); border-radius: var(--hb-radius-s);
+    color: var(--primary-color); background: transparent;
+    border: 1px solid var(--hb-outline);
   }
+  button:hover:not(:disabled) { background: color-mix(in srgb, var(--primary-color) 8%, transparent); }
+  button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
   button.primary {
     color: var(--text-primary-color); background: var(--primary-color);
     border-color: var(--primary-color);
   }
+  button.primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--primary-color) 88%, var(--primary-text-color));
+  }
   button:disabled { opacity: 0.5; cursor: default; }
+  button.abtn { padding: 0 var(--hb-s3); }
+
   .scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th, td {
-    text-align: left; padding: 6px 8px; white-space: nowrap;
+    text-align: left; padding: var(--hb-s2) var(--hb-s3); white-space: nowrap;
     border-bottom: 1px solid var(--divider-color);
   }
-  th { cursor: pointer; user-select: none; color: var(--secondary-text-color); }
+  th:first-child, td:first-child { padding-left: 0; }
+  th:last-child, td:last-child { padding-right: 0; }
+  th {
+    cursor: pointer; user-select: none; color: var(--secondary-text-color);
+    font-size: var(--hb-fs-label); font-weight: var(--hb-fw-medium);
+  }
   th.plain { cursor: default; }
   /* Long values (a domain, a level, a client) are cut with an ellipsis; the
      whole text is the title of the cell. */
@@ -55,54 +98,55 @@ export const STYLE = `
   .main, .sub { min-width: 0; }
   td.client .main, td.client .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td.num, th.num { text-align: right; }
-  tr.blocked td.status { color: var(--error-color); font-weight: 500; }
-  td.actions button { padding: 2px 8px; margin-right: 4px; font-size: 0.9em; }
+  td.time .count {
+    margin-left: var(--hb-s2); color: var(--secondary-text-color); font-size: var(--hb-fs-label);
+  }
+  td.actions button { margin-right: var(--hb-s1); }
   .panel {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-    margin: 12px 0; padding: 12px; border-radius: 6px;
-    border: 1px solid var(--primary-color);
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--hb-s2) var(--hb-s3);
+    margin: var(--hb-s3) 0; padding: var(--hb-s3) var(--hb-s4); border-radius: var(--hb-radius-m);
+    background: var(--hb-tonal);
   }
   .panel .name {
     word-break: break-all; font-family: var(--code-font-family, monospace);
   }
-  .level { font-size: 0.85em; color: var(--secondary-text-color); }
-  .message { margin: 12px 0; color: var(--secondary-text-color); }
+  .panel .plabel, .panel .presult { color: var(--secondary-text-color); }
+  .level { font-size: var(--hb-fs-label); color: var(--secondary-text-color); }
+  .message { margin: var(--hb-s3) 0; color: var(--secondary-text-color); }
   .message.error { color: var(--error-color); }
   .footer {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-    gap: 8px; margin-top: 12px; color: var(--secondary-text-color);
+    gap: var(--hb-s2); margin-top: var(--hb-s3); color: var(--secondary-text-color);
+    font-size: var(--hb-fs-label);
   }
-  .tabs { display: flex; gap: 8px; margin: 0 0 12px; }
+  .tabs { display: flex; gap: var(--hb-s2); margin: 0 0 var(--hb-s4); }
   button.tab {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    min-height: 40px;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--hb-s2);
+    min-height: 40px; border-color: transparent; color: var(--secondary-text-color);
+    border-radius: var(--hb-radius-pill);
   }
   ha-icon.tabicon { display: inline-flex; --mdc-icon-size: 20px; }
+  button.tab:hover:not(:disabled) { background: var(--hb-hover); }
   button.tab.active {
-    color: var(--text-primary-color); background: var(--primary-color);
-    border-color: var(--primary-color);
+    color: var(--primary-text-color); background: var(--hb-tonal);
+    border-color: transparent;
   }
-  .sub { color: var(--secondary-text-color); font-size: 0.85em; }
-  h3 { margin: 16px 0 8px; font-size: 1em; font-weight: 500; }
-  td.buttons button { margin-right: 4px; }
-  .rowerror { color: var(--error-color); font-size: 0.85em; white-space: normal; }
+  .sub { color: var(--secondary-text-color); font-size: var(--hb-fs-label); }
+  h3 { margin: var(--hb-s4) 0 var(--hb-s2); font-size: var(--hb-fs-title); font-weight: var(--hb-fw-medium); }
+  td.buttons button { margin-right: var(--hb-s2); }
+  .rowerror { color: var(--error-color); font-size: var(--hb-fs-label); white-space: normal; }
   td.client { cursor: pointer; }
   td.client:focus-visible { outline: 2px solid var(--primary-color); }
-  .main { font-weight: 500; }
-  input.nameedit {
-    box-sizing: border-box; width: 100%; min-width: 140px; padding: 4px 6px;
-    font: inherit; color: var(--primary-text-color);
-    background: var(--card-background-color);
-    border: 1px solid var(--primary-color); border-radius: 6px;
-  }
+  .main { font-weight: var(--hb-fw-medium); }
+  input.nameedit { width: 100%; min-width: 140px; border-color: var(--primary-color); }
   label.check {
-    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
-    color: var(--primary-text-color); cursor: pointer;
+    display: flex; align-items: center; gap: var(--hb-s2); flex: 0 0 auto;
+    min-height: var(--hb-control); color: var(--primary-text-color); cursor: pointer;
   }
-  span.count { margin-left: 6px; color: var(--secondary-text-color); font-size: 0.85em; }
+  span.count { color: var(--secondary-text-color); font-size: var(--hb-fs-label); }
   .iconbtn {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
     color: var(--secondary-text-color); --mdc-icon-size: 20px;
   }
   .iconbtn:hover { background: var(--divider-color); color: var(--primary-text-color); }
@@ -112,10 +156,10 @@ export const STYLE = `
   .iconbtn.fx-bad, .iconbtn.fx-bad:hover { color: var(--hb-bad); }
   .iconbtn.fx-good:hover { background: color-mix(in srgb, var(--hb-good) 18%, transparent); }
   .iconbtn.fx-bad:hover { background: color-mix(in srgb, var(--hb-bad) 18%, transparent); }
-  button.fx-good { color: var(--hb-good); border-color: var(--hb-good); }
-  button.fx-bad { color: var(--hb-bad); border-color: var(--hb-bad); }
-  button.fx-good:hover { background: color-mix(in srgb, var(--hb-good) 15%, transparent); }
-  button.fx-bad:hover { background: color-mix(in srgb, var(--hb-bad) 15%, transparent); }
+  button.fx-good { color: var(--hb-good); border-color: color-mix(in srgb, var(--hb-good) 50%, transparent); }
+  button.fx-bad { color: var(--hb-bad); border-color: color-mix(in srgb, var(--hb-bad) 50%, transparent); }
+  button.fx-good:hover:not(:disabled) { background: color-mix(in srgb, var(--hb-good) 15%, transparent); }
+  button.fx-bad:hover:not(:disabled) { background: color-mix(in srgb, var(--hb-bad) 15%, transparent); }
   /* The row an action was done on, or a new live row, lights up and fades out
      over a second. The card removes the class when the second is over. */
   tr.flash-good, .knownrow.flash-good { animation: hbfade-good 1s ease-out; }
@@ -148,42 +192,55 @@ export const STYLE = `
   }
   .iconbtn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
   td.actions, td.buttons { white-space: nowrap; }
-  ha-icon.statusicon { display: none; --mdc-icon-size: 18px; }
   .lists {
-    display: grid; gap: 0 16px;
+    display: grid; gap: 0 var(--hb-s6);
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
   .lists .section, .section { min-width: 0; }
-  .known { padding: 4px 0 8px; }
-  .knownrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .knownrow { min-width: 0; }
+  .known { padding: var(--hb-s1) 0 var(--hb-s2); }
+  .knownrow {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--hb-s2);
+    min-width: 0; min-height: 36px;
+  }
   .knownrow .domain {
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--code-font-family, monospace);
   }
-  /* Narrow card (a phone, or a narrow column): two lines per log entry.
-     Line 1: client and domain. Line 2: time, status icon, action icon. */
+  /* Narrow card (a phone, or a narrow column). The Query log shows two lines
+     per entry, the same cells as on a wide card:
+     line 1: client (its name, or the address) and the time;
+     line 2: status badge and domain. The action icon sits at the right, over
+     both lines. The badge column has a fixed width, so the domains line up. */
   @container (max-width: 560px) {
+    .body { padding: 0 var(--hb-s3) var(--hb-s3); }
+    button, .filters input, .filters select, .panel select { min-height: 40px; }
+    .iconbtn { width: 40px; height: 40px; }
     table.log thead { display: none; }
     table.log, table.log tbody { display: block; }
     table.log tr {
-      display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
-      grid-template-areas: "client domain domain" "time status actions";
-      align-items: center; gap: 2px 12px; padding: 6px 0;
+      display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto 2.5rem;
+      grid-template-areas: "client client time actions" "status domain domain actions";
+      align-items: center; gap: var(--hb-s1) var(--hb-s2); padding: var(--hb-s2) 0;
       border-bottom: 1px solid var(--divider-color);
     }
     table.log td { display: block; border: 0; padding: 0; white-space: normal; }
-    table.log td.client { grid-area: client; max-width: 11rem; }
+    table.log td.client { grid-area: client; max-width: none; }
     table.log td.domain {
       grid-area: domain; width: auto; max-width: none; white-space: nowrap;
     }
-    table.log td.time { grid-area: time; color: var(--secondary-text-color); }
-    table.log td.status { grid-area: status; }
-    table.log td.actions { grid-area: actions; text-align: right; }
+    table.log td.time {
+      grid-area: time; display: flex; flex-direction: row-reverse; justify-content: flex-start;
+      align-items: baseline; gap: var(--hb-s2); white-space: nowrap;
+      color: var(--secondary-text-color); font-size: var(--hb-fs-label);
+    }
+    table.log td.time .count { margin-left: 0; }
+    table.log td.status { grid-area: status; min-width: 0; }
+    table.log td.actions {
+      grid-area: actions; align-self: center; justify-self: end; min-width: 2.5rem; text-align: right;
+    }
+    table.log td.actions button, table.log td.actions .iconbtn { margin: 0; }
     table.log td.type, table.log td.ms { display: none; }
     table.log td.client .sub { display: none; }
-    table.log td.status .statustext { display: none; }
-    table.log td.status ha-icon.statusicon { display: inline-flex; }
     .scroll { overflow-x: visible; }
     /* The requests: client, domain, then level and age, then the buttons. */
     table.req thead { display: none; }
@@ -191,7 +248,7 @@ export const STYLE = `
     table.req tr {
       display: grid; grid-template-columns: minmax(0, 1fr) auto;
       grid-template-areas: "client client" "domain domain" "level age" "buttons buttons";
-      align-items: center; gap: 2px 12px; padding: 8px 0;
+      align-items: center; gap: var(--hb-s1) var(--hb-s3); padding: var(--hb-s3) 0;
       border-bottom: 1px solid var(--divider-color);
     }
     table.req td { display: block; border: 0; padding: 0; white-space: normal; }
@@ -204,8 +261,9 @@ export const STYLE = `
       white-space: nowrap;
     }
     table.req td.age { grid-area: age; color: var(--secondary-text-color); }
-    table.req td.buttons { grid-area: buttons; padding-top: 4px; }
-    table.req td.buttons button { min-height: 36px; }
+    table.req td.buttons { grid-area: buttons; padding-top: var(--hb-s2); }
+    .filters input[type="search"]:first-child { flex-basis: 100%; }
+    .filters input[type="search"] { flex: 1 1 40%; }
   }
   ${DASHBOARD_STYLE}
   ${MORE_STYLE}

@@ -27,15 +27,6 @@ export const ICONS = {
   dismiss: "mdi:close",
 };
 
-// The icons of the status of a query, by category.
-export const STATUS_ICONS = {
-  blocked: "mdi:cancel",
-  resolved: "mdi:check",
-  cached: "mdi:cached",
-  local: "mdi:home-outline",
-  other: "mdi:help-circle-outline",
-};
-
 // The icons of the card's own chrome: the tabs, the tiles and the tool buttons.
 export const UI_ICONS = {
   tab_dashboard: "mdi:view-dashboard",
@@ -200,9 +191,9 @@ export class ListPicker {
     if (fitting !== undefined && lists.some((list) => list.name === fitting)) {
       select.value = fitting;
     }
-    const confirm = el("button", { text: t("confirm"), className: "primary" });
-    const cancel = el("button", { text: t("cancel") });
-    const result = el("span");
+    const confirm = el("button", { text: t("confirm"), className: "abtn primary" });
+    const cancel = el("button", { text: t("cancel"), className: "abtn" });
+    const result = el("span", { className: "presult" });
 
     cancel.addEventListener("click", () => this.close());
     confirm.addEventListener("click", async () => {
@@ -225,7 +216,7 @@ export class ListPicker {
     });
 
     this._panel.replaceChildren(
-      el("span", { text: t(type === "allow" ? "action_allow" : "action_block") }),
+      el("span", { text: t(type === "allow" ? "action_allow" : "action_block"), className: "plabel" }),
       el("span", { text: domain, className: "name" }),
       select,
       confirm,

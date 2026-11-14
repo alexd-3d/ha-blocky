@@ -38,6 +38,8 @@ import { STYLE } from "./ha-blocky-style.js";
 const MIN_REFRESH_SECONDS = 10;
 const RELOAD_POLL_MS = 1500;
 const RELOAD_TRIES = 20;
+// The name of the integration: a proper name, the same in every language.
+const PRODUCT_NAME = "HA-Blocky";
 const TABS = ["dashboard", "log", "requests", "settings", "help"];
 
 class HaBlockyCard extends HTMLElement {
@@ -269,7 +271,8 @@ class HaBlockyCard extends HTMLElement {
   }
 
   _renderTitle() {
-    this._card.setAttribute("header", this._config.title || this.t("title"));
+    // The default heading is the name of the integration, never a translation.
+    this._card.setAttribute("header", this._config.title || PRODUCT_NAME);
   }
 
   async _start() {
