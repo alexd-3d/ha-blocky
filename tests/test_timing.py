@@ -71,7 +71,7 @@ def test_every_statement_logs_a_label_milliseconds_and_rows(
     assert {
         "query max_id",
         "query client_domains",
-        "query dashboard_top.ranked",
+        "query dashboard_top.groups",
     } <= labels
     dumped = " | ".join(_ours(caplog))
     for private in (DOMAIN_TEXT, CLIENT_TEXT, "SELECT", "log_entries", "WHERE"):
