@@ -1543,7 +1543,9 @@ def test_settings_tab_writes_through_one_command_with_the_whitelisted_keys() -> 
     assert "`${DOMAIN}/settings`" in settings_js
     # The card offers exactly the options the server accepts, no others.
     in_card = set(re.findall(r'\["(\w+)", "set_\w+"', options_js))
-    assert in_card == set(OPERATIONAL_KEYS)
+    # The hidden clients are a list edited in the same form, not a field row.
+    assert "hidden_clients" in options_js
+    assert in_card | {"hidden_clients"} == set(OPERATIONAL_KEYS)
     # The error text and the field label come from the card's own tables.
     assert "FIELD_LABELS" in settings_js
     assert "serr_${code}" in settings_js

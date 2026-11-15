@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
@@ -100,11 +101,15 @@ def _iso(moment: datetime) -> str:
 
 
 def collect(
-    database: QueryLogDatabase, window: Window, period: str, rows: int
+    database: QueryLogDatabase,
+    window: Window,
+    period: str,
+    rows: int,
+    hidden: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Run the dashboard queries. Executor only."""
+    """Run the dashboard queries. Executor only. ``hidden`` clients are left out."""
     started = time.perf_counter()
-    result = _collect(database, window, period, rows)
+    result = _collect(database, window, period, rows, hidden)
     _LOGGER.debug(
         "dashboard round for %s: %d ms",
         period,
@@ -114,14 +119,18 @@ def collect(
 
 
 def _collect(
-    database: QueryLogDatabase, window: Window, period: str, rows: int
+    database: QueryLogDatabase,
+    window: Window,
+    period: str,
+    rows: int,
+    hidden: Sequence[str],
 ) -> dict[str, Any]:
     since, until = _naive(window.since), _naive(window.until)
-    unique_domains, average = database.dashboard_domains(since, until)
+    unique_domains, average = database.dashboard_domains(since, until, hidden)
 
     buckets = {start: dict.fromkeys(CATEGORIES, 0) for start in window.starts}
     categories = dict.fromkeys(CATEGORIES, 0)
-    for hour, category, count in database.dashboard_hours(since, until):
+    for hour, category, count in database.dashboard_hours(since, until, hidden):
         categories[category] += count
         stamp = hour.replace(tzinfo=dt_util.UTC)
         key = (
@@ -152,10 +161,20 @@ def _collect(
                 for start, counts in buckets.items()
             ],
         },
-        "top_clients": database.dashboard_top("client", since, until, rows),
-        "top_domains": database.dashboard_top("domain", since, until, rows),
+        "top_clients": database.dashboard_top(
+            "client", since, until, rows, hidden=hidden
+        ),
+        "top_domains": database.dashboard_top(
+            "domain", since, until, rows, hidden=hidden
+        ),
         "top_blocked": database.dashboard_top(
-            "domain", since, until, rows, blocked_only=True, with_reason=True
+            "domain",
+            since,
+            until,
+            rows,
+            blocked_only=True,
+            with_reason=True,
+            hidden=hidden,
         ),
     }
 
@@ -170,11 +189,12 @@ async def _round(
     database: QueryLogDatabase,
     period: str,
     rows: int,
+    hidden: Sequence[str],
 ) -> dict[str, Any]:
     """Run one database round and cache its answer. The caller holds the lock."""
     now = dt_util.utcnow()
     result = await hass.async_add_executor_job(
-        collect, database, build_window(period, now), period, rows
+        collect, database, build_window(period, now), period, rows, hidden
     )
     result["generated_at"] = _iso(now)
     data.dashboard_cache[(period, rows)] = (now, result)
@@ -187,6 +207,7 @@ async def _background_refresh(
     database: QueryLogDatabase,
     period: str,
     rows: int,
+    hidden: Sequence[str],
 ) -> None:
     """Refresh a stale long-period answer; one round at a time, errors are kept
     out of the cache (the old answer stays until it is too old)."""
@@ -195,7 +216,7 @@ async def _background_refresh(
         async with data.dashboard_lock:
             cached = data.dashboard_cache.get(key)
             if cached is None or dt_util.utcnow() - cached[0] >= _fresh_for(period):
-                await _round(hass, data, database, period, rows)
+                await _round(hass, data, database, period, rows, hidden)
     except BlockyDbError as err:
         _LOGGER.debug("dashboard background refresh failed (%s)", type(err).__name__)
     finally:
@@ -208,6 +229,7 @@ async def async_dashboard(
     database: QueryLogDatabase,
     period: str,
     rows: int,
+    hidden: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Return the dashboard answer, from the cache while it is fresh.
 
@@ -215,7 +237,9 @@ async def async_dashboard(
     An answer that is stale but under an hour old is returned at once, marked
     ``"stale": True``, while one background round refreshes it. The cache holds at
     most one answer per (period, rows). The returned dict is shared: callers
-    must copy it before changing it.
+    must copy it before changing it. ``hidden`` clients are left out; the cache
+    lives in the runtime data, which a change of the option reloads, so an
+    answer is never served for another list.
     """
     key = (period, rows)
     cached = data.dashboard_cache.get(key)
@@ -229,7 +253,7 @@ async def async_dashboard(
             if key not in data.dashboard_refreshing:
                 data.dashboard_refreshing.add(key)
                 hass.async_create_background_task(
-                    _background_refresh(hass, data, database, period, rows),
+                    _background_refresh(hass, data, database, period, rows, hidden),
                     f"{DOMAIN} dashboard refresh",
                 )
             # A copy: the cached answer itself is never marked.
@@ -249,4 +273,4 @@ async def async_dashboard(
                 facts = None
             # Schema facts only: index names, their columns, a row estimate.
             _LOGGER.debug("query log table facts: %s", facts)
-        return await _round(hass, data, database, period, rows)
+        return await _round(hass, data, database, period, rows, hidden)

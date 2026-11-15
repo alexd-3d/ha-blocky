@@ -267,6 +267,7 @@ async def test_a_name_nobody_has_asks_the_database_nothing(log_client: Any) -> N
         "rows": [],
         "has_more": False,
         "next_before_id": None,
+        "hidden_clients": 0,
     }
 
 

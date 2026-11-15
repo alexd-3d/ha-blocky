@@ -25,6 +25,7 @@ from .client_names import (
     get_client_names,
 )
 from .const import (
+    CONF_HIDDEN_CLIENTS,
     DASHBOARD_PERIODS,
     DASHBOARD_ROWS,
     DOMAIN,
@@ -43,6 +44,7 @@ from .settings import (
     OPERATIONAL_KEYS,
     SettingError,
     apply_operational,
+    hidden_clients,
     read_operational,
 )
 from .validation import (
@@ -157,6 +159,8 @@ def ws_config(
         vol.Optional("name", default=""): object,
         vol.Optional("domain", default=""): vol.All(_printable, vol.Length(max=253)),
         vol.Optional("before_id"): vol.All(int, vol.Range(min=1)),
+        # True: the rows of the hidden clients are shown too.
+        vol.Optional("show_hidden", default=False): bool,
         vol.Optional("limit", default=50): vol.All(
             int, vol.Range(min=1, max=MAX_LOG_ROWS)
         ),
@@ -183,6 +187,7 @@ async def ws_query_log(
             msg["id"], "no_query_log", "No query log database is configured"
         )
         return
+    hidden = hidden_clients(entries[0].options)
 
     try:
         exact_ip, ip_part = parse_ip_filter(msg["ip"])
@@ -209,7 +214,13 @@ async def ws_query_log(
         if not addresses:
             # No client has such a name: nothing to look up.
             connection.send_result(
-                msg["id"], {"rows": [], "has_more": False, "next_before_id": None}
+                msg["id"],
+                {
+                    "rows": [],
+                    "has_more": False,
+                    "next_before_id": None,
+                    "hidden_clients": len(hidden),
+                },
             )
             return
 
@@ -233,6 +244,7 @@ async def ws_query_log(
                 blocked=blocked,
                 before_id=msg.get("before_id"),
                 limit=limit,
+                hidden=() if msg["show_hidden"] else hidden,
             )
         )
     except BlockyDbError:
@@ -254,6 +266,7 @@ async def ws_query_log(
             "rows": rows,
             "has_more": len(rows) == limit,
             "next_before_id": rows[-1]["id"] if rows else None,
+            "hidden_clients": len(hidden),
         },
     )
 
@@ -394,9 +407,15 @@ async def ws_dashboard(
         )
         return
 
+    hidden = hidden_clients(entry.options)
     try:
         shared = await async_dashboard(
-            hass, entry.runtime_data, stats.database, msg["period"], msg["rows"]
+            hass,
+            entry.runtime_data,
+            stats.database,
+            msg["period"],
+            msg["rows"],
+            hidden,
         )
     except BlockyDbError:
         connection.send_error(
@@ -417,6 +436,7 @@ async def ws_dashboard(
     meta["generated_at"] = result.pop("generated_at")
     # True while a newer answer is being prepared: the card asks again shortly.
     meta["stale"] = result.pop("stale", False) is True
+    meta["hidden_clients"] = len(hidden)
     result["meta"] = meta
     connection.send_result(msg["id"], result)
 
@@ -454,6 +474,12 @@ def ws_settings(
             "has_query_log": entry.runtime_data.stats is not None,
             **read_operational(entry.options),
         }
+        # The hidden clients with the name kept for each, if any.
+        names = client_name_map(hass)
+        result["entry"][CONF_HIDDEN_CLIENTS] = [
+            {"address": address, "client_name": names.get(address)}
+            for address in hidden_clients(entry.options)
+        ]
     connection.send_result(msg["id"], result)
 
 

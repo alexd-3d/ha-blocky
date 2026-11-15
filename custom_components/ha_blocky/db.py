@@ -313,6 +313,18 @@ def clean_text(value: object) -> str:
     return cleaned[:MAX_TEXT_LENGTH]
 
 
+def not_hidden(hidden: Sequence[str]) -> Any | None:
+    """Return the condition that leaves the hidden clients out, or None.
+
+    Rows without a client stay in (a bare NOT IN would drop them, as NULL
+    is neither in nor out). The addresses are bound parameters.
+    """
+    if not hidden:
+        return None
+    column = LOG_TABLE.c.client_ip
+    return or_(column.is_(None), column.not_in(list(hidden)))
+
+
 class QueryLogDatabase:
     """A lazily connected, read-only view of the query log."""
 
@@ -659,6 +671,7 @@ class QueryLogDatabase:
         blocked: bool | None = None,
         before_id: int | None = None,
         limit: int = 50,
+        hidden: Sequence[str] = (),
     ) -> list[dict[str, Any]]:
         """Return log rows, newest first, as plain cleaned values.
 
@@ -667,7 +680,8 @@ class QueryLogDatabase:
         addresses (an empty set matches nothing). ``domain`` matches anywhere
         in the name. The pattern characters ``%`` and ``_`` in a fragment are
         escaped, so it is always a literal search. All filters are bound
-        parameters and are combined with AND.
+        parameters and are combined with AND. ``hidden`` lists clients whose
+        rows are left out.
         """
         if addresses is not None and not addresses:
             return []
@@ -684,6 +698,8 @@ class QueryLogDatabase:
             table.duration_ms,
             table.reason,
         ).where(table.request_ts >= since)
+        if (visible := not_hidden(hidden)) is not None:
+            statement = statement.where(visible)
         if before_id is not None:
             statement = statement.where(table.id < before_id)
         if client:
@@ -733,7 +749,7 @@ class QueryLogDatabase:
         return rows
 
     def dashboard_domains(
-        self, since: datetime, until: datetime
+        self, since: datetime, until: datetime, hidden: Sequence[str] = ()
     ) -> tuple[int, float | None]:
         """Return the number of distinct domains and the mean answer time.
 
@@ -742,20 +758,22 @@ class QueryLogDatabase:
         statement of their own.
         """
         table = LOG_TABLE.c
-        row = self._run(
+        statement = (
             select(
                 func.count(distinct(self._short(table.question_name, MAX_DOMAIN_KEY))),
                 func.avg(table.duration_ms),
             )
             .where(table.request_ts >= since, table.request_ts < until)
-            .where(table.question_name.is_not(None)),
-            label="dashboard_domains",
+            .where(table.question_name.is_not(None))
         )
+        if (visible := not_hidden(hidden)) is not None:
+            statement = statement.where(visible)
+        row = self._run(statement, label="dashboard_domains")
         average = float(row[1]) if row[1] is not None else None
         return int(row[0] or 0), average
 
     def dashboard_hours(
-        self, since: datetime, until: datetime
+        self, since: datetime, until: datetime, hidden: Sequence[str] = ()
     ) -> list[tuple[datetime, str, int]]:
         """Return (hour start, category, queries) for every hour with queries.
 
@@ -773,6 +791,8 @@ class QueryLogDatabase:
             .group_by(year, month, day, hour, response_type)
             .limit(MAX_DASHBOARD_HOURS)
         )
+        if (visible := not_hidden(hidden)) is not None:
+            statement = statement.where(visible)
         result: list[tuple[datetime, str, int]] = []
         for y, mo, d, h, kind, hits in self._run(
             statement, one=False, label="dashboard_hours"
@@ -835,12 +855,14 @@ class QueryLogDatabase:
         *,
         blocked_only: bool = False,
         with_reason: bool = False,
+        hidden: Sequence[str] = (),
     ) -> list[dict[str, Any]]:
         """Return the busiest clients (``kind`` "client") or domains ("domain").
 
         Each item has the cleaned name, the number of queries, the queries per
         category, the newest request time and, if asked, the most frequent block
         reason. With ``blocked_only`` only blocked queries are ranked and counted.
+        Rows of the ``hidden`` clients are left out of every statement.
         """
         table = LOG_TABLE.c
         columns = {"client": table.client_ip, "domain": table.question_name}
@@ -856,6 +878,8 @@ class QueryLogDatabase:
         ]
         if blocked_only:
             in_range.append(table.response_type.in_(BLOCKED_RESPONSE_TYPES))
+        if (visible := not_hidden(hidden)) is not None:
+            in_range.append(visible)
 
         # Grouping is done on a short prefix of the name: a long text column
         # makes the database build a slow temporary table on disk.

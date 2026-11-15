@@ -199,6 +199,12 @@ CONF_SHOW_IN_SIDEBAR: Final = "show_in_sidebar"
 PANEL_URL_PATH: Final = "ha-blocky"
 PANEL_ELEMENT: Final = "ha-blocky-panel"
 
+# Clients the card leaves out of the dashboard and the query log (for example a
+# router that sends only online checks). The sensors, counters and new-domain
+# requests are not filtered: a hidden device still raises its alerts.
+CONF_HIDDEN_CLIENTS: Final = "hidden_clients"
+MAX_HIDDEN_CLIENTS: Final = 50
+
 # Names for client addresses, kept by hand in one store per Home Assistant.
 MAX_CLIENT_NAMES: Final = 512
 MAX_CLIENT_NAME_LENGTH: Final = 64
