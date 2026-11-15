@@ -148,6 +148,9 @@ MAX_DASHBOARD_HOURS: Final = 24 * 31 * len(CATEGORIES) * 4
 MAX_REASON_GROUPS_PER_ITEM: Final = 20
 # Most response types counted per ranked name (the categories statement).
 MAX_TYPES_PER_ITEM: Final = 20
+# Most (key, response type) groups the one-pass top list may fetch; more than
+# this means abnormal data and the two bounded statements are used instead.
+MAX_FAST_GROUPS: Final = 20000
 # Lengths the dashboard statements cut a column to for grouping. A domain name
 # is cut to 127 characters; 127 * 4 bytes (utf8mb4) stays under MariaDB's
 # in-memory temporary table row limit of 512 bytes (limit not verified here).
@@ -781,6 +784,48 @@ class QueryLogDatabase:
             result.append((start, response_category(kind), int(hits or 0)))
         return result
 
+    def _top_in_two_steps(
+        self, key: Any, response_type: Any, in_range: list[Any], limit: int
+    ) -> tuple[list[tuple[str, int, Any]], dict[str, dict[str, int]]]:
+        """Rank in one statement, then count the categories of the ranked names.
+
+        Both results are bounded by ``limit``; used when the grouped pass has
+        too many groups.
+        """
+        hits = func.count().label("hits")
+        rows = self._run(
+            select(key, hits, func.max(LOG_TABLE.c.request_ts))
+            .where(*in_range)
+            .group_by(key)
+            .order_by(hits.desc(), key)
+            .limit(limit),
+            one=False,
+            label="dashboard_top.ranked",
+        )
+        ranked = [
+            (name, int(total or 0), last)
+            for name, total, last in rows
+            if isinstance(name, str) and name
+        ]
+        per_name = {name: dict.fromkeys(CATEGORIES, 0) for name, _t, _l in ranked}
+        if not ranked:
+            return ranked, per_name
+        # Only the ranked names, so the result is bounded by the limit times
+        # the number of response types.
+        for name, kind, count in self._run(
+            select(key, response_type, func.count())
+            .where(*in_range, key.in_(list(per_name)))
+            .group_by(key, response_type)
+            .limit(limit * MAX_TYPES_PER_ITEM),
+            one=False,
+            label="dashboard_top.categories",
+        ):
+            if name in per_name:
+                per_name[name][response_category(kind)] += int(count or 0)
+        for name, total, _last in ranked:
+            _set_other(per_name[name], total)
+        return ranked, per_name
+
     def dashboard_top(
         self,
         kind: str,
@@ -817,45 +862,27 @@ class QueryLogDatabase:
         key = self._short(
             column, MAX_CLIENT_KEY if kind == "client" else MAX_DOMAIN_KEY
         )
-        hits = func.count().label("hits")
-        newest = func.max(table.request_ts).label("newest")
-        # Statement 1: the rank, bounded by the limit.
-        ranked = self._run(
-            select(key, hits, newest)
+        response_type = self._short(table.response_type, MAX_RESPONSE_TYPE)
+        # Fast path: one grouped pass over (key, response type), folded here.
+        # The groups are capped, so a flood of distinct names cannot fill
+        # memory; then the statements of the slow path below are used.
+        grouped = self._run(
+            select(key, response_type, func.count(), func.max(table.request_ts))
             .where(*in_range)
-            .group_by(key)
-            .order_by(hits.desc(), key)
-            .limit(limit),
+            .group_by(key, response_type)
+            .limit(MAX_FAST_GROUPS + 1),
             one=False,
-            label="dashboard_top.ranked",
+            label="dashboard_top.groups",
         )
-        names = [row[0] for row in ranked if isinstance(row[0], str) and row[0]]
+        if len(grouped) <= MAX_FAST_GROUPS:
+            ranked, per_name = _fold_groups(grouped, limit)
+        else:
+            ranked, per_name = self._top_in_two_steps(
+                key, response_type, in_range, limit
+            )
+        names = list(per_name)
         if not names:
             return []
-
-        # Statement 2: the queries per response type, only for the ranked
-        # names, so the result is bounded by the limit times the types.
-        per_name: dict[str, dict[str, int]] = {
-            name: dict.fromkeys(CATEGORIES, 0) for name in names
-        }
-        type_hits = func.count().label("type_hits")
-        for name, response_type, count in self._run(
-            select(key, self._short(table.response_type, MAX_RESPONSE_TYPE), type_hits)
-            .where(*in_range, key.in_(names))
-            .group_by(key, self._short(table.response_type, MAX_RESPONSE_TYPE))
-            .limit(limit * MAX_TYPES_PER_ITEM),
-            one=False,
-            label="dashboard_top.categories",
-        ):
-            if name in per_name:
-                per_name[name][response_category(response_type)] += int(count or 0)
-        # "other" is what the named categories leave of the total (also if
-        # the guard above cut the types short), so they add up to the count.
-        for name, total, *_rest in ranked:
-            if name in per_name:
-                counts = per_name[name]
-                named_sum = sum(counts[c] for c in _NAMED_CATEGORIES)
-                counts[CATEGORY_OTHER] = max(0, int(total or 0) - named_sum)
 
         reasons: dict[str, str] = {}
         if with_reason:
@@ -876,7 +903,7 @@ class QueryLogDatabase:
 
         items: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for name, count, last, *_sums in ranked:
+        for name, count, last in ranked:
             cleaned = clean_text(name)
             if not cleaned or cleaned in seen:
                 continue
@@ -891,6 +918,50 @@ class QueryLogDatabase:
                 item["reason"] = reasons.get(name, "")
             items.append(item)
         return items
+
+
+def _set_other(counts: dict[str, int], total: int) -> None:
+    """Set "other" to what the named categories leave of ``total``."""
+    named_sum = sum(counts[c] for c in _NAMED_CATEGORIES)
+    counts[CATEGORY_OTHER] = max(0, total - named_sum)
+
+
+def _as_time(value: object) -> datetime | None:
+    """Return a database time as a datetime (some drivers give text)."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, datetime) else None
+
+
+def _fold_groups(
+    groups: Sequence[Any], limit: int
+) -> tuple[list[tuple[str, int, Any]], dict[str, dict[str, int]]]:
+    """Fold (key, type, count, newest) groups into the top ``limit`` keys.
+
+    Returns the ranked (key, queries, newest) and the queries per category.
+    """
+    totals: dict[str, int] = {}
+    newest: dict[str, datetime | None] = {}
+    per_name: dict[str, dict[str, int]] = {}
+    for name, kind, count, last in groups:
+        if not isinstance(name, str) or not name:
+            continue
+        amount = int(count or 0)
+        totals[name] = totals.get(name, 0) + amount
+        moment = _as_time(last)
+        if moment is not None and (newest.get(name) is None or moment > newest[name]):
+            newest[name] = moment
+        counts = per_name.setdefault(name, dict.fromkeys(CATEGORIES, 0))
+        counts[response_category(kind)] += amount
+    order = sorted(totals, key=lambda name: (-totals[name], name))[:limit]
+    ranked = [(name, totals[name], newest.get(name)) for name in order]
+    folded = {name: per_name[name] for name in order}
+    for name in order:
+        _set_other(folded[name], totals[name])
+    return ranked, folded
 
 
 def _utc_iso(value: object) -> str | None:

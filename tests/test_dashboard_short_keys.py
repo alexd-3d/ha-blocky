@@ -20,6 +20,15 @@ from custom_components.ha_blocky.db import (
 from .test_db import NOW, make_log, row
 
 SINCE = NOW - timedelta(days=1)
+
+
+@pytest.fixture(autouse=True, params=["one pass", "two steps"])
+def _path(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every test on the one-pass path and on the two-step fallback."""
+    if request.param == "two steps":
+        monkeypatch.setattr(db, "MAX_FAST_GROUPS", 0)
+
+
 UNTIL = NOW + timedelta(hours=1)
 
 
@@ -206,6 +215,7 @@ def test_unique_domains_count_cut_names_once(tmp_path: Path) -> None:
 def test_the_categories_statement_only_gets_the_ranked_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", 0)  # force the two steps
     rows = [row(f"d{i}.example.com") for i in range(1, 8)]
     rows += [row("d1.example.com"), row("d2.example.com"), row("d1.example.com")]
     database = _database(tmp_path, rows)
@@ -223,8 +233,12 @@ def test_the_categories_statement_only_gets_the_ranked_names(
 
     assert [item["name"] for item in items] == ["d1.example.com", "d2.example.com"]
     labels = [label for label, _values, _limit in seen]
-    assert labels == ["dashboard_top.ranked", "dashboard_top.categories"]
-    categories_values = seen[1][1]
+    assert labels == [
+        "dashboard_top.groups",
+        "dashboard_top.ranked",
+        "dashboard_top.categories",
+    ]
+    categories_values = seen[2][1]
     names = [
         v
         for value in categories_values
@@ -232,7 +246,7 @@ def test_the_categories_statement_only_gets_the_ranked_names(
     ]
     assert "d1.example.com" in names and "d2.example.com" in names
     assert not any(isinstance(n, str) and n.startswith("d3") for n in names)
-    assert seen[1][2].value == 2 * db.MAX_TYPES_PER_ITEM
+    assert seen[2][2].value == 2 * db.MAX_TYPES_PER_ITEM
     database.close()
 
 
@@ -245,6 +259,7 @@ def test_a_cut_guard_still_makes_the_categories_add_up(
         row("a.example.com", response_type="BLOCKED"),
     ]
     database = _database(tmp_path, rows)
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", 0)  # the two steps
     monkeypatch.setattr(db, "MAX_TYPES_PER_ITEM", 1)
 
     (item,) = database.dashboard_top("domain", SINCE, UNTIL, 1)
@@ -270,7 +285,111 @@ def test_an_empty_range_gives_no_items_and_no_second_statement(
         for r in caplog.records
         if r.getMessage().startswith("query ")
     ]
-    assert labels == ["query dashboard_top.ranked"] * 3
+    assert labels == ["query dashboard_top.groups"] * 3  # nothing to rank
+    database.close()
+
+
+def _labels(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage().split(":")[0].removeprefix("query ")
+        for r in caplog.records
+        if r.getMessage().startswith("query ")
+    ]
+
+
+def _many_groups() -> list[dict[str, Any]]:
+    """Four keys, seven (key, type) groups, different counts, a tie."""
+    rows = [row("a.example.com", response_type=t) for t in ("RESOLVED", "CACHED")]
+    rows += [row("a.example.com", response_type="BLOCKED")] * 2
+    rows += [row("b.example.com", response_type="CACHED")] * 2
+    rows += [row("c.example.com", response_type="WHATEVER")] * 2
+    rows += [row("d.example.com", response_type="REBIND")]
+    rows += [row("d.example.com", response_type="CUSTOMDNS")]
+    return rows
+
+
+@pytest.mark.parametrize("kind", ["domain", "client"])
+@pytest.mark.parametrize("blocked_only", [False, True])
+@pytest.mark.parametrize("with_reason", [False, True])
+def test_the_one_pass_and_the_two_steps_give_the_same_items(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    blocked_only: bool,
+    with_reason: bool,
+) -> None:
+    rows = [
+        *_many_groups(),
+        row("e.example.com", client="198.51.100.9", response_type="BLOCKED"),
+        row("f.example.com", client="203.0.113.9", response_type="CACHED"),
+    ]
+    rows = [
+        {**r, "reason": "BLOCKED (ads)" if r["response_type"] == "BLOCKED" else ""}
+        for r in rows
+    ]
+    database = _database(tmp_path, rows)
+    arguments = (kind, SINCE, UNTIL, 4)
+    options = {"blocked_only": blocked_only, "with_reason": with_reason}
+
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", 20000)
+    one_pass = database.dashboard_top(*arguments, **options)
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", 0)
+    two_steps = database.dashboard_top(*arguments, **options)
+
+    assert one_pass and one_pass == two_steps
+    for item in one_pass:
+        assert sum(item["categories"].values()) == item["count"]
+    database.close()
+
+
+def test_the_fallback_is_taken_exactly_when_the_groups_exceed_the_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    database = _database(tmp_path, _many_groups())
+    caplog.set_level(logging.DEBUG, logger="custom_components.ha_blocky.db")
+    groups = 7  # (a: 3 types) + (b) + (c) + (d: 2 types)
+
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", groups)
+    database.dashboard_top("domain", SINCE, UNTIL, 3)
+    assert _labels(caplog) == ["dashboard_top.groups"]
+
+    caplog.clear()
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", groups - 1)
+    database.dashboard_top("domain", SINCE, UNTIL, 3)
+    assert _labels(caplog) == [
+        "dashboard_top.groups",
+        "dashboard_top.ranked",
+        "dashboard_top.categories",
+    ]
+    database.close()
+
+
+def test_the_one_pass_ranks_by_count_then_key_and_keeps_the_newest_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db, "MAX_FAST_GROUPS", 20000)
+    rows = [
+        row("b.example.com", age=timedelta(hours=5)),
+        row("b.example.com", response_type="CACHED", age=timedelta(hours=1)),
+        row("a.example.com", age=timedelta(hours=3)),
+        row("a.example.com", response_type="BLOCKED", age=timedelta(hours=2)),
+        row("c.example.com"),
+    ]
+    database = _database(tmp_path, rows)
+
+    items = database.dashboard_top("domain", SINCE, UNTIL, 5)
+
+    assert [item["name"] for item in items] == [
+        "a.example.com",
+        "b.example.com",
+        "c.example.com",
+    ]  # a and b tie on 2
+    assert items[0]["last_seen"] == "2026-11-10T10:00:00+00:00"
+    assert items[1]["last_seen"] == "2026-11-10T11:00:00+00:00"
     database.close()
 
 
