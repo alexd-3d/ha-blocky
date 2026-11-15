@@ -339,6 +339,9 @@ export class DashboardView {
     if (!Number.isNaN(data.generated.getTime())) {
       parts.push(`${this._t("dash_updated")} ${ctx.clock(data.generated)}`);
     }
+    if (data.hiddenClients > 0) {
+      parts.push(this._t("dash_hidden").replace("{n}", String(data.hiddenClients)));
+    }
     this._footer.textContent = parts.join(" · ");
   }
 

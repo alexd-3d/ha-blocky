@@ -19,9 +19,11 @@ from .const import (
     CONF_DB_NAME,
     CONF_DB_PASSWORD,
     CONF_DB_USERNAME,
+    CONF_HIDDEN_CLIENTS,
 )
 from .coordinator import BlockyConfigEntry
 from .db import BlockyDbError
+from .settings import hidden_clients
 
 TO_REDACT = {
     CONF_URL,
@@ -30,6 +32,7 @@ TO_REDACT = {
     CONF_DB_USERNAME,
     CONF_DB_PASSWORD,
     CONF_CLIENTS,
+    CONF_HIDDEN_CLIENTS,
 }
 
 
@@ -59,6 +62,8 @@ async def async_get_config_entry_diagnostics(
             for level in CLIENT_LEVELS
         },
         "base_group_count": len(data.levels.base_groups),
+        # The number only: the addresses are redacted from the options above.
+        "hidden_client_count": len(hidden_clients(entry.options)),
         "query_log": None,
     }
 

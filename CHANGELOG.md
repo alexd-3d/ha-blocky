@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.18.0
+
+Hidden clients (BLO-024).
+
+### Added
+
+- **Hidden clients:** a list of exact IPv4/IPv6 addresses (at most 50) in the Settings tab, saved with the
+  other options. The Dashboard and the Query log leave these clients out, for example a router that only sends
+  online checks; the Dashboard footer says how many are hidden, and the Query log has a "Show hidden clients"
+  toggle while any are hidden. Only the card is filtered: the sensors, the counters, the notifications and the
+  new-domain requests still include a hidden client, so a hidden device still raises its alerts. The diagnostics
+  show the number, never the addresses.
+
 ## 0.17.1
 
 Faster dashboard statements (BLO-022).

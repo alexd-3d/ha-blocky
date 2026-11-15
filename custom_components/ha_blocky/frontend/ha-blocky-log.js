@@ -228,6 +228,7 @@ export class LogView {
     if (this._filters.domain) message.domain = this._filters.domain;
     if (this._filters.ip) message.ip = this._filters.ip;
     if (this._filters.name) message.name = this._filters.name;
+    if (this._bar.showHidden) message.show_hidden = true;
     if (!reset && this._nextBeforeId) message.before_id = this._nextBeforeId;
 
     try {
@@ -244,6 +245,7 @@ export class LogView {
         (top, row) => Math.max(top, Number(row.id) || 0),
         this._newestId || 0
       );
+      this._bar.setHiddenCount(Number(result.hidden_clients));
       this._hasMore = Boolean(result.has_more);
       this._nextBeforeId = result.next_before_id || undefined;
       this.showMessage(this._rows.length ? "" : "no_rows", false);

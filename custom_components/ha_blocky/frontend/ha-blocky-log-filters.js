@@ -51,6 +51,13 @@ export class LogFilters {
       el("span", { text: t("group_repeats") }),
     ]);
     // On: rows that differ only by query type merge into one group.
+    // Shown only while some clients are hidden; off: their rows are left out.
+    this._hiddenBox = el("input", { attrs: { type: "checkbox" } });
+    this._hiddenLabel = el("label", { className: "check", attrs: { hidden: "" } }, [
+      this._hiddenBox,
+      el("span", { text: t("log_show_hidden") }),
+    ]);
+    this._hiddenBox.addEventListener("change", () => handlers.change(false));
     this._ignoreType = readChoice("log_ignore_type", IGNORE_CHOICES, "on") === "on";
     this._ignoreButton = glyphButton(t("ignore_type"), "log_ignore_type", "ignoretype");
     this._drawIgnore();
@@ -80,6 +87,7 @@ export class LogFilters {
       this.status,
       this.hours,
       groupLabel,
+      this._hiddenLabel,
       this._ignoreButton,
       this.live,
       this.refresh,
@@ -94,6 +102,17 @@ export class LogFilters {
 
   get ignoreType() {
     return this._ignoreType;
+  }
+
+  get showHidden() {
+    return this._hiddenBox.checked;
+  }
+
+  // The server says how many clients are hidden; no toggle when none is.
+  setHiddenCount(count) {
+    const some = Number.isFinite(count) && count > 0;
+    this._hiddenLabel.hidden = !some;
+    if (!some) this._hiddenBox.checked = false;
   }
 
   _drawIgnore() {

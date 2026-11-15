@@ -33,6 +33,7 @@ const FIELD_LABELS = {
   tops_interval: "set_tops_interval",
   report_existing_domains: "set_report",
   show_in_sidebar: "set_sidebar",
+  hidden_clients: "set_group_hidden",
   rows: "set_rows_default",
 };
 
